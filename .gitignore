@@ -1,0 +1,36 @@
+# Java / Gradle
+backend/build/
+backend/.gradle/
+backend/bin/
+*.class
+*.jar
+*.war
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Docker volumes
+pgdata/
+ollama_models/
+
+# Environment
+.env
+*.env.local
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Cursor
+.cursor/

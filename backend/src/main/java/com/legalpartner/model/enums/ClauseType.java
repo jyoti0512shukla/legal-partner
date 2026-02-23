@@ -1,0 +1,6 @@
+package com.legalpartner.model.enums;
+
+public enum ClauseType {
+    TERMINATION, LIABILITY, INDEMNITY, WARRANTY, CONFIDENTIALITY,
+    GOVERNING_LAW, FORCE_MAJEURE, IP_RIGHTS, PAYMENT, GENERAL
+}
