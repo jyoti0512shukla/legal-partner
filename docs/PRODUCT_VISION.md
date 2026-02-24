@@ -82,18 +82,40 @@ This is not a limitation; it is the core selling point:
 
 All models run through Ollama. Switching models requires changing one line in `application.yml`. No code changes.
 
-| Model | Parameters | VRAM / RAM | JSON Reliability | Legal Reasoning | Speed (GPU) |
-|-------|-----------|-----------|-----------------|----------------|------------|
-| TinyLlama | 1.1B | 2 GB | Very poor | Unusable | 1-2 sec |
-| Phi-3 mini | 3.8B | 3 GB | Decent | Basic | 2-3 sec |
-| Mistral 7B | 7B | 5 GB | Good | Good | 2-4 sec |
-| **Llama 3 8B** | 8B | 5 GB | **Very good** | **Very good** | **2-5 sec** |
-| Qwen 2.5 14B | 14B | 10 GB | Very good | Very good | 5-8 sec |
-| Mixtral 8x7B | 47B (MoE) | 16 GB | Excellent | Excellent | 5-10 sec |
-| **Llama 3 70B (Q4)** | 70B | 24 GB | **Excellent** | **Near GPT-4** | **8-15 sec** |
-| Llama 3 70B (full) | 70B | 40+ GB | Excellent | Near GPT-4 | 3-5 sec |
+### Generation Models
 
-**Recommendation**: Llama 3 8B for most deployments. Llama 3 70B (Q4) when a 24 GB GPU is available.
+| Model | Parameters | VRAM (Q4) | Legal Reasoning | Training Data | Speed (L4 GPU) |
+|-------|-----------|-----------|----------------|--------------|----------------|
+| TinyLlama | 1.1B | 2 GB | Unusable | Generic | 1-2 sec |
+| Phi-3 mini | 3.8B | 2.3 GB | Basic | Generic | 2-3 sec |
+| Llama 3 8B | 8B | 5 GB | Good | Generic | 2-5 sec |
+| **Saul-Instruct-v1** | **7B** | **4.5 GB** | **Excellent** | **30B+ legal tokens** | **8-10 sec** |
+| **Cimphony-Mistral-Law-7B** | **7B** | **4.5 GB** | **Excellent** | **600M legal tokens** | **8-10 sec** |
+| **INLegalLlama** | **7B** | **4.5 GB** | **Excellent (Indian law)** | **Indian courts corpus** | **8-10 sec** |
+| Llama 3 70B (Q4) | 70B | 24 GB | Near GPT-4 | Generic | 8-15 sec |
+
+### Embedding Models
+
+| Model | Dimensions | Training Data | Legal Understanding |
+|-------|-----------|--------------|-------------------|
+| all-minilm | 384 | Generic web text | Poor — treats legal terms as generic English |
+| **InLegalBERT** | **768** | **5.4M Indian legal documents (1950-2019)** | **Excellent — trained on Supreme Court, High Courts, civil/criminal/constitutional domains** |
+
+### Recommended Stack
+
+**Production (client deployment):**
+- Generation: **Saul-Instruct-v1** (7B, Q4_K_M) — state-of-the-art English legal reasoning, trained on 30B+ legal tokens
+- Embeddings: **InLegalBERT** (768-dim) — trained on Indian legal corpus, understands statute references and case law vocabulary
+- Why: Legal-domain models dramatically outperform generic models on clause extraction, risk assessment, and legal citation
+
+**Development (local, 8 GB RAM):**
+- Generation: phi-3-mini (3.8B, Q4) — best quality-to-RAM ratio for development
+- Embeddings: all-minilm (384-dim) — lightweight for dev/testing
+
+**Indian law specialization (future):**
+- Generation: INLegalLlama — if Indian judgment prediction and Hindi legal docs become priority
+
+See `docs/STRATEGY.md` for detailed model selection rationale and benchmarks.
 
 ---
 
@@ -214,32 +236,45 @@ All models run through Ollama. Switching models requires changing one line in `a
 
 ### Key differentiators
 1. **Zero data leakage** — no API calls to external services, ever
-2. **Indian law native** — ICA mapping, stamp duty, SEBI/RBI/FEMA compliance
-3. **On-premise ownership** — the firm owns the hardware and all data
-4. **Open model ecosystem** — swap LLMs as better open-source models release (no vendor lock-in)
-5. **Cost structure** — one-time setup + annual maintenance, not perpetual SaaS subscription
+2. **Legal-domain AI** — uses SaulLM-7B (trained on 30B+ legal tokens) + InLegalBERT (trained on 5.4M Indian court documents), not generic models
+3. **AI co-pilot, not a platform** — plugs into their existing tools (Drive, Word, Outlook), zero disruption, no migration
+4. **Indian law native** — ICA mapping, stamp duty, SEBI/RBI/FEMA compliance
+5. **Open model ecosystem** — swap LLMs as better models release (no vendor lock-in)
+6. **Try in a week** — upload a folder, start asking questions, no training needed
 
 ---
 
 ## 7. Pricing Framework
 
-### One-Time Setup (per firm)
+### Option A: Cloud-Hosted (Recommended — Lower Entry, We Manage Everything)
 
 | Component | Cost |
 |-----------|------|
-| Server hardware (24 GB RAM, 8 TB, GPU) | ₹2,00,000 - 4,00,000 |
-| Software license + deployment | ₹6,00,000 - 8,00,000 |
-| Legacy contract migration (bulk upload + indexing) | ₹1,00,000 - 2,00,000 |
-| Training (2-day on-site) | Included |
-| **Total** | **₹8,00,000 - 14,00,000** |
+| Deployment + migration + training | ₹3,00,000 - 5,00,000 (one-time) |
+| Annual service (hosting + support + updates) | ₹2,00,000 - 3,00,000 / year |
+| **Year 1 total** | **₹5,00,000 - 8,00,000** |
+| **Year 2+ total** | **₹2,00,000 - 3,00,000 / year** |
 
-### Annual Maintenance
+Hosted on E2E Networks L4 GPU (Mumbai DC). Data stays in India. We manage infra.
+
+### Option B: On-Premise (Client Buys Hardware, Full Control)
 
 | Component | Cost |
 |-----------|------|
-| Software updates + model upgrades | ₹1,50,000 - 2,50,000 / year |
-| Priority support (email + phone) | Included |
-| On-site visits (quarterly) | Optional add-on |
+| Server hardware (24 GB RAM, 8 TB, GPU) | ₹2,00,000 - 4,00,000 (client purchases) |
+| Software license + deployment + training | ₹3,00,000 - 5,00,000 (one-time) |
+| Annual support + model upgrades | ₹1,50,000 - 2,50,000 / year |
+| **Year 1 total** | **₹6,00,000 - 11,00,000** |
+| **Year 2+ total** | **₹1,50,000 - 2,50,000 / year** |
+
+### Option C: Monthly (SaaS-Style, Easiest to Try)
+
+| Component | Cost |
+|-----------|------|
+| Monthly service (all-inclusive) | ₹45,000 / month |
+| Setup fee (one-time) | ₹2,00,000 |
+| **Year 1 total** | **₹7,40,000** |
+| **Year 2+ total** | **₹5,40,000 / year** |
 
 ### ROI Justification
 
@@ -287,7 +322,25 @@ A mid-tier firm with 10 associates billing at ₹3,000-5,000/hour saves **200+ a
 
 ## 10. Deployment
 
-### Production Deployment (Single Server)
+### Cloud GPU Deployment (Recommended — E2E Networks L4)
+
+```
+E2E Networks NVIDIA L4 (24 GB VRAM) — ₹30,762/month
+├── Ollama + Saul-Instruct-v1 (Q4_K_M)  → 4.5 GB VRAM
+├── Ollama + InLegalBERT (embeddings)    → 0.4 GB VRAM
+├── PostgreSQL + PGVector                → System RAM
+├── Spring Boot Backend                  → System RAM
+├── React Frontend (nginx)               → Minimal
+└── 19 GB VRAM free for KV-cache & concurrent queries
+
+Performance: 30-40 tokens/sec → ~10 sec per legal answer
+Concurrent users: 5-10 comfortably
+Data center: Mumbai / Delhi / Bangalore (data stays in India)
+```
+
+See `docs/STRATEGY.md` for full infrastructure comparison (CPU vs GPU, pricing tiers, provider comparison).
+
+### Production Deployment (On-Premise, Single Server)
 
 ```bash
 # 1. Install Docker on Ubuntu/RHEL server
