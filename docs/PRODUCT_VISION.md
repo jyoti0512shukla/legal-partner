@@ -104,18 +104,18 @@ All models run through Ollama. Switching models requires changing one line in `a
 ### Recommended Stack
 
 **Production (client deployment):**
-- Generation: **Saul-Instruct-v1** (7B, Q4_K_M) — state-of-the-art English legal reasoning, trained on 30B+ legal tokens
-- Embeddings: **InLegalBERT** (768-dim) — trained on Indian legal corpus, understands statute references and case law vocabulary
-- Why: Legal-domain models dramatically outperform generic models on clause extraction, risk assessment, and legal citation
+- Generation: **AALAP-Mistral-7B** (7B, 32K context) — Indian-law-trained by OpenNyAI, beats GPT-3.5 on Indian legal tasks, Apache 2.0
+- Embeddings: **InLegalBERT** (768-dim) — trained on 5.4M Indian legal documents (SC + HC, 1950-2019), MIT license
+- Why: Both models are pre-trained on Indian legal data. Zero training cost. Dramatically outperform generic models on clause extraction, risk assessment, and Indian law citation.
 
 **Development (local, 8 GB RAM):**
 - Generation: phi-3-mini (3.8B, Q4) — best quality-to-RAM ratio for development
 - Embeddings: all-minilm (384-dim) — lightweight for dev/testing
 
-**Indian law specialization (future):**
-- Generation: INLegalLlama — if Indian judgment prediction and Hindi legal docs become priority
+**Fallback / English-heavy contracts:**
+- Generation: Saul-Instruct-v1 (7B) — if contracts are purely English with no Indian law context
 
-See `docs/STRATEGY.md` for detailed model selection rationale and benchmarks.
+See `docs/STRATEGY.md` for detailed model selection rationale, Indian legal datasets, and training roadmap.
 
 ---
 
@@ -236,7 +236,7 @@ See `docs/STRATEGY.md` for detailed model selection rationale and benchmarks.
 
 ### Key differentiators
 1. **Zero data leakage** — no API calls to external services, ever
-2. **Legal-domain AI** — uses SaulLM-7B (trained on 30B+ legal tokens) + InLegalBERT (trained on 5.4M Indian court documents), not generic models
+2. **Legal-domain AI** — uses AALAP-Mistral-7B (Indian-law-trained, beats GPT-3.5) + InLegalBERT (trained on 5.4M Indian court documents), not generic models
 3. **AI co-pilot, not a platform** — plugs into their existing tools (Drive, Word, Outlook), zero disruption, no migration
 4. **Indian law native** — ICA mapping, stamp duty, SEBI/RBI/FEMA compliance
 5. **Open model ecosystem** — swap LLMs as better models release (no vendor lock-in)
@@ -326,7 +326,7 @@ A mid-tier firm with 10 associates billing at ₹3,000-5,000/hour saves **200+ a
 
 ```
 E2E Networks NVIDIA L4 (24 GB VRAM) — ₹30,762/month
-├── Ollama + Saul-Instruct-v1 (Q4_K_M)  → 4.5 GB VRAM
+├── Ollama + AALAP-Mistral-7B (Q4_K_M)  → 4.5 GB VRAM
 ├── Ollama + InLegalBERT (embeddings)    → 0.4 GB VRAM
 ├── PostgreSQL + PGVector                → System RAM
 ├── Spring Boot Backend                  → System RAM

@@ -16,38 +16,73 @@ The current prototype uses `tinyllama` (1.1B) for generation and `all-minilm` (3
 - Generic embeddings don't understand that "liquidated damages" and "penalty clause" are related concepts under ICA Section 74
 - No awareness of Indian Contract Act, Companies Act, SEBI, FEMA, or DPDP Act references
 
-### Legal-Domain Models Available (All Open Source, Ollama-Compatible)
+### Indian-Law-Trained Models (All Open Source, Ready to Use)
 
-#### Generation Models
+Key discovery: multiple open-source models already exist that are **pre-trained on Indian legal data**. No training from scratch is needed.
 
-| Model | Parameters | Training Data | Strengths | GGUF/Ollama | VRAM (Q4) |
-|-------|-----------|--------------|-----------|-------------|-----------|
-| **SaulLM-7B / Saul-Instruct-v1** | 7B | 30B+ tokens English legal corpus (Mistral-7B base) | State-of-the-art legal document understanding, clause extraction, risk analysis | Yes (Q4_K_M available) | ~4.5 GB |
-| **Cimphony-Mistral-Law-7B** | 7B | 600M legal tokens | Outperforms GPT-4 on legal benchmarks at 7B size | Yes | ~4.5 GB |
-| **INLegalLlama** | 7B | Indian legal corpus (Supreme Court, High Courts) | 90% F1 on Indian legal judgment prediction, Apache 2.0 | Yes | ~4.5 GB |
-| Llama 3 8B | 8B | General purpose | Strong reasoning, good JSON output | Yes | ~5 GB |
+#### Generation Models — Indian Legal
+
+| Model | Base | Parameters | Training Data | Performance | License | Source |
+|-------|------|-----------|--------------|-------------|---------|--------|
+| **AALAP-Mistral-7B** | Mistral 7B | 7B | 22,272 Indian legal instructions, 32K context | Beats GPT-3.5 on 31% of Indian legal tasks, ties on 34% | Apache 2.0 | OpenNyAI |
+| **INLegalLlama** | LLaMA 2 | 7B | 702K Indian court cases (NyayaAnumana dataset) | 90% F1 prediction, 76% accuracy (vs LLaMA-2 base 57%) | Apache 2.0 | IIT Kanpur |
+| **Indian-LawGPT** | LLaMA / ChatGLM | 7B | 500K Indian judgments + 300K legal Q&A | Less benchmarked, but trained on large Indian corpus | Apache 2.0 | Permissioned AI |
+| **Indian Law Chat** | LLaMA 2 7B | 7B | Indian law corpus | GGUF available on HuggingFace (2,900+ downloads) | Apache 2.0 | Community |
+
+**AALAP-Mistral-7B is the primary recommendation.** Built by OpenNyAI (a well-known Indian legal AI research organization), it was specifically instruction-tuned on Indian legal and paralegal tasks with 32K context — enough to process a full contract in one pass. It outperforms GPT-3.5-turbo on Indian legal queries.
+
+#### Generation Models — English Legal (Broader)
+
+| Model | Base | Parameters | Training Data | Strengths | License |
+|-------|------|-----------|--------------|-----------|---------|
+| **SaulLM-7B / Saul-Instruct-v1** | Mistral 7B | 7B | 30B+ English legal tokens | State-of-the-art English legal reasoning, clause extraction | MIT |
+| **Cimphony-Mistral-Law-7B** | Mistral 7B | 7B | 600M legal tokens | Outperforms GPT-4 on legal benchmarks | Apache 2.0 |
+
+These are strong on English contract analysis but lack Indian law awareness (ICA, Companies Act, SEBI, etc.).
 
 #### Embedding Models
 
-| Model | Dimensions | Training Data | Why Better |
-|-------|-----------|--------------|-----------|
-| **InLegalBERT** | 768 | 5.4M Indian legal documents (1950-2019) | Understands Indian legal terminology, statute references, case law vocabulary |
-| all-minilm | 384 | Generic web text | Doesn't distinguish "termination for cause" from "termination for convenience" |
+| Model | Dimensions | Training Data | License | Legal Understanding |
+|-------|-----------|--------------|---------|-------------------|
+| **InLegalBERT** | 768 | 5.4M Indian legal documents (SC + HC, 1950-2019) | MIT | Excellent — understands Indian legal terminology, statute references, case law vocabulary |
+| all-minilm | 384 | Generic web text | Apache 2.0 | Poor — doesn't distinguish "termination for cause" from "termination for convenience" |
+
+#### Available Indian Legal Datasets (for future fine-tuning)
+
+| Dataset | Size | Contents | License |
+|---------|------|---------|---------|
+| **NyayaAnumana** | 702,945 cases | SC, HC, Tribunals, District Courts (up to 2024) | Apache 2.0 |
+| **BhashaBench-Legal** | 24,365 questions | 20+ legal domains, English + Hindi | Open |
+| **PredEx** | 56,000+ cases | Indian judgment prediction with explanations | Open |
+| **ILDC** | 35,000 cases | Indian Legal Documents Corpus with annotations | Open |
+| **Indian Kanoon API** | 3 Cr+ documents | Every court order, judgment, statute in India | API (free tier) |
 
 #### Recommended Stack
 
 ```
 Production (client deployment):
-  Generation:  Saul-Instruct-v1 (7B, Q4_K_M)  — best English legal reasoning
-  Embeddings:  InLegalBERT                      — trained on Indian legal corpus
+  Generation:  AALAP-Mistral-7B (7B)  — Indian-law-trained, beats GPT-3.5, 32K context
+  Embeddings:  InLegalBERT (768-dim)  — trained on 5.4M Indian legal documents
+  Cost:        ₹0 (both Apache 2.0 / MIT, free to download and deploy commercially)
 
 Development (local laptop, 8 GB RAM):
-  Generation:  phi-3-mini (3.8B, Q4)            — best quality-to-RAM ratio
-  Embeddings:  all-minilm                       — lightweight for dev
+  Generation:  phi-3-mini (3.8B, Q4)  — best quality-to-RAM ratio for dev
+  Embeddings:  all-minilm (384-dim)   — lightweight for dev/testing
 
-Indian law specialization (future):
-  Generation:  INLegalLlama                     — if Indian law specificity > English legal quality
+Fallback / English-heavy contracts:
+  Generation:  Saul-Instruct-v1 (7B)  — if contracts are purely English with no Indian law context
 ```
+
+### Why AALAP Over Training Our Own
+
+| Approach | Cost | Time | Quality |
+|----------|------|------|---------|
+| Use AALAP as-is | ₹0 | 1 day (convert + deploy) | Beats GPT-3.5 on Indian law |
+| Fine-tune AALAP further | ₹200-400 | 1 week | Even better on contract-specific tasks |
+| Train Saul-7B on Indian data from scratch | ~₹1,00,000 | 5 weeks | Uncertain — may not beat AALAP |
+| Full pre-training from scratch | ₹5-15L | 2-3 months | Only justified at 10+ clients |
+
+**AALAP already did the hard work.** The researchers at OpenNyAI spent months training on Indian legal data. We use their model for free and focus our effort on the product, not the model.
 
 ### Model Switching
 
@@ -93,7 +128,7 @@ A 200-word legal answer (~300 tokens) at 8 tok/sec = ~37 seconds. Acceptable —
 
 ```
 NVIDIA L4 (24 GB VRAM) + 16 vCPU + 64 GB RAM
-├── Ollama + Saul-Instruct-v1 (Q4_K_M)  → 4.5 GB VRAM
+├── Ollama + AALAP-Mistral-7B (Q4_K_M)  → 4.5 GB VRAM
 ├── Ollama + InLegalBERT (embeddings)    → 0.4 GB VRAM
 ├── PostgreSQL + PGVector                → RAM
 ├── Spring Boot Backend                  → RAM
@@ -336,15 +371,76 @@ Total Year 2+:  ₹5,40,000 / year
 
 ---
 
-## 8. Build Roadmap (8 Weeks to Demo-Ready)
+## 8. Model Training Roadmap (If Further Customization Needed)
+
+AALAP-Mistral-7B is production-ready out of the box. However, if we want to further specialize — for example, on contract review specifically, or on a client's domain — here is the training ladder:
+
+### Level 1: RAG Only (Current Approach) — ₹0, Immediate
+
+No model training. Upload client documents, embed with InLegalBERT, query with AALAP. The model reads relevant document chunks as context when answering. Covers ~80% of use cases (search, review, compare). Falls short when asking about statutes or concepts not present in uploaded documents.
+
+### Level 2: QLoRA Fine-Tuning on Contract Tasks — ₹15K, 1 Week
+
+Take AALAP (already Indian-law-aware) and further fine-tune with QLoRA on 3,000-10,000 contract-specific instruction-response pairs. This teaches the model contract review patterns on top of its existing Indian law knowledge.
+
+**Data sources for training pairs (all free, public):**
+- NyayaAnumana: 702,945 Indian court cases (Apache 2.0)
+- Indian Kanoon API: 3 Cr+ court orders and statutes (api.indiankanoon.org)
+- India Code: 800+ central Acts from indiacode.nic.in
+- SEBI/RBI circulars from sebi.gov.in, rbi.org.in
+
+**Training pair format (JSONL):**
+```json
+{"instruction": "Identify risks in this clause under Indian law",
+ "input": "[non-compete clause text]",
+ "output": "HIGH RISK: This non-compete extending 5 years is likely void under Section 27 of ICA 1872. Indian courts in Percept D'Mark vs Zaheer Khan (2006) held post-employment non-competes void..."}
+```
+
+**Hardware:** Existing L4 GPU (4-8 hours), cost ~₹200-400 for GPU time. ~₹10-15K for GPT-4/Claude API to generate Q&A pairs from raw legal text.
+
+**QLoRA config:**
+- Base: AALAP-Mistral-7B
+- Quantization: 4-bit NF4
+- LoRA rank: 16, alpha: 32
+- Target modules: q_proj, k_proj, v_proj, o_proj
+- Epochs: 3, batch size: 4
+
+**Export:** Merge LoRA adapter, convert to GGUF, import to Ollama as `legal-partner-indian`. One line change in `application.yml`.
+
+### Level 3: Continual Pre-Training — ~₹1L, 5 Weeks
+
+Take AALAP and further pre-train on 50+ GB of raw Indian legal text (NyayaAnumana + Indian Kanoon bulk). This deepens the model's understanding of Indian legal language at a fundamental level, beyond what instruction tuning alone can achieve.
+
+**Hardware:** 4x A100 40GB on E2E Networks for 3-5 days (~₹82,000) + 1 week data prep + 1 week eval.
+
+Only justified after 5+ paying clients. The ₹1L cost is amortized across all deployments.
+
+### Level 4: Client-Specific Model (Premium Add-On) — ₹2-3L
+
+Train a custom model on a specific firm's 10 years of contracts. This creates a model that "thinks like the firm" — knows their clause preferences, standard positions, past negotiations.
+
+**Revenue opportunity:** Charge ₹2-3L as a premium add-on per client. ₹50K/year to retrain with new data. Ultimate lock-in — the AI embodies their institutional knowledge.
+
+### Training Timeline
+
+```
+NOW:              Use AALAP + InLegalBERT as-is (₹0)
+FIRST CLIENT:     QLoRA fine-tune on contract tasks (₹15K)
+3-5 CLIENTS:      Full continual pre-training (₹1L)
+10+ CLIENTS:      Client-specific models as premium upsell (₹2-3L each)
+```
+
+---
+
+## 9. Build Roadmap (8 Weeks to Demo-Ready)
 
 ### Weeks 1-2: Model Upgrade + Review Quality
-- Swap TinyLlama → Saul-Instruct-v1 (generation)
-- Swap all-minilm → InLegalBERT (embeddings)
+- Swap TinyLlama → AALAP-Mistral-7B (generation) — Indian-law-trained, 32K context
+- Swap all-minilm → InLegalBERT (embeddings) — trained on 5.4M Indian legal docs
 - Update PGVector embedding dimension (384 → 768)
 - Re-embed all existing documents
-- Update prompt templates for Saul's instruction format
-- Improve risk scoring with Indian law references
+- Update prompt templates for AALAP's instruction format
+- Improve risk scoring with Indian law references (ICA, Companies Act, SEBI)
 
 ### Weeks 3-4: Clause-Level Intelligence
 - Auto clause extraction on every upload (termination, indemnity, liability, confidentiality, governing law, force majeure, IP, non-compete)
@@ -372,4 +468,4 @@ Total Year 2+:  ₹5,40,000 / year
 
 ---
 
-*Document version: 1.0 | February 2026*
+*Document version: 2.0 | February 2026*
