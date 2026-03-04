@@ -56,6 +56,17 @@ npm run dev
 
 Open **http://localhost:5173** in your browser.
 
+### Optional: Use External Chat API (Colab, vLLM, etc.)
+
+To use an OpenAI-compatible chat API (e.g. Colab with Mistral, ngrok):
+
+```bash
+export LEGALPARTNER_CHAT_API_URL=https://your-ngrok-url.ngrok-free.dev
+docker compose up -d
+```
+
+Chat requests use the external API; embeddings stay on local Ollama.
+
 ### 3. Login
 
 | User       | Password      | Role       | Access                         |

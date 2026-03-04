@@ -40,6 +40,7 @@ dependencies {
     implementation("dev.langchain4j:langchain4j:$langchain4jVersion")
     implementation("dev.langchain4j:langchain4j-spring-boot-starter:$langchain4jVersion")
     implementation("dev.langchain4j:langchain4j-ollama-spring-boot-starter:$langchain4jVersion")
+    implementation("dev.langchain4j:langchain4j-open-ai:$langchain4jVersion")
     implementation("dev.langchain4j:langchain4j-pgvector:$langchain4jVersion")
     implementation("dev.langchain4j:langchain4j-document-parser-apache-tika:$langchain4jVersion")
 

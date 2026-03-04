@@ -46,6 +46,10 @@ langchain4j:
       timeout: PT60S
 
 legalpartner:
+  # Optional: When set, use OpenAI-compatible API (e.g. Colab/ngrok) for chat instead of Ollama
+  # Example: https://circulable-chere-lucidly.ngrok-free.dev
+  chat-api-url: ${LEGALPARTNER_CHAT_API_URL:}
+  chat-api-model: ${LEGALPARTNER_CHAT_API_MODEL:mistralai/Mistral-7B-Instruct-v0.2}
   rag:
     candidate-count: 15
     top-k: 5

@@ -56,6 +56,8 @@ services:
       SPRING_DATASOURCE_USERNAME: legalpartner
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-localdev123}
       LEGALPARTNER_OLLAMA_BASE_URL: http://ollama:11434
+      # Optional: Colab/ngrok URL for chat model (e.g. https://xxx.ngrok-free.dev)
+      LEGALPARTNER_CHAT_API_URL: ${LEGALPARTNER_CHAT_API_URL:-}
       JASYPT_ENCRYPTOR_PASSWORD: ${ENCRYPTION_KEY:-demo-encryption-key-change-in-prod}
     depends_on:
       postgres:
