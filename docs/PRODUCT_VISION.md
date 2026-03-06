@@ -4,6 +4,8 @@
 
 > Your contracts never leave your servers. Our AI extracts every obligation, deadline, and risk — across your entire portfolio — in minutes instead of days. Built for Indian law.
 
+**Domain:** [legal-ai.studio](https://legal-ai.studio) — employees access at `https://legal-ai.studio` (or `https://firmname.legal-ai.studio` for multi-tenant).
+
 ---
 
 ## 1. Privacy-First Architecture
@@ -255,7 +257,7 @@ See `docs/STRATEGY.md` for detailed model selection rationale, Indian legal data
 | **Year 1 total** | **₹5,00,000 - 8,00,000** |
 | **Year 2+ total** | **₹2,00,000 - 3,00,000 / year** |
 
-Hosted on E2E Networks L4 GPU (Mumbai DC). Data stays in India. We manage infra.
+Hosted on E2E Networks L4 GPU (Mumbai DC). Access at **https://legal-ai.studio**. Data stays in India. We manage infra.
 
 ### Option B: On-Premise (Client Buys Hardware, Full Control)
 
@@ -323,6 +325,8 @@ A mid-tier firm with 10 associates billing at ₹3,000-5,000/hour saves **200+ a
 ## 10. Deployment
 
 ### Cloud GPU Deployment (Recommended — E2E Networks L4)
+
+**URL:** https://legal-ai.studio
 
 ```
 E2E Networks NVIDIA L4 (24 GB VRAM) — ₹30,762/month

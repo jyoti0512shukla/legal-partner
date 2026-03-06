@@ -1,8 +1,21 @@
 # Legal Partner — Strategy & Technical Decisions
 
-**Last updated: February 2026**
+**Last updated: March 2026**
 
 This document captures key strategic decisions, model selection rationale, infrastructure analysis, and product positioning for Legal Partner.
+
+---
+
+## 0. Brand & Domain
+
+| Item | Value |
+|------|-------|
+| **Product** | Legal Partner |
+| **Domain** | **legal-ai.studio** |
+| **Employee URL** | `https://legal-ai.studio` |
+| **Multi-tenant URLs** | `https://firm1.legal-ai.studio`, `https://firm2.legal-ai.studio` |
+
+Domain conveys "legal" + "AI", cost-effective (.studio TLD).
 
 ---
 
@@ -151,7 +164,7 @@ Why L4 over CPU:
 Infrastructure (Annual)
 ─────────────────────────────────────────
 E2E L4 GPU hosting (₹30,762/mo)     ₹3,69,144
-Domain + SSL certificate                ₹2,000
+Domain (legal-ai.studio) + SSL          ~₹2,000
 Backup storage (100 GB)                ₹12,000
 Monitoring / alerting                   ₹6,000
 ─────────────────────────────────────────
@@ -468,4 +481,4 @@ FIRST CLIENT:     QLoRA fine-tune on contract tasks (₹15K)
 
 ---
 
-*Document version: 2.0 | February 2026*
+*Document version: 2.1 | March 2026*
