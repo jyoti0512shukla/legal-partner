@@ -70,7 +70,7 @@ gcloud compute firewall-rules create allow-8080 \
 ```bash
 gcloud compute instances create legal-partner-vm \
   --machine-type=e2-standard-4 \
-  --zone=asia-south1-a \
+  --zone=us-central1-a \
   --image-family=ubuntu-2204-lts \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB
@@ -87,7 +87,7 @@ gcloud compute instances create legal-partner-vm \
 ```bash
 # Get external IP
 gcloud compute instances describe legal-partner-vm \
-  --zone=asia-south1-a \
+  --zone=us-central1-a \
   --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
 
 # SSH (gcloud adds your local SSH key automatically)
@@ -123,9 +123,9 @@ LEGALPARTNER_CHAT_API_URL=https://YOUR-COLAB-NGROK-URL.ngrok-free.dev
 EOF
 ```
 
-Start services:
+Start services (use `docker-compose` with hyphen on Ubuntu):
 ```bash
-docker compose -f docker-compose.oci.yml --env-file .env up -d --build
+docker-compose -f docker-compose.oci.yml --env-file .env up -d --build
 ```
 
 *(Use `docker-compose.oci.yml` — same as OCI: Postgres + Ollama + backend. Chat runs in Colab.)*
@@ -149,7 +149,7 @@ gcloud compute instances start legal-partner-vm --zone=asia-south1-a
 ```bash
 gcloud compute instances create legal-partner-vm \
   --machine-type=e2-standard-4 \
-  --zone=asia-south1-a \
+  --zone=us-central1-a \
   --image-family=ubuntu-2204-lts \
   --image-project=ubuntu-os-cloud \
   --boot-disk-size=50GB
@@ -157,11 +157,115 @@ gcloud compute instances create legal-partner-vm \
 
 ---
 
+---
+
+## Quick Reference (Current Deployment)
+
+| Item | Value |
+|------|-------|
+| **Project** | legal-partner-489422 |
+| **VM Name** | legal-partner-vm |
+| **Zone** | us-central1-a |
+| **VM IP** | 34.121.77.216 (may change after stop/start; run describe to get current) |
+| **Backend URL** | http://34.121.77.216:8080 |
+| **Login** | admin / admin123 |
+
+---
+
+## Frontend (Run Locally)
+
+```bash
+cd legal-partner/frontend
+npm install
+npm run dev
+```
+
+Ensure `vite.config.js` proxy target = `http://34.121.77.216:8080`. Open http://localhost:5173.
+
+---
+
+## Docker Commands (on VM)
+
+```bash
+# Use docker-compose (hyphen), not "docker compose"
+docker-compose -f docker-compose.oci.yml ps
+docker-compose -f docker-compose.oci.yml logs -f backend
+docker-compose -f docker-compose.oci.yml down
+docker-compose -f docker-compose.oci.yml up -d
+```
+
+---
+
+## Database Access
+
+```bash
+# Interactive psql
+docker exec -it legal-partner_postgres_1 psql -U legalpartner -d legalpartner
+
+# One-off query (avoids pager)
+docker exec legal-partner_postgres_1 psql -U legalpartner -d legalpartner -c "SELECT id, file_name, processing_status FROM document_metadata;"
+
+# Exit pager (less): press q
+```
+
+| Field | Value |
+|-------|-------|
+| Host | localhost (from VM) |
+| Port | 5432 |
+| Database | legalpartner |
+| User | legalpartner |
+| Password | from .env DB_PASSWORD |
+
+---
+
+## Verify Encryption
+
+```bash
+docker exec legal-partner_postgres_1 psql -U legalpartner -d legalpartner -c "SELECT LEFT(content, 80) FROM embeddings LIMIT 1;"
+```
+
+Encrypted = base64-like (xY7kL2mN...). Plain = readable contract text.
+
+---
+
+## Stop VM (Save Costs)
+
+```bash
+gcloud compute instances stop legal-partner-vm --zone=us-central1-a
+gcloud compute instances start legal-partner-vm --zone=us-central1-a
+```
+
+**Get current IP** (after start; IP may change):
+```bash
+gcloud compute instances describe legal-partner-vm --zone=us-central1-a --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+```
+
+---
+
+## GitHub Clone (Private Repo)
+
+**Deploy key:** Generate on VM, add to repo Settings → Deploy keys, clone via `git@github.com:...`
+
+**Classic token:** `git clone https://ghp_TOKEN@github.com/jyoti0512shukla/legal-partner.git`
+
+---
+
+## Security
+
+- Basic Auth protects API; change default passwords
+- Firewall allows 0.0.0.0/0; stop VM when not in use
+- Dynamic IP makes IP whitelist impractical for home connections
+
+---
+
 ## Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
+| `unknown shorthand flag: 'f'` | Use `docker-compose` (hyphen), not `docker compose` |
 | `Permission denied` | Run `gcloud auth login` |
 | `API not enabled` | `gcloud services enable compute.googleapis.com` |
 | `Quota exceeded` | Check quotas in Console → IAM → Quotas |
 | Can't reach port 80/8080 | Ensure firewall rules created (Step 2) |
+| Stuck in pager | Press `q` to exit |
+| Wrong zone | Use `us-central1-a` (not asia-south1-a) for this deployment |
