@@ -24,6 +24,7 @@ ollama_models/
 # Environment
 .env
 *.env.local
+.venv-convert/
 
 # OS
 Thumbs.db

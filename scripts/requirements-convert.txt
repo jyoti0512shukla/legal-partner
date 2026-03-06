@@ -1,0 +1,8 @@
+# Dependencies for scripts/convert-contracts.py
+# Install: pip install -r scripts/requirements-convert.txt
+
+# PDF option 1: weasyprint (pure Python; on Mac may need: brew install pango glib gobject-introspection)
+weasyprint>=60.0
+
+# PDF option 2: pdfkit (needs wkhtmltopdf: brew install wkhtmltopdf)
+pdfkit>=1.0.0
