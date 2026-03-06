@@ -1,0 +1,85 @@
+# Legal Partner — OCI Always Free deployment
+# Postgres + Ollama (embeddings only) + Backend
+# Chat LLM: set LEGALPARTNER_CHAT_API_URL to Colab ngrok URL
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: legalpartner
+      POSTGRES_USER: legalpartner
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-localdev123}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legalpartner"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - legalpartner
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+    deploy:
+      resources:
+        reservations:
+          memory: 2G
+    restart: unless-stopped
+    networks:
+      - legalpartner
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "OLLAMA_HOST=http://ollama:11434 ollama pull all-minilm && echo 'Embedding model ready'"
+    restart: "no"
+    networks:
+      - legalpartner
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/legalpartner
+      SPRING_DATASOURCE_USERNAME: legalpartner
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-localdev123}
+      LEGALPARTNER_OLLAMA_BASE_URL: http://ollama:11434
+      LEGALPARTNER_CHAT_API_URL: ${LEGALPARTNER_CHAT_API_URL:-}
+      JASYPT_ENCRYPTOR_PASSWORD: ${ENCRYPTION_KEY:-demo-encryption-key-change-in-prod}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - legalpartner
+
+volumes:
+  pgdata:
+  ollama_models:
+
+networks:
+  legalpartner:
+    driver: bridge
