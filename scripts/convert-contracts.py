@@ -157,9 +157,32 @@ def main():
         "--output", "-o", type=Path, default=OUTPUT_DIR,
         help=f"Output directory (default: {OUTPUT_DIR})",
     )
+    parser.add_argument(
+        "--long-docs", action="store_true",
+        help="Convert the 3 long-doc HTML files (LONG-01, LONG-02, LONG-03) from data/long-docs/ to PDF",
+    )
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.long_docs:
+        long_dir = REPO_ROOT / "data" / "long-docs"
+        out_dir = args.output
+        if not long_dir.exists():
+            print(f"Directory not found: {long_dir}")
+            return 1
+        pdf_ok = True
+        print("Converting long docs to PDF...")
+        for f in sorted(long_dir.glob("LONG-*.html")):
+            pdf_path = out_dir / f"{f.stem}.pdf"
+            print(f"  {f.name} -> {pdf_path.name} ...", end=" ")
+            if convert_to_pdf(f, pdf_path):
+                print("OK")
+            else:
+                print("FAILED")
+                pdf_ok = False
+        print(f"\nOutput: {out_dir}")
+        return 0 if pdf_ok else 1
 
     if args.all:
         all_files = [f.stem.split("-")[0] for f in DATA_DIR.glob("*-*.html")]
