@@ -8,5 +8,6 @@ public record QueryRequest(
         Integer year,
         String clauseType,
         String practiceArea,
-        String clientName
+        String clientName,
+        String conversationId  // null for new conversation; UUID string for follow-up queries
 ) {}

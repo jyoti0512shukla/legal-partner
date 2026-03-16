@@ -1,6 +1,7 @@
 package com.legalpartner.model.entity;
 
 import com.legalpartner.model.enums.DocumentType;
+import com.legalpartner.model.enums.ExtractionStatus;
 import com.legalpartner.model.enums.PracticeArea;
 import com.legalpartner.model.enums.ProcessingStatus;
 import jakarta.persistence.*;
@@ -68,4 +69,37 @@ public class DocumentMetadata {
     @Column(nullable = false, length = 20)
     @Builder.Default
     private ProcessingStatus processingStatus = ProcessingStatus.PENDING;
+
+    // Matter relationship (proper FK, alongside legacy String matterId)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "matter_uuid")
+    private Matter matter;
+
+    // Structured extraction fields (auto-populated after indexing)
+    @Column(length = 500)
+    private String partyA;
+
+    @Column(length = 500)
+    private String partyB;
+
+    private LocalDate expiryDate;
+
+    @Column(length = 200)
+    private String contractValue;
+
+    @Column(length = 200)
+    private String liabilityCap;
+
+    @Column(length = 255)
+    private String governingLawJurisdiction;
+
+    private Integer noticePeriodDays;
+
+    @Column(length = 255)
+    private String arbitrationVenue;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 50)
+    @Builder.Default
+    private ExtractionStatus extractionStatus = ExtractionStatus.PENDING;
 }

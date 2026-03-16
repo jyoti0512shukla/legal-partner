@@ -1,11 +1,13 @@
 package com.legalpartner.repository;
 
 import com.legalpartner.model.entity.DocumentMetadata;
+import com.legalpartner.model.enums.ExtractionStatus;
 import com.legalpartner.model.enums.ProcessingStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -26,4 +28,13 @@ public interface DocumentMetadataRepository extends JpaRepository<DocumentMetada
 
     @Query("SELECT d.practiceArea, COUNT(d) FROM DocumentMetadata d WHERE d.practiceArea IS NOT NULL GROUP BY d.practiceArea")
     List<Object[]> countByPracticeArea();
+
+    Page<DocumentMetadata> findByMatter_Id(UUID matterUuid, Pageable pageable);
+
+    Page<DocumentMetadata> findByMatter_IdAndConfidentialFalse(UUID matterUuid, Pageable pageable);
+
+    @Query("SELECT COUNT(d) FROM DocumentMetadata d WHERE d.matter.id = :matterUuid")
+    int countByMatterUuid(@Param("matterUuid") UUID matterUuid);
+
+    List<DocumentMetadata> findByExtractionStatus(ExtractionStatus status);
 }

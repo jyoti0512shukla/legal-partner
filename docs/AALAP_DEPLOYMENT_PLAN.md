@@ -1,6 +1,4 @@
 # AALAP Deployment — Redirect
 
-This doc has been split:
-
-- **Dev/Test (Google Colab):** See `docs/COLAB_DEV_SETUP.md` — vLLM + AALAP in Colab, embeddings via local Ollama (all-minilm)
-- **Production (E2E Networks):** See `docs/DEPLOYMENT_PLAN.md` — AALAP + InLegalBERT on single L4 instance
+- **Dev/Test:** See `docs/COLAB_DEV_SETUP.md` — Options A–E (Colab for chat, DB/embeddings/backend on laptop or cloud)
+- **Production:** See `docs/DEPLOYMENT_PLAN.md` — E2E Networks L4 with AALAP + InLegalBERT

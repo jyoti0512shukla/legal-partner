@@ -45,30 +45,44 @@ public class LegalDocumentChunker {
     private int overlap;
 
     public List<LegalChunk> chunk(String text, Map<String, String> documentMeta) {
-        List<String> sections = splitAtLegalBoundaries(text);
+        List<SectionWithOffset> sections = splitAtLegalBoundariesWithOffsets(text);
         List<LegalChunk> chunks = new ArrayList<>();
         int chunkIndex = 0;
         String currentSectionPath = "";
 
-        for (String section : sections) {
-            String sectionTitle = extractSectionTitle(section);
+        for (int i = 0; i < sections.size(); i++) {
+            SectionWithOffset current = sections.get(i);
+            String sectionText = current.text();
+            int charOffset = current.charOffset();
+
+            // Prepend overlap from previous section across boundaries
+            if (i > 0) {
+                String prevText = sections.get(i - 1).text();
+                String overlapPrefix = extractOverlap(prevText);
+                if (!overlapPrefix.isBlank()) {
+                    sectionText = overlapPrefix + " " + sectionText;
+                }
+            }
+
+            String sectionTitle = extractSectionTitle(sectionText);
             if (!sectionTitle.isEmpty()) {
                 currentSectionPath = sectionTitle;
             }
 
-            int wordCount = countWords(section);
+            int estimatedPage = (charOffset / 3000) + 1;
+            int wordCount = countWords(sectionText);
             if (wordCount <= maxSize) {
                 if (wordCount >= minSize) {
-                    chunks.add(buildChunk(section, chunkIndex++, currentSectionPath, documentMeta));
+                    chunks.add(buildChunk(sectionText, chunkIndex++, currentSectionPath, estimatedPage, documentMeta));
                 } else if (!chunks.isEmpty()) {
                     LegalChunk last = chunks.get(chunks.size() - 1);
-                    chunks.set(chunks.size() - 1, last.withAppendedText("\n\n" + section));
+                    chunks.set(chunks.size() - 1, last.withAppendedText("\n\n" + sectionText));
                 }
             } else {
-                List<String> subChunks = splitLargeSection(section);
+                List<String> subChunks = splitLargeSection(sectionText);
                 for (String sub : subChunks) {
                     if (countWords(sub) >= minSize) {
-                        chunks.add(buildChunk(sub, chunkIndex++, currentSectionPath, documentMeta));
+                        chunks.add(buildChunk(sub, chunkIndex++, currentSectionPath, estimatedPage, documentMeta));
                     }
                 }
             }
@@ -78,7 +92,9 @@ public class LegalDocumentChunker {
         return chunks;
     }
 
-    private List<String> splitAtLegalBoundaries(String text) {
+    private record SectionWithOffset(String text, int charOffset) {}
+
+    private List<SectionWithOffset> splitAtLegalBoundariesWithOffsets(String text) {
         TreeSet<Integer> splitPoints = new TreeSet<>();
         splitPoints.add(0);
 
@@ -89,17 +105,24 @@ public class LegalDocumentChunker {
             }
         }
 
-        List<String> sections = new ArrayList<>();
+        List<SectionWithOffset> sections = new ArrayList<>();
         Integer[] points = splitPoints.toArray(new Integer[0]);
         for (int i = 0; i < points.length; i++) {
             int start = points[i];
             int end = (i + 1 < points.length) ? points[i + 1] : text.length();
             String section = text.substring(start, end).trim();
             if (!section.isEmpty()) {
-                sections.add(section);
+                sections.add(new SectionWithOffset(section, start));
             }
         }
         return sections;
+    }
+
+    // Keep old splitAtLegalBoundaries for compatibility (delegates to new method)
+    private List<String> splitAtLegalBoundaries(String text) {
+        return splitAtLegalBoundariesWithOffsets(text).stream()
+                .map(SectionWithOffset::text)
+                .toList();
     }
 
     private List<String> splitLargeSection(String section) {
@@ -131,12 +154,13 @@ public class LegalDocumentChunker {
         return sb.toString().trim();
     }
 
-    private LegalChunk buildChunk(String text, int index, String sectionPath, Map<String, String> docMeta) {
+    private LegalChunk buildChunk(String text, int index, String sectionPath, int estimatedPage, Map<String, String> docMeta) {
         ClauseType clauseType = classifyClauseType(text);
         Map<String, String> metadata = new HashMap<>(docMeta);
         metadata.put("section_path", sectionPath);
         metadata.put("clause_type", clauseType.name());
         metadata.put("chunk_index", String.valueOf(index));
+        metadata.put("page_number", String.valueOf(estimatedPage));
         return new LegalChunk(text, clauseType, sectionPath, index, metadata);
     }
 

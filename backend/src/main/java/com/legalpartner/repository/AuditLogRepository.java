@@ -19,6 +19,7 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
     @Query("""
             SELECT a FROM AuditLog a WHERE
             (:username IS NULL OR a.username = :username) AND
+            (:userRole IS NULL OR a.userRole = :userRole) AND
             (:action IS NULL OR a.action = :action) AND
             (:from IS NULL OR a.timestamp >= :from) AND
             (:to IS NULL OR a.timestamp <= :to) AND
@@ -27,12 +28,35 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
             """)
     Page<AuditLog> findFiltered(
             @Param("username") String username,
+            @Param("userRole") String userRole,
             @Param("action") AuditActionType action,
             @Param("from") Instant from,
             @Param("to") Instant to,
             @Param("documentId") UUID documentId,
             Pageable pageable
     );
+
+    @Query("""
+            SELECT a FROM AuditLog a WHERE
+            (:username IS NULL OR a.username = :username) AND
+            (:userRole IS NULL OR a.userRole = :userRole) AND
+            (:action IS NULL OR a.action = :action) AND
+            (:from IS NULL OR a.timestamp >= :from) AND
+            (:to IS NULL OR a.timestamp <= :to) AND
+            (:documentId IS NULL OR a.documentId = :documentId)
+            ORDER BY a.timestamp DESC
+            """)
+    List<AuditLog> findFilteredAll(
+            @Param("username") String username,
+            @Param("userRole") String userRole,
+            @Param("action") AuditActionType action,
+            @Param("from") Instant from,
+            @Param("to") Instant to,
+            @Param("documentId") UUID documentId
+    );
+
+    @Query("SELECT DISTINCT a.username FROM AuditLog a WHERE (:from IS NULL OR a.timestamp >= :from) AND (:to IS NULL OR a.timestamp <= :to) ORDER BY a.username")
+    List<String> findDistinctUsernames(@Param("from") Instant from, @Param("to") Instant to);
 
     long countByAction(AuditActionType action);
 

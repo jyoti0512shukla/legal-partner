@@ -1,13 +1,15 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { LayoutDashboard, Brain, FileText, GitCompare, ShieldAlert, ScrollText, LogOut, Scale } from 'lucide-react';
+import { LayoutDashboard, Brain, FileText, FileEdit, GitCompare, ShieldAlert, ScrollText, LogOut, Scale, Settings } from 'lucide-react';
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/intelligence', icon: Brain, label: 'Intelligence' },
   { to: '/documents', icon: FileText, label: 'Documents' },
+  { to: '/draft', icon: FileEdit, label: 'Draft' },
   { to: '/compare', icon: GitCompare, label: 'Compare' },
   { to: '/risk', icon: ShieldAlert, label: 'Risk' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function Sidebar() {
@@ -58,7 +60,7 @@ export default function Sidebar() {
 
       <div className="border-t border-border pt-4 mt-4">
         <div className="px-3 mb-3">
-          <p className="text-sm font-medium text-text-primary capitalize">{user?.username}</p>
+          <p className="text-sm font-medium text-text-primary">{user?.displayName || user?.email}</p>
           <p className="text-xs text-text-muted">{user?.role?.replace('ROLE_', '')}</p>
         </div>
         <button onClick={logout} className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-danger transition-colors w-full rounded-lg hover:bg-surface-el">

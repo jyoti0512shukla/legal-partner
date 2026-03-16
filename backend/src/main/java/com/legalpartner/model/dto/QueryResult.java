@@ -7,5 +7,6 @@ public record QueryResult(
         String confidence,
         List<String> keyClauses,
         List<Citation> citations,
-        List<String> warnings
+        List<String> warnings,
+        String conversationId   // echo back so client can use for follow-up queries
 ) {}

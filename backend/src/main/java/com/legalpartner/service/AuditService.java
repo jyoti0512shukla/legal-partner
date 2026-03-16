@@ -32,12 +32,16 @@ public class AuditService {
     }
 
     public Page<AuditLogEntry> getLogs(
-            String username, AuditActionType action,
+            String username, String userRole, AuditActionType action,
             Instant from, Instant to, UUID documentId,
             Pageable pageable
     ) {
-        return repository.findFiltered(username, action, from, to, documentId, pageable)
+        return repository.findFiltered(username, userRole, action, from, to, documentId, pageable)
                 .map(this::toEntry);
+    }
+
+    public List<String> getDistinctUsernames(Instant from, Instant to) {
+        return repository.findDistinctUsernames(from, to);
     }
 
     public AuditStats getStats(Instant from, Instant to) {
@@ -56,8 +60,8 @@ public class AuditService {
         return new AuditStats(total, uploads, queries, comparisons, risks, byUser, byDay);
     }
 
-    public byte[] exportCsv(Instant from, Instant to) {
-        List<AuditLog> logs = repository.findByTimestampBetweenOrderByTimestampDesc(from, to);
+    public byte[] exportCsv(String username, String userRole, AuditActionType action, Instant from, Instant to, UUID documentId) {
+        List<AuditLog> logs = repository.findFilteredAll(username, userRole, action, from, to, documentId);
         StringWriter sw = new StringWriter();
         try (CSVWriter writer = new CSVWriter(sw)) {
             writer.writeNext(new String[]{

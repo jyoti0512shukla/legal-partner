@@ -53,7 +53,33 @@ public class ResponseValidator {
             long totalCitations
     ) {
         if (usedChunks.isEmpty()) return "LOW";
+        // If LLM explicitly reported insufficient context, trust it
+        return computeConfidenceScore(usedChunks, verifiedCitations, totalCitations);
+    }
 
+    // New overload that takes the answer text
+    public String calibrateConfidence(
+            String answerText,
+            List<EmbeddingMatch<TextSegment>> usedChunks,
+            long verifiedCitations,
+            long totalCitations
+    ) {
+        if (usedChunks.isEmpty()) return "LOW";
+        if (answerText != null) {
+            String lower = answerText.toLowerCase();
+            if (lower.contains("insufficient context") || lower.contains("not in the context")
+                    || lower.contains("cannot find") || lower.contains("no relevant")) {
+                return "LOW";
+            }
+        }
+        return computeConfidenceScore(usedChunks, verifiedCitations, totalCitations);
+    }
+
+    private String computeConfidenceScore(
+            List<EmbeddingMatch<TextSegment>> usedChunks,
+            long verifiedCitations,
+            long totalCitations
+    ) {
         double avgSimilarity = usedChunks.stream()
                 .mapToDouble(EmbeddingMatch::score)
                 .average()

@@ -41,7 +41,7 @@ public class CitationExtractor {
                     sectionPath != null ? sectionPath : "",
                     page,
                     snippet,
-                    verified || referencedSections.isEmpty()
+                    verified
             ));
         }
         return citations;

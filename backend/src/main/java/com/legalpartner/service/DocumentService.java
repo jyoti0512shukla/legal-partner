@@ -75,6 +75,34 @@ public class DocumentService {
         return doc;
     }
 
+    /**
+     * Ingest a document from bytes (e.g. from cloud storage import).
+     */
+    public DocumentMetadata ingestFromBytes(
+            byte[] fileBytes, String fileName, String contentType,
+            String jurisdiction, Integer year, boolean confidential,
+            String documentType, String practiceArea, String clientName, String matterId,
+            String username
+    ) {
+        DocumentMetadata doc = DocumentMetadata.builder()
+                .fileName(fileName)
+                .contentType(contentType)
+                .jurisdiction(jurisdiction)
+                .year(year)
+                .confidential(confidential)
+                .documentType(documentType != null ? DocumentType.valueOf(documentType) : DocumentType.OTHER)
+                .practiceArea(practiceArea != null ? PracticeArea.valueOf(practiceArea) : PracticeArea.OTHER)
+                .clientName(clientName)
+                .matterId(matterId)
+                .uploadedBy(username)
+                .fileSizeBytes((long) fileBytes.length)
+                .processingStatus(ProcessingStatus.PENDING)
+                .build();
+        doc = repository.save(doc);
+        processDocumentAsync(doc.getId(), fileBytes);
+        return doc;
+    }
+
     @Async
     public void processDocumentAsync(UUID docId, byte[] fileBytes) {
         DocumentMetadata doc = repository.findById(docId).orElseThrow();

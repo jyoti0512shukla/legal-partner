@@ -1,180 +1,259 @@
-# Legal Partner — Dev/Test Setup (Google Colab)
+# Legal Partner — Dev/Test Setup
 
-**Purpose:** Develop and test Legal Partner with AALAP before production deployment. Not for production — Colab sessions expire.
+**Purpose:** Develop and test Legal Partner with AALAP before production. Chat (LLM) runs in **Google Colab** (GPU); backend, DB, and embeddings can run locally or in the cloud.
 
-> **Production:** See `docs/DEPLOYMENT_PLAN.md` for E2E Networks setup with InLegalBERT + AALAP.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Google Colab (Chat only)                                        │
-│  • vLLM serves AALAP-Mistral-7B (or Transformers+Flask fallback)│
-│  • ngrok exposes public URL → https://xxxx.ngrok.io              │
-└───────────────────────────────┬─────────────────────────────────┘
-                                │ OpenAI-compatible API
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Your Laptop (Legal Partner)                                    │
-│  • Docker: Postgres, Ollama (embeddings only), Backend           │
-│  • Frontend: npm run dev                                         │
-│  • Chat → Colab | Embeddings → local Ollama (all-minilm)         │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Models in dev:**
-| Purpose | Model | Where |
-|---------|-------|-------|
-| Chat | AALAP-Mistral-7B (or Mistral-7B-Instruct fallback) | Colab |
-| Embeddings | all-minilm (384-dim) | Local Ollama |
+> **Production:** See `docs/DEPLOYMENT_PLAN.md` for E2E Networks (InLegalBERT + AALAP).
 
 ---
 
-## Phase 1: Setup (Day 1)
+## Overview: Pick Your Setup
 
-### Step 1.1: Colab Access
-- Go to [colab.research.google.com](https://colab.research.google.com)
-- Colab Pro (~$10/month) or pay-as-you-go ($9.99 for 100 units) for T4/A100
-- Turn off auto-renew if testing for 1 month only
+| Option | Where things run | Laptop needs | Cost | Best when |
+|--------|------------------|--------------|------|-----------|
+| **A** | Colab (chat) + Laptop (DB, embeddings, backend) | Docker, 4GB+ RAM | ~$10 Colab | Laptop can run Docker |
+| **B** | Colab (chat+embeddings) + Neon (DB) + Laptop (backend) | Java, Node only | ~$10 Colab | Laptop can't run Postgres/Ollama |
+| **C** | Colab (chat) + Cloud (DB, embeddings, backend) | Browser only | ~$10 Colab + free tiers | Laptop runs nothing |
+| **D** | Colab (chat) + Cheap VPS (DB, embeddings, backend) | Browser only | ~$0–₹500/mo | Oracle free / Hetzner / Contabo |
+| **E** | Colab (chat) + GCP VM (DB, embeddings, backend) | Browser only | $300 credit (~$50/mo, stop when idle) | You have GCP credits |
 
-### Step 1.2: Prepare Your Laptop
-- Docker + Docker Compose installed
-- Node.js 18+ installed
-- Clone `legal-partner` repo
+**Shared across all options:** Colab runs vLLM + AALAP for chat, exposed via ngrok.
 
 ---
 
-## Phase 2: Colab — Run vLLM with AALAP (Day 1–2)
+## Colab Setup (All Options — Do This First)
 
-### Step 2.1: Create Colab Notebook
-1. New notebook
-2. **Runtime → Change runtime type → GPU** (T4 or A100 on Pro)
+### Colab Notebook: vLLM + ngrok
 
-### Step 2.2: Install and Run vLLM
+1. [colab.research.google.com](https://colab.research.google.com) → New notebook → **Runtime → GPU** (T4 or A100)
+2. Colab Pro (~$10/mo) or pay-as-you-go
+
 **Cell 1 — Install vLLM**
 ```python
 !pip install -q vllm
 ```
 
-**Cell 2 — Start vLLM server**
+**Cell 2 — Start vLLM (chat)**
 ```python
-# AALAP from HuggingFace — requires HF login + access approval
-# For T4 (16GB): use memory-saving params
 !vllm serve opennyaiorg/Aalap-Mistral-7B-v0.1-bf16 \
-  --port 8000 \
-  --host 0.0.0.0 \
-  --max-model-len 2048 \
-  --gpu-memory-utilization 0.9
+  --port 8000 --host 0.0.0.0 \
+  --max-model-len 2048 --gpu-memory-utilization 0.9
 ```
+*First run: ~14 GB download, 5–15 min. Fallback: Mistral-7B-Instruct if AALAP gated.*
 
-First run downloads ~14 GB — wait 5–15 min.
-
-**If vLLM fails on T4** (engine init errors): Use Transformers + Flask fallback instead. See Troubleshooting.
-
-### Step 2.3: Expose with ngrok
-**Cell 3 — Install ngrok and get public URL**
+**Cell 3 — ngrok (public URL)**
 ```python
 !pip install -q pyngrok
 from pyngrok import ngrok
-public_url = ngrok.connect(8000)
-print("Use this URL in Legal Partner config:")
-print(public_url.public_url)
+url = ngrok.connect(8000)
+print("LEGALPARTNER_CHAT_API_URL:", url.public_url)
 ```
 
-Copy the URL (e.g. `https://abc123.ngrok-free.app`). Changes each Colab session.
-
-### Step 2.4: Test vLLM
-**Cell 4 — Quick test**
+**Cell 4 — (Options B/C/D/E) Embedding server (same Colab)**
 ```python
-import requests
-r = requests.post(
-    f"{public_url.public_url.replace('https', 'http')}/v1/chat/completions",
-    json={
-        "model": "opennyaiorg/Aalap-Mistral-7B-v0.1-bf16",
-        "messages": [{"role": "user", "content": "What is Section 73 of ICA?"}]
-    }
-)
-print(r.json()["choices"][0]["message"]["content"])
+!pip install -q sentence-transformers flask
+from sentence_transformers import SentenceTransformer
+from flask import Flask, request, jsonify
+app = Flask(__name__)
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+@app.route('/v1/embeddings', methods=['POST'])
+def embed():
+    data = request.json
+    inp = data.get('input') or []
+    if isinstance(inp, str): inp = [inp]
+    embs = model.encode(inp).tolist()
+    return jsonify({"data": [{"embedding": e} for e in embs]})
+
+import threading
+threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8001), daemon=True).start()
+embed_url = ngrok.connect(8001)
+print("LEGALPARTNER_EMBEDDING_API_URL:", embed_url.public_url)
 ```
 
 ---
 
-## Phase 3: Legal Partner — Point Chat to Colab (Day 2–3)
+## Option A: Standard (Laptop Runs Everything Except Chat)
 
-### Step 3.1: Configuration
-When `LEGALPARTNER_CHAT_API_URL` is set, backend uses it for chat. Embeddings stay on local Ollama.
+**Laptop:** Docker (Postgres + Ollama), Backend, Frontend  
+**Colab:** Chat only
 
-```bash
-export LEGALPARTNER_CHAT_API_URL=https://your-ngrok-url.ngrok-free.dev
+```
+Colab (vLLM) ──ngrok──► Laptop ←── Postgres, Ollama (embeddings), Backend
 ```
 
-Or for Docker:
+### Steps
+
 ```bash
-LEGALPARTNER_CHAT_API_URL=https://your-ngrok-url.ngrok-free.dev docker compose up -d
-```
-
-### Step 3.2: Implementation Status
-- [x] ChatModelConfig: uses OpenAI-compatible when URL set
-- [x] Embeddings remain from Ollama (all-minilm)
-- [x] docker-compose passes `LEGALPARTNER_CHAT_API_URL`
-
----
-
-## Phase 4: Run Legal Partner Locally (Day 3)
-
-### Step 4.1: Start Colab First
-- Open Colab notebook
-- Run all cells (vLLM + ngrok)
-- Copy ngrok URL
-
-### Step 4.2: Start Legal Partner
-```bash
-cd legal-partner
-export LEGALPARTNER_CHAT_API_URL=https://your-ngrok-url.ngrok-free.dev
-
-docker compose up -d postgres ollama
-# Wait for ollama-init to pull all-minilm
-docker compose up -d backend
-
+export LEGALPARTNER_CHAT_API_URL=https://<colab-ngrok-url>
+docker compose up -d postgres ollama backend
 cd frontend && npm run dev
 ```
 
-### Step 4.3: Optional — Skip tinyllama
-If chat comes from Colab, edit `docker-compose.yml` ollama-init to only `ollama pull all-minilm`.
+Open http://localhost:5173
 
 ---
 
-## Phase 5: Test End-to-End (Day 4–5)
+## Option B: Low-Resource Laptop
 
-- [ ] Open http://localhost:5173
-- [ ] Login (admin / admin123)
-- [ ] Upload test contract (PDF/DOCX)
-- [ ] Wait for INDEXED status
-- [ ] Ask question — verify RAG response
-- [ ] Compare two documents
-- [ ] Risk assessment
+**Laptop:** Backend + Frontend only (no Docker for Postgres/Ollama)  
+**Neon:** Postgres + pgvector  
+**Colab:** Chat + Embeddings (run Cell 4 above)
+
+### Steps
+
+1. **Neon:** [neon.tech](https://neon.tech) → Create project → SQL Editor: `CREATE EXTENSION IF NOT EXISTS vector;` → Copy connection string
+2. **Colab:** Run all 4 cells (vLLM + ngrok + embedding server)
+3. **Laptop:**
+```bash
+export SPRING_DATASOURCE_URL="postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require"
+export SPRING_DATASOURCE_USERNAME="user"
+export SPRING_DATASOURCE_PASSWORD="pass"
+export LEGALPARTNER_CHAT_API_URL=https://<chat-ngrok-url>
+export LEGALPARTNER_EMBEDDING_API_URL=https://<embed-ngrok-url>
+
+cd backend && ./gradlew bootRun
+# Another terminal:
+cd frontend && npm run dev
+```
 
 ---
 
-## Session Handling
+## Option C: Full Cloud (Laptop = Browser Only)
 
-- Colab sessions time out (~90 min idle on free; longer on Pro)
-- When session ends: vLLM stops, ngrok URL invalid
-- **Each new session:** Re-run Colab cells → copy new ngrok URL → `export LEGALPARTNER_CHAT_API_URL=...` → restart backend
+**Neon:** Postgres + pgvector  
+**HuggingFace:** Embeddings (free Inference API) — *or* Colab embedding server  
+**Railway / Render:** Backend  
+**Colab:** Chat  
+
+Backend and frontend deployed to cloud; you only open the app URL in a browser.
+
+### Steps
+
+1. **Neon** + **Colab** (chat, optional: embeddings) — same as Option B
+2. **Deploy backend** to Railway/Render:
+   - Connect GitHub repo
+   - Env: `SPRING_DATASOURCE_URL`, `LEGALPARTNER_CHAT_API_URL`, `LEGALPARTNER_EMBEDDING_API_URL` (if using Colab embeddings)
+   - Build: `./gradlew bootJar` or Dockerfile
+3. **Frontend:** Build (`npm run build`) → deploy to same app or Vercel/Netlify; set API base URL to backend
+
+*When Colab session expires: re-run cells, update `LEGALPARTNER_CHAT_API_URL` in Railway/Render, redeploy/restart.*
 
 ---
 
-## Quick Reference: Daily Workflow
+## Option D: Colab + Cheap CPU VPS
 
-| Step | Action |
-|-----|--------|
-| 1 | Open Colab → Run all cells → Copy ngrok URL |
-| 2 | `export LEGALPARTNER_CHAT_API_URL=https://<ngrok_url>` |
-| 3 | `docker compose up -d` (or restart backend) |
-| 4 | `cd frontend && npm run dev` |
-| 5 | Test at http://localhost:5173 |
+**VPS:** Postgres + Embedding service + Spring Boot (all on one machine)  
+**Colab:** Chat only  
+**Laptop:** SSH + Browser
+
+### VPS Options
+
+| Provider | Specs | Cost |
+|----------|-------|------|
+| **Oracle Cloud Free** | 4 ARM cores, 24GB RAM | ₹0 |
+| **Hetzner** | 2 vCPU, 4GB RAM | ~₹450/mo |
+| **Contabo** | 4 vCPU, 8GB RAM | ~₹550/mo |
+
+### Steps (e.g. Hetzner)
+
+1. Create VM (Ubuntu 22.04, 4GB RAM)
+2. SSH in:
+```bash
+sudo apt update && sudo apt install -y docker.io docker-compose git
+sudo usermod -aG docker $USER && exit
+# Re-SSH
+git clone https://github.com/your-org/legal-partner.git
+cd legal-partner
+```
+3. Use `docker compose` with postgres + backend. Run embedding service separately (Python Flask on port 8001) or add to compose.
+4. Env vars:
+```bash
+export LEGALPARTNER_CHAT_API_URL=https://<colab-ngrok>
+export LEGALPARTNER_EMBEDDING_API_URL=http://embedding:8001  # or http://localhost:8001
+export SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/legalpartner
+```
+5. Open `http://<vps-ip>:8080` (ensure firewall allows 80/443/8080)
+
+---
+
+## Option E: Colab + GCP VM ($300 Credit)
+
+**GCP Compute Engine:** Postgres + Embedding service + Spring Boot  
+**Colab:** Chat only  
+**Laptop:** Browser (and `gcloud` to stop/start)
+
+### Why GCP
+
+- Use $300 credit
+- **Stop VM when not testing** → no charge for CPU/RAM; only small disk cost
+- e2-medium (2 vCPU, 4GB): ~$50/mo when running → ~6 months at 2 hr/day usage
+
+### Steps
+
+1. **Create VM**
+   - [console.cloud.google.com](https://console.cloud.google.com) → Compute Engine → Create VM
+   - **e2-medium** (2 vCPU, 4 GB RAM)
+   - **Region:** asia-south1 (Mumbai)
+   - Ubuntu 22.04, 20 GB disk
+
+2. **SSH → Install**
+```bash
+sudo apt update && sudo apt install -y docker.io docker-compose git
+sudo usermod -aG docker $USER
+git clone https://github.com/your-org/legal-partner.git
+cd legal-partner
+# Use docker compose: postgres + backend. Add embedding service (Flask/sentence-transformers) or use Colab embeddings.
+```
+
+3. **Env vars on VM**
+```bash
+export LEGALPARTNER_CHAT_API_URL=https://<colab-ngrok-url>
+export LEGALPARTNER_EMBEDDING_API_URL=http://localhost:8001  # if embedding runs on same VM
+# Or use Colab embeddings: export LEGALPARTNER_EMBEDDING_API_URL=https://<embed-ngrok>
+```
+
+4. **Stop when done**
+```bash
+gcloud compute instances stop INSTANCE_NAME --zone=asia-south1-a
+```
+
+5. **Start when testing again**
+```bash
+gcloud compute instances start INSTANCE_NAME --zone=asia-south1-a
+```
+
+*Note: External IP may change after stop/start; use a static IP if needed.*
+
+---
+
+## Session Handling (Colab)
+
+- Colab sessions expire (~90 min idle on free; longer on Pro)
+- **Each new session:** Re-run Colab cells → copy new ngrok URL(s) → update `LEGALPARTNER_CHAT_API_URL` (and `LEGALPARTNER_EMBEDDING_API_URL` if used) → restart backend / update cloud env
+
+---
+
+## Quick Reference
+
+| Option | Colab | DB | Embeddings | Backend | Cost |
+|--------|-------|-----|------------|---------|------|
+| A | Chat | Local Docker | Local Ollama | Laptop | ~$10 Colab |
+| B | Chat + Embed | Neon | Colab Flask | Laptop | ~$10 Colab |
+| C | Chat | Neon | HF or Colab | Railway/Render | ~$10 + free tiers |
+| D | Chat | VPS | VPS | VPS | ~$0–₹500/mo |
+| E | Chat | GCP VM | GCP VM | GCP VM | ~$50/mo (stop when idle) |
+
+---
+
+## Backend Env Vars Reference
+
+| Variable | Purpose |
+|----------|---------|
+| `LEGALPARTNER_CHAT_API_URL` | Colab ngrok URL for chat (required when using Colab) |
+| `LEGALPARTNER_EMBEDDING_API_URL` | OpenAI-compatible embedding endpoint (Colab Flask or external) |
+| `SPRING_DATASOURCE_URL` | Postgres connection string (Neon, or postgres://host:5432/db for Docker) |
+| `SPRING_DATASOURCE_USERNAME` | DB user |
+| `SPRING_DATASOURCE_PASSWORD` | DB password |
 
 ---
 
@@ -182,19 +261,8 @@ If chat comes from Colab, edit `docker-compose.yml` ollama-init to only `ollama 
 
 | Issue | Fix |
 |-------|-----|
-| vLLM OOM / engine init on T4 | Use Transformers + Flask instead; run Mistral-7B-Instruct via HuggingFace + FastAPI, expose via ngrok |
-| AALAP gated on HuggingFace | HF login + request access at opennyaiorg; fallback: Mistral-7B-Instruct-v0.2 |
-| ngrok URL blocked | Try localtunnel, cloudflared |
-| Colab OOM on T4 | Reduce `--max-model-len` to 1024; or use Colab Pro A100 |
-| Slow first run | Model download ~14 GB; wait 10–15 min |
-| Session expired | Re-run Colab cells; update URL; restart backend |
-
----
-
-## Summary Checklist
-
-- [ ] Colab with GPU (Pro or pay-as-you-go)
-- [ ] Colab: vLLM + AALAP + ngrok (or Transformers+Flask fallback)
-- [ ] Legal Partner: chat → Colab, embeddings → local Ollama (all-minilm)
-- [ ] End-to-end test passing
-- [ ] Plan move to production (E2E) when ready
+| vLLM OOM on T4 | Reduce `--max-model-len` to 1024; or use Colab Pro A100 |
+| AALAP gated | HF login + request access; fallback: Mistral-7B-Instruct-v0.2 |
+| ngrok blocked | Try localtunnel, cloudflared |
+| Backend can't reach Colab | Ensure no trailing slash on URL; use https |
+| Session expired | Re-run Colab cells; update env vars; restart backend |

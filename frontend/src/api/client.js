@@ -1,17 +1,22 @@
 import axios from 'axios';
 
-const api = axios.create({
+const apiClient = axios.create({
   baseURL: '/api/v1',
-  timeout: 120000,
+  timeout: 180000,
+  withCredentials: true,  // send httpOnly jwt cookie automatically
+  headers: { 'Content-Type': 'application/json' }
 });
 
-export function setAuthHeader(username, password) {
-  const encoded = btoa(`${username}:${password}`);
-  api.defaults.headers.common['Authorization'] = `Basic ${encoded}`;
-}
+// Response interceptor: redirect to login on 401
+apiClient.interceptors.response.use(
+  response => response,
+  error => {
+    if (error.response?.status === 401) {
+      // Clear any cached user state and go to login
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
 
-export function clearAuthHeader() {
-  delete api.defaults.headers.common['Authorization'];
-}
-
-export default api;
+export default apiClient;

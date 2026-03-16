@@ -38,25 +38,85 @@ langchain4j:
   ollama:
     chat-model:
       base-url: ${LEGALPARTNER_OLLAMA_BASE_URL:http://localhost:11434}
-      model-name: tinyllama
-      timeout: PT120S
+      model-name: ${LEGALPARTNER_OLLAMA_MODEL:mistral}
+      timeout: PT180S
+      num-ctx: 8192        # Mistral full context window (default was 4096)
+      num-keep: 512        # Pin system prompt in KV cache across requests
+      num-predict: 1024    # Max tokens to generate per response
     embedding-model:
       base-url: ${LEGALPARTNER_OLLAMA_BASE_URL:http://localhost:11434}
       model-name: all-minilm
       timeout: PT60S
 
 legalpartner:
+  jwt:
+    secret: ${JWT_SECRET:change-me-in-production-min-256-bits-required-for-hs256}
+    issuer: legal-partner
+    expiration-minutes: 60
+    expiration-minutes-remember-me: 10080  # 7 days
+  password:
+    min-length: 12
+    max-length: 128
+    require-uppercase: true
+    require-lowercase: true
+    require-digit: true
+    require-special: true
+    block-common: true
+    expiry-days: 90
+    history-count: 5
+  lockout:
+    max-attempts: 5
+    lock-duration-minutes: 15
   # Optional: When set, use OpenAI-compatible API (e.g. Colab/ngrok) for chat instead of Ollama
-  # Example: https://circulable-chere-lucidly.ngrok-free.dev
   chat-api-url: ${LEGALPARTNER_CHAT_API_URL:}
   chat-api-model: ${LEGALPARTNER_CHAT_API_MODEL:mistralai/Mistral-7B-Instruct-v0.2}
+  # Optional: When set, use OpenAI-compatible embedding API (e.g. Colab Flask) instead of Ollama. For low-resource dev.
+  embedding-api-url: ${LEGALPARTNER_EMBEDDING_API_URL:}
+  embedding-api-model: ${LEGALPARTNER_EMBEDDING_API_MODEL:all-MiniLM-L6-v2}
+  cloud:
+    frontend-url: ${LEGALPARTNER_CLOUD_FRONTEND_URL:http://localhost:5173}
+    backend-url: ${LEGALPARTNER_CLOUD_BACKEND_URL:http://localhost:8080}
+    google:
+      enabled: ${LEGALPARTNER_GOOGLE_DRIVE_ENABLED:false}
+      client-id: ${LEGALPARTNER_GOOGLE_DRIVE_CLIENT_ID:}
+      client-secret: ${LEGALPARTNER_GOOGLE_DRIVE_CLIENT_SECRET:}
+    microsoft:
+      enabled: ${LEGALPARTNER_ONEDRIVE_ENABLED:false}
+      client-id: ${LEGALPARTNER_ONEDRIVE_CLIENT_ID:}
+      client-secret: ${LEGALPARTNER_ONEDRIVE_CLIENT_SECRET:}
+      tenant: ${LEGALPARTNER_ONEDRIVE_TENANT:common}
+    dropbox:
+      enabled: ${LEGALPARTNER_DROPBOX_ENABLED:false}
+      app-key: ${LEGALPARTNER_DROPBOX_APP_KEY:}
+      app-secret: ${LEGALPARTNER_DROPBOX_APP_SECRET:}
+  rate-limit:
+    ai-requests-per-minute: 15   # per authenticated user; adjust based on Ollama capacity
+  draft:
+    retrieval:
+      candidate-count: 30
+      top-k: 12
+      max-chunks-per-doc: 3
+      context-max-chars: 8000
   rag:
-    candidate-count: 15
+    candidate-count: 20
     top-k: 5
     vector-weight: 0.7
     keyword-weight: 0.2
-    recency-weight: 0.1
-    ollama-timeout-seconds: 120
+    doctype-weight: 0.1
+    context-max-chars: 6000
+    compare-context-chars: 3000
+    retrieve-candidates: 200
+    ollama-timeout-seconds: 180
+  context:
+    model-window-tokens: 8192          # must match num-ctx above
+    answer-headroom-tokens: 512        # reserve for model output
+    system-prompt-tokens: 250          # estimated fixed cost of system prompt
+
+  conversation:
+    max-history-turns: 10              # hard cap on stored turns (memory safety)
+    summarize-threshold-tokens: 800    # trigger rolling summarization when history > 800 tokens
+    keep-verbatim-turns: 2             # verbatim turns to keep after summarization
+    semantic-relevance-threshold: 0.35 # cosine similarity floor for including a past turn
   chunking:
     target-size: 80
     max-size: 100

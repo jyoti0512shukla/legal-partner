@@ -51,6 +51,8 @@ dependencies {
 
     implementation("com.opencsv:opencsv:5.9")
     implementation("org.bitbucket.b_c:jose4j:0.9.6")
+    implementation("dev.samstevens.totp:totp:1.7.1")
+    implementation("com.bucket4j:bucket4j-core:8.10.1")
 
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")

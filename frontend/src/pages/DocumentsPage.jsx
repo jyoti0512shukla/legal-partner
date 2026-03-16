@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { Upload, FileText, Trash2, CheckCircle, Loader, XCircle } from 'lucide-react';
+import { Upload, FileText, Trash2, CheckCircle, Loader, XCircle, Cloud } from 'lucide-react';
 import api from '../api/client';
+import CloudImportModal from '../components/CloudImportModal';
 
 const STATUS_ICONS = {
   INDEXED: <CheckCircle className="w-4 h-4 text-success" />,
@@ -11,14 +13,23 @@ const STATUS_ICONS = {
 };
 
 export default function DocumentsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [docs, setDocs] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [showCloudImport, setShowCloudImport] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [meta, setMeta] = useState({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '' });
 
   const fetchDocs = () => api.get('/documents?size=50&sort=uploadDate,desc').then(r => setDocs(r.data.content || [])).catch(() => {});
   useEffect(() => { fetchDocs(); }, []);
+
+  useEffect(() => {
+    if (searchParams.get('cloud') === 'connected') {
+      setSearchParams({}, { replace: true });
+      setShowCloudImport(true);
+    }
+  }, [searchParams, setSearchParams]);
 
   const onDrop = useCallback((files) => {
     if (files.length > 0) { setSelectedFile(files[0]); setShowForm(true); }
@@ -49,12 +60,26 @@ export default function DocumentsPage() {
     <div>
       <h1 className="text-2xl font-bold mb-6">Documents</h1>
 
-      <div {...getRootProps()} className={`card border-2 border-dashed mb-6 text-center py-10 cursor-pointer transition-colors ${isDragActive ? 'border-primary bg-primary/5' : 'border-border hover:border-text-muted'}`}>
+      <div className="flex gap-3 mb-6">
+        <div {...getRootProps()} className={`flex-1 card border-2 border-dashed text-center py-10 cursor-pointer transition-colors ${isDragActive ? 'border-primary bg-primary/5' : 'border-border hover:border-text-muted'}`}>
         <input {...getInputProps()} />
         <Upload className="w-8 h-8 text-text-muted mx-auto mb-3" />
         <p className="text-text-secondary">{isDragActive ? 'Drop your file here' : 'Drag & drop a document, or click to browse'}</p>
         <p className="text-xs text-text-muted mt-1">PDF, HTML, DOCX — Max 50MB</p>
+        </div>
+        <button onClick={() => setShowCloudImport(true)} className="card border-2 border-border hover:border-primary/50 flex flex-col items-center justify-center gap-2 px-8 transition-colors min-w-[140px]">
+          <Cloud className="w-8 h-8 text-text-muted" />
+          <span className="text-sm font-medium">Import from Cloud</span>
+          <span className="text-xs text-text-muted">Drive, OneDrive, Dropbox</span>
+        </button>
       </div>
+
+      {showCloudImport && (
+        <CloudImportModal
+          onClose={() => setShowCloudImport(false)}
+          onImported={() => { fetchDocs(); setShowCloudImport(false); }}
+        />
+      )}
 
       {showForm && selectedFile && (
         <div className="card mb-6">

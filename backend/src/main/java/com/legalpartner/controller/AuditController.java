@@ -28,6 +28,7 @@ public class AuditController {
     @GetMapping("/logs")
     public Page<AuditLogEntry> logs(
             @RequestParam(required = false) String user,
+            @RequestParam(required = false) String role,
             @RequestParam(required = false) AuditActionType action,
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
@@ -36,7 +37,17 @@ public class AuditController {
     ) {
         Instant fromDate = from != null ? from : Instant.parse("2020-01-01T00:00:00Z");
         Instant toDate = to != null ? to : Instant.now();
-        return auditService.getLogs(user, action, fromDate, toDate, documentId, pageable);
+        return auditService.getLogs(user, role, action, fromDate, toDate, documentId, pageable);
+    }
+
+    @GetMapping("/users")
+    public List<String> distinctUsers(
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to
+    ) {
+        Instant fromDate = from != null ? from : Instant.parse("2020-01-01T00:00:00Z");
+        Instant toDate = to != null ? to : Instant.now();
+        return auditService.getDistinctUsernames(fromDate, toDate);
     }
 
     @GetMapping("/stats")
@@ -51,12 +62,16 @@ public class AuditController {
 
     @GetMapping("/export")
     public ResponseEntity<byte[]> export(
+            @RequestParam(required = false) String user,
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) AuditActionType action,
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) UUID documentId
     ) {
         Instant fromDate = from != null ? from : Instant.parse("2020-01-01T00:00:00Z");
         Instant toDate = to != null ? to : Instant.now();
-        byte[] csv = auditService.exportCsv(fromDate, toDate);
+        byte[] csv = auditService.exportCsv(user, role, action, fromDate, toDate, documentId);
         String filename = "audit_log_" + LocalDate.now().format(DateTimeFormatter.ISO_DATE) + ".csv";
 
         return ResponseEntity.ok()

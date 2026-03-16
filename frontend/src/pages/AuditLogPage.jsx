@@ -1,15 +1,37 @@
 import { useState, useEffect } from 'react';
-import { ScrollText, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
+
+const ROLES = [
+  { value: '', label: 'All Roles' },
+  { value: 'ROLE_ADMIN', label: 'Admin' },
+  { value: 'ROLE_PARTNER', label: 'Partner' },
+  { value: 'ROLE_ASSOCIATE', label: 'Associate' },
+];
+
+const ACTION_TYPES = ['DOCUMENT_UPLOAD', 'DOCUMENT_VIEW', 'DOCUMENT_DELETE', 'AI_QUERY', 'AI_COMPARE', 'RISK_ASSESSMENT', 'AUDIT_VIEW', 'AUDIT_EXPORT', 'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'PASSWORD_CHANGED', 'MFA_ENABLED', 'MFA_DISABLED', 'ACCOUNT_LOCKED'];
+
+function toInstantParam(dateStr) {
+  if (!dateStr) return null;
+  return `${dateStr}T00:00:00Z`;
+}
+function toInstantParamEnd(dateStr) {
+  if (!dateStr) return null;
+  return `${dateStr}T23:59:59Z`;
+}
 
 export default function AuditLogPage() {
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState(null);
+  const [users, setUsers] = useState([]);
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
   const [userFilter, setUserFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState('');
 
@@ -17,7 +39,12 @@ export default function AuditLogPage() {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), size: '15' });
     if (userFilter) params.set('user', userFilter);
+    if (roleFilter) params.set('role', roleFilter);
     if (actionFilter) params.set('action', actionFilter);
+    const from = toInstantParam(fromDate);
+    const to = toInstantParamEnd(toDate);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
     api.get(`/audit/logs?${params}`)
       .then(r => {
         const data = r.data;
@@ -36,18 +63,44 @@ export default function AuditLogPage() {
   };
 
   const fetchStats = () => {
-    api.get('/audit/stats').then(r => setStats(r.data)).catch(() => {});
+    const params = new URLSearchParams();
+    const from = toInstantParam(fromDate);
+    const to = toInstantParamEnd(toDate);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    api.get(`/audit/stats?${params}`).then(r => setStats(r.data)).catch(() => {});
   };
 
-  useEffect(() => { fetchLogs(); fetchStats(); }, [page, userFilter, actionFilter]);
+  const fetchUsers = () => {
+    const params = new URLSearchParams();
+    const from = toInstantParam(fromDate);
+    const to = toInstantParamEnd(toDate);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    api.get(`/audit/users?${params}`).then(r => setUsers(r.data || [])).catch(() => setUsers([]));
+  };
+
+  useEffect(() => { fetchLogs(); fetchStats(); fetchUsers(); }, [page, userFilter, roleFilter, actionFilter, fromDate, toDate]);
 
   const handleExport = () => {
-    api.get('/audit/export', { responseType: 'blob' }).then(r => {
-      const url = URL.createObjectURL(new Blob([r.data]));
-      const a = document.createElement('a');
-      a.href = url; a.download = `audit_log_${new Date().toISOString().split('T')[0]}.csv`;
-      a.click(); URL.revokeObjectURL(url);
-    });
+    const params = new URLSearchParams();
+    if (userFilter) params.set('user', userFilter);
+    if (roleFilter) params.set('role', roleFilter);
+    if (actionFilter) params.set('action', actionFilter);
+    const from = toInstantParam(fromDate);
+    const to = toInstantParamEnd(toDate);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    api.get(`/audit/export?${params}`, { responseType: 'blob' })
+      .then(r => {
+        const url = URL.createObjectURL(new Blob([r.data]));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `audit_log_${new Date().toISOString().split('T')[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(err => alert(err.response?.data?.message || err.message || 'Export failed'));
   };
 
   const statCards = [
@@ -77,18 +130,37 @@ export default function AuditLogPage() {
       )}
 
       <div className="card mb-4">
-        <div className="flex items-center gap-3">
-          <select value={userFilter} onChange={e => { setUserFilter(e.target.value); setPage(0); }} className="input-field text-sm">
-            <option value="">All Users</option>
-            {['admin', 'partner', 'associate'].map(u => <option key={u} value={u}>{u}</option>)}
-          </select>
-          <select value={actionFilter} onChange={e => { setActionFilter(e.target.value); setPage(0); }} className="input-field text-sm">
-            <option value="">All Actions</option>
-            {['DOCUMENT_UPLOAD', 'DOCUMENT_VIEW', 'DOCUMENT_DELETE', 'AI_QUERY', 'AI_COMPARE', 'RISK_ASSESSMENT', 'AUDIT_VIEW', 'AUDIT_EXPORT'].map(a =>
-              <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>
-            )}
-          </select>
-          <button onClick={handleExport} className="btn-secondary text-sm ml-auto flex items-center gap-2">
+        <p className="text-xs text-text-muted mb-3">Filter by user, role, action type, and date range. Export uses current filters.</p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">User</label>
+            <select value={userFilter} onChange={e => { setUserFilter(e.target.value); setPage(0); }} className="input-field text-sm min-w-[120px]">
+              <option value="">All Users</option>
+              {users.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Role</label>
+            <select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(0); }} className="input-field text-sm min-w-[120px]">
+              {ROLES.map(r => <option key={r.value || 'all'} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Action</label>
+            <select value={actionFilter} onChange={e => { setActionFilter(e.target.value); setPage(0); }} className="input-field text-sm min-w-[160px]">
+              <option value="">All Actions</option>
+              {ACTION_TYPES.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">From</label>
+            <input type="date" value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(0); }} className="input-field text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">To</label>
+            <input type="date" value={toDate} onChange={e => { setToDate(e.target.value); setPage(0); }} className="input-field text-sm" />
+          </div>
+          <button onClick={handleExport} className="btn-secondary text-sm flex items-center gap-2 ml-auto" title="Export filtered results to CSV">
             <Download className="w-4 h-4" /> Export CSV
           </button>
         </div>
@@ -101,6 +173,7 @@ export default function AuditLogPage() {
               <tr className="border-b border-border text-left text-text-muted">
                 <th className="pb-3 font-medium">Time</th>
                 <th className="pb-3 font-medium">User</th>
+                <th className="pb-3 font-medium">Role</th>
                 <th className="pb-3 font-medium">Action</th>
                 <th className="pb-3 font-medium">Endpoint</th>
                 <th className="pb-3 font-medium">Status</th>
@@ -109,11 +182,12 @@ export default function AuditLogPage() {
             </thead>
             <tbody>
               {logs.length === 0 ? (
-                <tr><td colSpan={6} className="py-12 text-center text-text-muted">No audit logs found.</td></tr>
+                <tr><td colSpan={7} className="py-12 text-center text-text-muted">No audit logs found.</td></tr>
               ) : logs.map((l, i) => (
                 <tr key={l.id || `log-${i}`} className="border-b border-border/50 hover:bg-surface-el/50 transition-colors">
-                  <td className="py-3 text-text-muted">{l.timestamp ? new Date(l.timestamp).toLocaleTimeString() : '—'}</td>
-                  <td className="py-3 capitalize">{l.username ?? '—'}</td>
+                  <td className="py-3 text-text-muted">{l.timestamp ? new Date(l.timestamp).toLocaleString() : '—'}</td>
+                  <td className="py-3">{l.username ?? '—'}</td>
+                  <td className="py-3 text-text-secondary">{l.userRole ? l.userRole.replace('ROLE_', '') : '—'}</td>
                   <td className="py-3">
                     <span className="bg-surface-el px-2 py-0.5 rounded text-xs">{l.action ? String(l.action).replace(/_/g, ' ') : '—'}</span>
                   </td>
