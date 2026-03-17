@@ -5,7 +5,7 @@ import { login } from '../api/auth';
 import { Scale, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
-  const { login: setAuth } = useAuth();
+  const { refetch } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
@@ -33,7 +33,7 @@ export default function LoginPage() {
         return;
       }
       if (res.token && res.user) {
-        setAuth(res);
+        await refetch();
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Invalid credentials');
@@ -47,7 +47,7 @@ export default function LoginPage() {
       const { validateMfa } = await import('../api/auth');
       const res = await validateMfa(mfaToken, mfaCode);
       if (res.token && res.user) {
-        setAuth(res);
+        await refetch();
       }
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Invalid MFA code');
