@@ -76,10 +76,10 @@ public class DocumentMetadata {
     private Matter matter;
 
     // Structured extraction fields (auto-populated after indexing)
-    @Column(length = 500)
+    @Column(name = "party_a", length = 500)
     private String partyA;
 
-    @Column(length = 500)
+    @Column(name = "party_b", length = 500)
     private String partyB;
 
     private LocalDate expiryDate;
