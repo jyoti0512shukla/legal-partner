@@ -16,43 +16,54 @@ import java.util.UUID;
 @Repository
 public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
 
-    @Query("""
-            SELECT a FROM AuditLog a WHERE
+    @Query(value = """
+            SELECT * FROM audit_logs a WHERE
             (:username IS NULL OR a.username = :username) AND
-            (:userRole IS NULL OR a.userRole = :userRole) AND
+            (:userRole IS NULL OR a.user_role = :userRole) AND
             (:action IS NULL OR a.action = :action) AND
-            (:from IS NULL OR a.timestamp >= :from) AND
-            (:to IS NULL OR a.timestamp <= :to) AND
-            (:documentId IS NULL OR a.documentId = :documentId)
+            (:from::timestamptz IS NULL OR a.timestamp >= :from::timestamptz) AND
+            (:to::timestamptz IS NULL OR a.timestamp <= :to::timestamptz) AND
+            (:documentId::uuid IS NULL OR a.document_id = :documentId::uuid)
             ORDER BY a.timestamp DESC
-            """)
+            """,
+            countQuery = """
+            SELECT COUNT(*) FROM audit_logs a WHERE
+            (:username IS NULL OR a.username = :username) AND
+            (:userRole IS NULL OR a.user_role = :userRole) AND
+            (:action IS NULL OR a.action = :action) AND
+            (:from::timestamptz IS NULL OR a.timestamp >= :from::timestamptz) AND
+            (:to::timestamptz IS NULL OR a.timestamp <= :to::timestamptz) AND
+            (:documentId::uuid IS NULL OR a.document_id = :documentId::uuid)
+            """,
+            nativeQuery = true)
     Page<AuditLog> findFiltered(
             @Param("username") String username,
             @Param("userRole") String userRole,
-            @Param("action") AuditActionType action,
+            @Param("action") String action,
             @Param("from") Instant from,
             @Param("to") Instant to,
-            @Param("documentId") UUID documentId,
+            @Param("documentId") String documentId,
             Pageable pageable
     );
 
-    @Query("""
-            SELECT a FROM AuditLog a WHERE
+    @Query(value = """
+            SELECT * FROM audit_logs a WHERE
             (:username IS NULL OR a.username = :username) AND
-            (:userRole IS NULL OR a.userRole = :userRole) AND
+            (:userRole IS NULL OR a.user_role = :userRole) AND
             (:action IS NULL OR a.action = :action) AND
-            (:from IS NULL OR a.timestamp >= :from) AND
-            (:to IS NULL OR a.timestamp <= :to) AND
-            (:documentId IS NULL OR a.documentId = :documentId)
+            (:from::timestamptz IS NULL OR a.timestamp >= :from::timestamptz) AND
+            (:to::timestamptz IS NULL OR a.timestamp <= :to::timestamptz) AND
+            (:documentId::uuid IS NULL OR a.document_id = :documentId::uuid)
             ORDER BY a.timestamp DESC
-            """)
+            """,
+            nativeQuery = true)
     List<AuditLog> findFilteredAll(
             @Param("username") String username,
             @Param("userRole") String userRole,
-            @Param("action") AuditActionType action,
+            @Param("action") String action,
             @Param("from") Instant from,
             @Param("to") Instant to,
-            @Param("documentId") UUID documentId
+            @Param("documentId") String documentId
     );
 
     @Query("SELECT DISTINCT a.username FROM AuditLog a WHERE (:from IS NULL OR a.timestamp >= :from) AND (:to IS NULL OR a.timestamp <= :to) ORDER BY a.username")

@@ -36,7 +36,9 @@ public class AuditService {
             Instant from, Instant to, UUID documentId,
             Pageable pageable
     ) {
-        return repository.findFiltered(username, userRole, action, from, to, documentId, pageable)
+        String actionStr = action != null ? action.name() : null;
+        String documentIdStr = documentId != null ? documentId.toString() : null;
+        return repository.findFiltered(username, userRole, actionStr, from, to, documentIdStr, pageable)
                 .map(this::toEntry);
     }
 
@@ -61,7 +63,9 @@ public class AuditService {
     }
 
     public byte[] exportCsv(String username, String userRole, AuditActionType action, Instant from, Instant to, UUID documentId) {
-        List<AuditLog> logs = repository.findFilteredAll(username, userRole, action, from, to, documentId);
+        String actionStr = action != null ? action.name() : null;
+        String documentIdStr = documentId != null ? documentId.toString() : null;
+        List<AuditLog> logs = repository.findFilteredAll(username, userRole, actionStr, from, to, documentIdStr);
         StringWriter sw = new StringWriter();
         try (CSVWriter writer = new CSVWriter(sw)) {
             writer.writeNext(new String[]{
