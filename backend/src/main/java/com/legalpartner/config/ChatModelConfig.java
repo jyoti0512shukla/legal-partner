@@ -8,6 +8,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
+import java.time.Duration;
+
 /**
  * When LEGALPARTNER_CHAT_API_URL is set (e.g. Colab ngrok URL), use OpenAI-compatible
  * API for chat instead of Ollama. Embeddings remain from Ollama.
@@ -25,6 +27,7 @@ public class ChatModelConfig {
                 .baseUrl(baseUrl.endsWith("/v1") ? baseUrl : baseUrl + "/v1")
                 .apiKey("no-op")
                 .modelName(modelName)
+                .timeout(Duration.ofSeconds(300))
                 .build();
     }
 }
