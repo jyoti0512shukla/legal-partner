@@ -187,8 +187,8 @@ gcloud compute instances create legal-partner-vm \
 | **Project** | legal-partner-489422 |
 | **VM Name** | legal-partner-vm |
 | **Zone** | us-central1-a |
-| **VM IP** | Dynamic — changes after stop/start; run `describe` to get current |
-| **Backend URL** | http://\<current-ip\>:8080 |
+| **VM IP** | 34.28.67.220 (dynamic — changes after stop/start; run `curl ifconfig.me` on VM to get current) |
+| **Backend URL** | http://34.28.67.220:8080 |
 | **Login** | admin / admin123 |
 
 ---
