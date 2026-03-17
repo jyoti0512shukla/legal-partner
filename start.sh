@@ -4,8 +4,14 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+echo "==> Stopping any running frontend..."
+pkill -f "vite.*3000" 2>/dev/null && echo "    frontend stopped." || echo "    no frontend running."
+
 echo "==> Pulling latest code..."
 git pull origin main
+
+echo "==> Stopping backend services..."
+docker-compose down
 
 echo "==> Starting backend services (building if changed)..."
 docker-compose up -d --build
