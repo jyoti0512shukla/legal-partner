@@ -59,6 +59,7 @@ services:
       # Optional: Colab/ngrok URL for chat model (e.g. https://xxx.ngrok-free.dev)
       LEGALPARTNER_CHAT_API_URL: ${LEGALPARTNER_CHAT_API_URL:-}
       JASYPT_ENCRYPTOR_PASSWORD: ${ENCRYPTION_KEY:-demo-encryption-key-change-in-prod}
+      LEGALPARTNER_CLOUD_FRONTEND_URL: ${LEGALPARTNER_CLOUD_FRONTEND_URL:-http://*:3000}
     depends_on:
       postgres:
         condition: service_healthy
