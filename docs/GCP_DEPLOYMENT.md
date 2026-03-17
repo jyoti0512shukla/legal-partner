@@ -114,14 +114,19 @@ git clone https://github.com/jyoti0512shukla/legal-partner.git
 cd legal-partner
 ```
 
-Create `.env`:
+Create `.env` (use nano — heredoc `EOF` fails if lines have leading spaces):
 ```bash
-cat > .env << 'EOF'
-DB_PASSWORD=change-this-secure-password
-ENCRYPTION_KEY=change-this-encryption-key-in-prod
-LEGALPARTNER_CHAT_API_URL=https://YOUR-COLAB-NGROK-URL.ngrok-free.dev
-EOF
+nano .env
 ```
+Paste the following content, then press `Ctrl+X` → `Y` → Enter to save:
+```
+DB_PASSWORD=your-secure-password
+ENCRYPTION_KEY=your-encryption-key
+LEGALPARTNER_CHAT_API_URL=https://YOUR-COLAB-NGROK-URL.ngrok-free.app/v1
+LEGALPARTNER_CHAT_API_MODEL=mistralai/Mistral-7B-Instruct-v0.2
+```
+
+> **Note:** Include `/v1` at the end of the ngrok URL. No trailing slash after `/v1`.
 
 Start services (use `docker-compose` with hyphen on Ubuntu):
 ```bash
@@ -130,16 +135,32 @@ docker-compose -f docker-compose.oci.yml --env-file .env up -d --build
 
 *(Use `docker-compose.oci.yml` — same as OCI: Postgres + Ollama + backend. Chat runs in Colab.)*
 
+### Update ngrok URL (each new Colab session)
+
+Each Colab session gives a new ngrok URL. To update without full rebuild:
+```bash
+nano .env   # update LEGALPARTNER_CHAT_API_URL
+docker-compose -f docker-compose.oci.yml --env-file .env up -d
+```
+
 ---
 
 ## Step 6: Start/Stop On Demand
 
 ```bash
 # Stop (when done — saves ~$100/mo)
-gcloud compute instances stop legal-partner-vm --zone=asia-south1-a
+gcloud compute instances stop legal-partner-vm --zone=us-central1-a
 
 # Start (when needed)
-gcloud compute instances start legal-partner-vm --zone=asia-south1-a
+gcloud compute instances start legal-partner-vm --zone=us-central1-a
+```
+
+> **After start:** Wait ~30 seconds before SSH — the VM needs time to boot. IP may change after each stop/start.
+
+Get current IP after start:
+```bash
+gcloud compute instances describe legal-partner-vm --zone=us-central1-a \
+  --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
 ```
 
 ---
@@ -166,8 +187,8 @@ gcloud compute instances create legal-partner-vm \
 | **Project** | legal-partner-489422 |
 | **VM Name** | legal-partner-vm |
 | **Zone** | us-central1-a |
-| **VM IP** | 34.121.77.216 (may change after stop/start; run describe to get current) |
-| **Backend URL** | http://34.121.77.216:8080 |
+| **VM IP** | Dynamic — changes after stop/start; run `describe` to get current |
+| **Backend URL** | http://\<current-ip\>:8080 |
 | **Login** | admin / admin123 |
 
 ---

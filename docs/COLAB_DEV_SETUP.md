@@ -16,13 +16,92 @@
 | **D** | Colab (chat) + Cheap VPS (DB, embeddings, backend) | Browser only | ~$0–₹500/mo | Oracle free / Hetzner / Contabo |
 | **E** | Colab (chat) + GCP VM (DB, embeddings, backend) | Browser only | $300 credit (~$50/mo, stop when idle) | You have GCP credits |
 
-**Shared across all options:** Colab runs vLLM + AALAP for chat, exposed via ngrok.
+**Shared across all options:** Colab runs LLM for chat, exposed via ngrok.
 
 ---
 
 ## Colab Setup (All Options — Do This First)
 
-### Colab Notebook: vLLM + ngrok
+### Option 1: Flask + Transformers (Recommended — works without vLLM issues)
+
+1. [colab.research.google.com](https://colab.research.google.com) → New notebook → **Runtime → GPU** (T4 or A100)
+2. Colab Pro (~$10/mo) or pay-as-you-go
+
+**Cell 1 — Install dependencies**
+```python
+!pip install -q transformers torch accelerate flask pyngrok
+```
+
+**Cell 2 — HuggingFace login (required for gated models)**
+```python
+from huggingface_hub import login
+login(token="YOUR_HF_TOKEN")  # huggingface.co/settings/tokens
+```
+
+**Cell 3 — Load model + start Flask server**
+```python
+from flask import Flask, request, jsonify
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch, threading
+
+app = Flask(__name__)
+model_name = "mistralai/Mistral-7B-Instruct-v0.2"
+print("Loading model (first run ~5-10 min)...")
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+print("✓ Model loaded")
+
+def build_prompt(messages):
+    prompt = ""
+    for m in messages:
+        role, content = m.get("role", "user"), m.get("content", "")
+        if role == "system":
+            prompt += f"<s>[INST] {content} [/INST] "
+        elif role == "user":
+            prompt += f"[INST] {content} [/INST] "
+        elif role == "assistant":
+            prompt += f"{content} "
+    return prompt
+
+@app.route("/v1/chat/completions", methods=["POST"])
+def chat():
+    data = request.json
+    prompt = build_prompt(data.get("messages", []))
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    out = model.generate(**inputs, max_new_tokens=512, do_sample=True,
+                         temperature=0.3, pad_token_id=tokenizer.eos_token_id)
+    reply = tokenizer.decode(out[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+    return jsonify({"choices": [{"message": {"content": reply.strip(), "role": "assistant"}}]})
+
+@app.route("/v1/models")
+def models():
+    return jsonify({"data": [{"id": model_name}]})
+
+threading.Thread(target=lambda: app.run(host="0.0.0.0", port=8000, debug=False, use_reloader=False)).start()
+print("✓ Flask server running on port 8000")
+```
+
+**Cell 4 — Expose via ngrok**
+```python
+!pip install -q pyngrok
+from pyngrok import ngrok
+
+ngrok.set_auth_token("YOUR_NGROK_TOKEN")  # dashboard.ngrok.com
+public_url = ngrok.connect(8000)
+print("Set this in Legal Partner backend:")
+print(public_url.public_url + "/v1")
+```
+> **Important:** `!pip install -q pyngrok` must be in the **same cell** as the import, or in a cell that runs before it. The import will fail with `ModuleNotFoundError` otherwise.
+
+Set in backend env:
+```
+LEGALPARTNER_CHAT_API_URL=https://xxxx.ngrok-free.app/v1
+LEGALPARTNER_CHAT_API_MODEL=mistralai/Mistral-7B-Instruct-v0.2
+```
+
+---
+
+### Option 2: vLLM (faster inference, requires more GPU memory)
 
 1. [colab.research.google.com](https://colab.research.google.com) → New notebook → **Runtime → GPU** (T4 or A100)
 2. Colab Pro (~$10/mo) or pay-as-you-go
@@ -30,6 +109,8 @@
 **Cell 1 — Install vLLM**
 ```python
 !pip install -q vllm
+import os
+os.environ["VLLM_USE_V1"] = "0"
 ```
 
 **Cell 2 — Start vLLM (chat)**
@@ -44,8 +125,9 @@
 ```python
 !pip install -q pyngrok
 from pyngrok import ngrok
+ngrok.set_auth_token("YOUR_NGROK_TOKEN")
 url = ngrok.connect(8000)
-print("LEGALPARTNER_CHAT_API_URL:", url.public_url)
+print("LEGALPARTNER_CHAT_API_URL:", url.public_url + "/v1")
 ```
 
 **Cell 4 — (Options B/C/D/E) Embedding server (same Colab)**
