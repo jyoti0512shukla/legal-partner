@@ -44,7 +44,7 @@ export default function DocumentsPage() {
     Object.entries(meta).forEach(([k, v]) => { if (v !== '' && v !== false) fd.append(k, v); });
     if (meta.confidential) fd.append('confidential', 'true');
     try {
-      await api.post('/documents/upload', fd);
+      await api.post('/documents/upload', fd, { headers: { 'Content-Type': undefined } });
       setShowForm(false); setSelectedFile(null);
       setMeta({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '' });
       fetchDocs();
