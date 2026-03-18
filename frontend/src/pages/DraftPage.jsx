@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save } from 'lucide-react';
+import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save, FolderOpen, Pencil } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
 
@@ -12,14 +13,17 @@ function stripHtml(html) {
 const JURISDICTIONS = ['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan', 'Supreme Court', 'India'];
 
 export default function DraftPage() {
+  const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
+  const [docs, setDocs] = useState([]);
+  const [refMode, setRefMode] = useState('manual'); // 'manual' | 'system'
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState('');
   const [refining, setRefining] = useState(false);
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
-  const [selectionInfo, setSelectionInfo] = useState(null);   // { text, x, y }
-  const [pendingRefinement, setPendingRefinement] = useState(null); // { originalText, improvedText, reasoning, x, y }
+  const [selectionInfo, setSelectionInfo] = useState(null);
+  const [pendingRefinement, setPendingRefinement] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const previewRef = useRef(null);
@@ -45,6 +49,7 @@ export default function DraftPage() {
 
   useEffect(() => {
     api.get('/ai/templates').then(r => setTemplates(r.data || [])).catch(() => setTemplates([]));
+    api.get('/documents?size=100&sort=uploadDate,desc').then(r => setDocs(r.data.content || [])).catch(() => setDocs([]));
   }, []);
 
   const handlePreviewMouseUp = useCallback(() => {
@@ -254,8 +259,35 @@ export default function DraftPage() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-text-muted mb-1 block">Agreement Ref (optional)</label>
-                <input value={form.agreementRef} onChange={e => setForm({ ...form, agreementRef: e.target.value })} placeholder="e.g. NDA-2025-001" className="input-field w-full text-sm" />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs text-text-muted">Agreement Ref (optional)</label>
+                  <div className="flex gap-1">
+                    <button type="button" onClick={() => setRefMode('system')}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${refMode === 'system' ? 'bg-primary text-white' : 'text-text-muted hover:text-text-primary'}`}>
+                      <FolderOpen className="w-3 h-3" /> From system
+                    </button>
+                    <button type="button" onClick={() => setRefMode('manual')}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${refMode === 'manual' ? 'bg-primary text-white' : 'text-text-muted hover:text-text-primary'}`}>
+                      <Pencil className="w-3 h-3" /> Manual
+                    </button>
+                  </div>
+                </div>
+                {refMode === 'manual' ? (
+                  <input value={form.agreementRef} onChange={e => setForm({ ...form, agreementRef: e.target.value })}
+                    placeholder="e.g. NDA-2025-001" className="input-field w-full text-sm" />
+                ) : (
+                  <div className="flex gap-2">
+                    <select value={form.agreementRef} onChange={e => setForm({ ...form, agreementRef: e.target.value })}
+                      className="input-field w-full text-sm">
+                      <option value="">Select a document...</option>
+                      {docs.map(d => <option key={d.id} value={d.fileName}>{d.fileName}</option>)}
+                    </select>
+                    <button type="button" onClick={() => navigate('/documents')}
+                      className="btn-secondary text-xs px-2 shrink-0" title="Upload a new document">
+                      + Upload
+                    </button>
+                  </div>
+                )}
               </div>
               <button onClick={handleGenerate} disabled={loading || !form.templateId} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
                 {loading ? <Loader className="w-5 h-5 animate-spin" /> : <FileEdit className="w-5 h-5" />}
