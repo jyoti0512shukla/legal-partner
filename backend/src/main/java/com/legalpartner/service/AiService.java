@@ -250,12 +250,19 @@ public class AiService {
                 UserMessage.from(prompt)
         ).content();
 
-        JsonNode parsed = responseValidator.parseAndValidate(response.text());
+        String rawText = response.text();
+        log.info("Risk assessment raw response length={}, preview={}",
+                rawText.length(), rawText.substring(0, Math.min(300, rawText.length())).replace('\n', ' '));
+
+        JsonNode parsed = responseValidator.parseAndValidate(rawText);
         String overallRisk = "MEDIUM";
         List<RiskCategory> categories = new ArrayList<>();
 
         if (parsed != null) {
             overallRisk = parsed.path("overall_risk").asText("MEDIUM");
+            log.info("Risk assessment parsed OK: overall_risk={}, has_categories={}, categories_size={}",
+                    overallRisk, parsed.has("categories"),
+                    parsed.has("categories") ? parsed.get("categories").size() : 0);
             if (parsed.has("categories")) {
                 for (JsonNode cat : parsed.get("categories")) {
                     categories.add(new RiskCategory(
@@ -266,7 +273,7 @@ public class AiService {
             }
         } else {
             // Fallback: extract risk level from plain text response
-            String upper = response.text().toUpperCase();
+            String upper = rawText.toUpperCase();
             if (upper.contains("HIGH")) overallRisk = "HIGH";
             else if (upper.contains("LOW")) overallRisk = "LOW";
             else overallRisk = "MEDIUM";
