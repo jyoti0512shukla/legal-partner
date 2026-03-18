@@ -59,6 +59,7 @@ public final class PromptTemplates {
             Categories to assess: Liability, Indemnity, Termination, IP Rights, Confidentiality, Governing Law, Force Majeure
 
             Rate each: HIGH (unacceptable risk or missing clause) / MEDIUM (present but weaker than standard) / LOW (well-drafted, firm-favorable)
+            Keep justifications to 1-2 sentences maximum. Be concise.
 
             You MUST respond with ONLY a valid JSON object. Do not write any explanation, preamble, or text outside the JSON.
             Do not write "Response:" or any label. Start your response directly with { and end with }.
