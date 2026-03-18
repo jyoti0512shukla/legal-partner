@@ -60,15 +60,14 @@ public final class PromptTemplates {
 
             Rate each: HIGH (unacceptable risk or missing clause) / MEDIUM (present but weaker than standard) / LOW (well-drafted, firm-favorable)
 
-            Output ONLY valid JSON:
+            You MUST respond with ONLY a valid JSON object. Do not write any explanation, preamble, or text outside the JSON.
+            Do not write "Response:" or any label. Start your response directly with { and end with }.
+
+            Required format:
             {"overall_risk": "HIGH|MEDIUM|LOW", "categories": [{"name": "...", "rating": "HIGH|MEDIUM|LOW", "justification": "...", "clause_reference": "Section X.Y or MISSING"}]}
 
-            Example output:
-            {"overall_risk": "HIGH", "categories": [
-              {"name": "Liability", "rating": "HIGH", "justification": "No limitation of liability clause found. Firm is exposed to unlimited damages claims.", "clause_reference": "MISSING"},
-              {"name": "Indemnity", "rating": "MEDIUM", "justification": "Unilateral indemnity — only vendor indemnifies client. Firm should negotiate mutual indemnity.", "clause_reference": "Section 9.2"},
-              {"name": "Governing Law", "rating": "LOW", "justification": "Clearly specifies Indian law with Mumbai courts. Favorable.", "clause_reference": "Section 15.1"}
-            ]}
+            Example (copy this structure exactly):
+            {"overall_risk": "HIGH", "categories": [{"name": "Liability", "rating": "HIGH", "justification": "No limitation of liability clause found. Firm is exposed to unlimited damages claims.", "clause_reference": "MISSING"}, {"name": "Indemnity", "rating": "MEDIUM", "justification": "Unilateral indemnity only. Firm should negotiate mutual indemnity.", "clause_reference": "Section 9.2"}, {"name": "Governing Law", "rating": "LOW", "justification": "Clearly specifies Indian law with Mumbai courts.", "clause_reference": "Section 15.1"}]}
             """;
 
     public static final String RISK_USER = """

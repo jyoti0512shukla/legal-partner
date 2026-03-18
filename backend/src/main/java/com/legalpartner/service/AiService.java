@@ -241,6 +241,13 @@ public class AiService {
                     ));
                 }
             }
+        } else {
+            // Fallback: extract risk level from plain text response
+            String upper = response.text().toUpperCase();
+            if (upper.contains("HIGH")) overallRisk = "HIGH";
+            else if (upper.contains("LOW")) overallRisk = "LOW";
+            else overallRisk = "MEDIUM";
+            log.warn("LLM did not return JSON for risk assessment, extracted overall risk: {}", overallRisk);
         }
         return new RiskAssessmentResult(overallRisk, categories);
     }
