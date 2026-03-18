@@ -225,11 +225,13 @@ public class AiService {
                 UserMessage.from(prompt)
         ).content();
 
+        log.info("Raw risk assessment LLM response: {}", response.text());
         JsonNode parsed = responseValidator.parseAndValidate(response.text());
         String overallRisk = "MEDIUM";
         List<RiskCategory> categories = new ArrayList<>();
 
         if (parsed != null) {
+            log.info("Parsed JSON keys: {}", parsed.fieldNames());
             overallRisk = parsed.path("overall_risk").asText("MEDIUM");
             if (parsed.has("categories")) {
                 for (JsonNode cat : parsed.get("categories")) {
