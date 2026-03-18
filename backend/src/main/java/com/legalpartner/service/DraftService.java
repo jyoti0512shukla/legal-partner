@@ -10,23 +10,36 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class DraftService {
 
     private final TemplateService templateService;
     private final DraftContextRetriever draftContextRetriever;
     private final ChatLanguageModel chatModel;
+    private final Semaphore draftSemaphore;
+
+    public DraftService(TemplateService templateService,
+                        DraftContextRetriever draftContextRetriever,
+                        ChatLanguageModel chatModel,
+                        @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
+        this.templateService = templateService;
+        this.draftContextRetriever = draftContextRetriever;
+        this.chatModel = chatModel;
+        this.draftSemaphore = new Semaphore(maxConcurrent);
+    }
 
     private static final Map<String, String[]> CLAUSE_PLACEHOLDER_TO_TYPE = Map.of(
         "LIABILITY_CLAUSE", new String[]{"LIABILITY", PromptTemplates.DRAFT_LIABILITY_SYSTEM, PromptTemplates.DRAFT_LIABILITY_USER},
@@ -38,6 +51,19 @@ public class DraftService {
     );
 
     public DraftResponse generateDraft(DraftRequest request, String username) {
+        if (!draftSemaphore.tryAcquire()) {
+            log.warn("Draft rate limit hit — {} permits in use", draftSemaphore.availablePermits());
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Draft generation is busy. Please try again in a moment.");
+        }
+        try {
+            return doGenerateDraft(request);
+        } finally {
+            draftSemaphore.release();
+        }
+    }
+
+    private DraftResponse doGenerateDraft(DraftRequest request) {
         String template = templateService.loadTemplate(request.getTemplateId());
         Map<String, String> values = buildPlaceholderMap(request);
         String filled = replacePlaceholders(template, values);
