@@ -1,236 +1,346 @@
 import { useState, useEffect } from 'react';
-import { ClipboardList, CheckCircle2, XCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { ShieldAlert, ClipboardList, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
-const CHECKLIST = [
-  {
-    category: 'Parties & Execution',
-    items: [
-      'Full legal names of all parties are stated',
-      'Registered office addresses are included',
-      'Authorized signatories are identified',
-      'Execution date / effective date is defined',
-    ],
-  },
-  {
-    category: 'Scope & Obligations',
-    items: [
-      'Scope of work / services is clearly defined',
-      'Deliverables and acceptance criteria are specified',
-      'Timelines and milestones are set out',
-      'Change order / variation procedure exists',
-    ],
-  },
-  {
-    category: 'Payment Terms',
-    items: [
-      'Payment amounts and schedule are defined',
-      'Invoice and payment timeline is stated',
-      'Late payment interest is addressed',
-      'Currency and tax treatment (GST) is specified',
-    ],
-  },
-  {
-    category: 'Liability & Indemnity',
-    items: [
-      'Liability is capped (recommend mutual cap)',
-      'Consequential loss exclusion is present',
-      'Indemnity obligations are mutual / balanced',
-      'Insurance requirements are specified',
-    ],
-  },
-  {
-    category: 'IP & Confidentiality',
-    items: [
-      'Ownership of work product / IP is defined',
-      'License grant (if any) is clearly stated',
-      'Confidentiality obligations are present',
-      'Post-termination confidentiality survival period stated',
-    ],
-  },
-  {
-    category: 'Term & Termination',
-    items: [
-      'Contract duration is specified',
-      'Renewal / auto-renewal mechanism addressed',
-      'Termination for cause provisions exist',
-      'Termination for convenience provisions exist',
-      'Consequences of termination (handover, payment) addressed',
-    ],
-  },
-  {
-    category: 'Dispute Resolution',
-    items: [
-      'Governing law is specified (Indian law?)',
-      'Jurisdiction / courts are identified',
-      'Arbitration clause present (if applicable)',
-      'Escalation / notice-before-dispute procedure exists',
-    ],
-  },
-  {
-    category: 'Compliance & Regulatory',
-    items: [
-      'Data protection obligations addressed (IT Act / DPDP)',
-      'Anti-bribery / anti-corruption clause present',
-      'Force majeure clause present',
-      'Applicable Indian regulations identified',
-    ],
-  },
-];
+/* ─── shared helpers ─────────────────────────────────────────────── */
 
-function CategorySection({ category, items, checks, onToggle }) {
-  const [open, setOpen] = useState(true);
-  const done = items.filter((_, i) => checks[`${category}:${i}`] === 'yes').length;
-  const issues = items.filter((_, i) => checks[`${category}:${i}`] === 'no').length;
+const RISK_COLOR = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
+
+function RiskBadge({ level }) {
+  const c = RISK_COLOR[level] || 'text-muted';
+  return <span className={`badge-${level?.toLowerCase() || 'medium'}`}>{level}</span>;
+}
+
+function RiskGauge({ rating }) {
+  const angles = { LOW: -60, MEDIUM: 0, HIGH: 60 };
+  const angle = angles[rating] || 0;
+  return (
+    <div className="w-32 h-20 mx-auto relative">
+      <svg viewBox="0 0 100 60" className="w-full h-full">
+        <defs>
+          <linearGradient id="gauge-bg" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#10B981" />
+            <stop offset="50%" stopColor="#F59E0B" />
+            <stop offset="100%" stopColor="#EF4444" />
+          </linearGradient>
+        </defs>
+        <path d="M 10 55 A 45 45 0 0 1 90 55" fill="none" stroke="url(#gauge-bg)" strokeWidth="8" strokeLinecap="round" />
+        <line
+          x1="50" y1="55"
+          x2={50 + 30 * Math.cos(((angle - 90) * Math.PI) / 180)}
+          y2={55 + 30 * Math.sin(((angle - 90) * Math.PI) / 180)}
+          stroke="#F9FAFB" strokeWidth="2" strokeLinecap="round"
+          style={{ transition: 'all 0.8s ease-out' }}
+        />
+        <circle cx="50" cy="55" r="3" fill="#F9FAFB" />
+      </svg>
+    </div>
+  );
+}
+
+/* ─── Tab 1: Risk Assessment ─────────────────────────────────────── */
+
+function RiskTab({ docId }) {
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const run = async () => {
+    setLoading(true); setError(''); setResult(null);
+    try {
+      const res = await api.post(`/ai/risk-assessment/${docId}`);
+      setResult(res.data);
+    } catch (e) {
+      setError(e.response?.data?.message || 'Assessment failed');
+    } finally { setLoading(false); }
+  };
+
+  if (!docId) return <EmptyPrompt icon={ShieldAlert} text="Select a document above to assess its risk." />;
 
   return (
-    <div className="card mb-3">
+    <div>
+      <div className="flex justify-end mb-4">
+        <button onClick={run} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
+          {loading ? <Spinner /> : <ShieldAlert className="w-4 h-4" />}
+          {loading ? 'Analysing…' : 'Run Risk Assessment'}
+        </button>
+      </div>
+
+      {error && <ErrorCard msg={error} />}
+      {loading && <LoadingSkeleton rows={8} />}
+
+      {result && (
+        <>
+          <div className="card text-center py-8 mb-6">
+            <h3 className="text-text-muted text-sm mb-3">Overall Risk</h3>
+            <RiskGauge rating={result.overallRisk} />
+            <p className={`text-2xl font-bold mt-4 text-${RISK_COLOR[result.overallRisk] || 'text-muted'}`}>
+              {result.overallRisk}
+            </p>
+            <p className="text-text-muted text-sm mt-1">
+              {result.categories?.filter(c => c.rating === 'HIGH').length || 0} High ·{' '}
+              {result.categories?.filter(c => c.rating === 'MEDIUM').length || 0} Medium ·{' '}
+              {result.categories?.filter(c => c.rating === 'LOW').length || 0} Low
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {result.categories?.map((cat, i) => (
+              <div key={i} className={`card border-t-4 border-${RISK_COLOR[cat.rating] || 'border'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-text-primary">{cat.name}</h4>
+                  <RiskBadge level={cat.rating} />
+                </div>
+                <p className="text-sm text-text-secondary mb-2">{cat.justification}</p>
+                {cat.clauseReference && (
+                  <p className="font-mono text-xs text-primary">{cat.clauseReference}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {!result && !loading && !error && (
+        <EmptyPrompt icon={ShieldAlert} text="Click Run Risk Assessment to analyse this document." />
+      )}
+    </div>
+  );
+}
+
+/* ─── Tab 2: Clause Checklist ────────────────────────────────────── */
+
+const STATUS_ICON = {
+  PRESENT: <CheckCircle2 className="w-4 h-4 text-success shrink-0" />,
+  WEAK: <AlertTriangle className="w-4 h-4 text-warning shrink-0" />,
+  MISSING: <XCircle className="w-4 h-4 text-danger shrink-0" />,
+};
+
+const STATUS_ORDER = { MISSING: 0, WEAK: 1, PRESENT: 2 };
+
+function ClauseRow({ clause }) {
+  const [open, setOpen] = useState(clause.status !== 'PRESENT');
+  const borderColor = clause.status === 'MISSING' ? 'border-danger' : clause.status === 'WEAK' ? 'border-warning' : 'border-success';
+
+  return (
+    <div className={`card border-l-4 ${borderColor} !p-0 overflow-hidden`}>
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center justify-between w-full"
+        className="flex items-center gap-3 w-full px-4 py-3 text-left"
       >
-        <div className="flex items-center gap-3">
-          <h3 className="font-semibold text-text-primary">{category}</h3>
-          <span className="text-xs text-success">{done}/{items.length} done</span>
-          {issues > 0 && <span className="text-xs text-danger">{issues} issue{issues > 1 ? 's' : ''}</span>}
-        </div>
-        {open ? <ChevronUp className="w-4 h-4 text-text-muted" /> : <ChevronDown className="w-4 h-4 text-text-muted" />}
+        {STATUS_ICON[clause.status] || STATUS_ICON.PRESENT}
+        <span className="flex-1 text-sm font-medium text-text-primary">{clause.clauseName}</span>
+        <RiskBadge level={clause.riskLevel} />
+        <span className="text-xs text-text-muted ml-2">{clause.sectionRef || ''}</span>
+        {open ? <ChevronUp className="w-4 h-4 text-text-muted ml-1 shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted ml-1 shrink-0" />}
       </button>
 
       {open && (
-        <div className="mt-4 space-y-3">
-          {items.map((item, i) => {
-            const key = `${category}:${i}`;
-            const val = checks[key];
-            return (
-              <div key={i} className="flex items-start gap-3">
-                <div className="flex gap-1.5 mt-0.5 shrink-0">
-                  <button
-                    onClick={() => onToggle(key, 'yes')}
-                    className={`p-1 rounded transition-colors ${val === 'yes' ? 'text-success' : 'text-text-muted hover:text-success'}`}
-                    title="Yes / Present"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => onToggle(key, 'issue')}
-                    className={`p-1 rounded transition-colors ${val === 'issue' ? 'text-warning' : 'text-text-muted hover:text-warning'}`}
-                    title="Present but needs attention"
-                  >
-                    <AlertCircle className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => onToggle(key, 'no')}
-                    className={`p-1 rounded transition-colors ${val === 'no' ? 'text-danger' : 'text-text-muted hover:text-danger'}`}
-                    title="Missing / Issue"
-                  >
-                    <XCircle className="w-4 h-4" />
-                  </button>
-                </div>
-                <span className={`text-sm leading-relaxed ${
-                  val === 'yes' ? 'text-text-secondary line-through' :
-                  val === 'no' ? 'text-danger' :
-                  val === 'issue' ? 'text-warning' : 'text-text-primary'
-                }`}>{item}</span>
-              </div>
-            );
-          })}
+        <div className="px-4 pb-4 space-y-2 border-t border-border/50">
+          {clause.assessment && (
+            <p className="text-sm text-text-secondary mt-3">{clause.assessment}</p>
+          )}
+          {clause.foundText && (
+            <p className="text-xs font-mono bg-surface-el rounded p-2 text-text-secondary leading-relaxed">
+              "{clause.foundText}"
+            </p>
+          )}
+          {clause.recommendation && (
+            <p className="text-xs text-warning flex items-start gap-1.5 mt-1">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              {clause.recommendation}
+            </p>
+          )}
         </div>
       )}
     </div>
   );
 }
 
+function ChecklistTab({ docId }) {
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const run = async () => {
+    setLoading(true); setError(''); setResult(null);
+    try {
+      const res = await api.post('/review', { documentId: docId });
+      setResult(res.data);
+    } catch (e) {
+      setError(e.response?.data?.message || 'Review failed');
+    } finally { setLoading(false); }
+  };
+
+  if (!docId) return <EmptyPrompt icon={ClipboardList} text="Select a document above to run a clause checklist." />;
+
+  const sorted = result?.clauses
+    ? [...result.clauses].sort((a, b) => (STATUS_ORDER[a.status] ?? 2) - (STATUS_ORDER[b.status] ?? 2))
+    : [];
+
+  return (
+    <div>
+      <div className="flex justify-end mb-4">
+        <button onClick={run} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
+          {loading ? <Spinner /> : <ClipboardList className="w-4 h-4" />}
+          {loading ? 'Reviewing…' : 'Run Clause Checklist'}
+        </button>
+      </div>
+
+      {error && <ErrorCard msg={error} />}
+      {loading && <LoadingSkeleton rows={8} />}
+
+      {result && (
+        <>
+          {/* Summary bar */}
+          <div className="card mb-5 flex items-center gap-6 flex-wrap">
+            <div className="flex-1">
+              <div className="flex items-center justify-between text-xs text-text-muted mb-1.5">
+                <span>Clause Coverage</span>
+                <span>{result.presentCount} / {(result.presentCount || 0) + (result.missingCount || 0) + (result.weakCount || 0)} present</span>
+              </div>
+              <div className="h-2 bg-surface-el rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-700"
+                  style={{
+                    width: `${((result.presentCount || 0) /
+                      Math.max(1, (result.presentCount || 0) + (result.missingCount || 0) + (result.weakCount || 0))) * 100}%`
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex gap-4 text-xs shrink-0">
+              <span className="text-success font-medium">{result.presentCount} Present</span>
+              <span className="text-warning font-medium">{result.weakCount} Weak</span>
+              <span className="text-danger font-medium">{result.missingCount} Missing</span>
+            </div>
+            <div className="shrink-0">
+              <span className="text-xs text-text-muted mr-1">Overall:</span>
+              <RiskBadge level={result.overallRisk} />
+            </div>
+          </div>
+
+          {/* Critical missing */}
+          {result.criticalMissing?.length > 0 && (
+            <div className="card border border-danger/30 bg-danger/5 mb-4">
+              <p className="text-xs font-semibold text-danger mb-2 flex items-center gap-1.5">
+                <XCircle className="w-3.5 h-3.5" /> Critical clauses missing
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {result.criticalMissing.map(c => (
+                  <span key={c} className="text-xs bg-danger/10 text-danger border border-danger/20 px-2 py-0.5 rounded-full">{c}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Per-clause rows — MISSING first */}
+          <div className="space-y-2">
+            {sorted.map((clause, i) => <ClauseRow key={i} clause={clause} />)}
+          </div>
+
+          {/* Top recommendations */}
+          {result.recommendations?.length > 0 && (
+            <div className="card mt-5">
+              <p className="text-sm font-semibold mb-3">Top Recommendations</p>
+              <ol className="space-y-2">
+                {result.recommendations.map((r, i) => (
+                  <li key={i} className="text-sm text-text-secondary flex gap-2">
+                    <span className="text-primary font-medium shrink-0">{i + 1}.</span>
+                    {r}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </>
+      )}
+
+      {!result && !loading && !error && (
+        <EmptyPrompt icon={ClipboardList} text="Click Run Clause Checklist to audit each standard clause." />
+      )}
+    </div>
+  );
+}
+
+/* ─── Shared micro-components ────────────────────────────────────── */
+
+function EmptyPrompt({ icon: Icon, text }) {
+  return (
+    <div className="card text-center py-12">
+      <Icon className="w-12 h-12 text-text-muted mx-auto mb-4" />
+      <p className="text-text-muted text-sm">{text}</p>
+    </div>
+  );
+}
+
+function ErrorCard({ msg }) {
+  return (
+    <div className="card border-l-4 border-danger bg-danger/5 mb-4">
+      <p className="text-danger text-sm">{msg}</p>
+    </div>
+  );
+}
+
+function Spinner() {
+  return <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />;
+}
+
+/* ─── Main page ──────────────────────────────────────────────────── */
+
+const TABS = [
+  { id: 'risk', label: 'Risk Assessment', icon: ShieldAlert },
+  { id: 'checklist', label: 'Clause Checklist', icon: ClipboardList },
+];
+
 export default function ContractReviewPage() {
-  const [checks, setChecks] = useState({});
-  const [docName, setDocName] = useState('');
   const [docs, setDocs] = useState([]);
   const [docId, setDocId] = useState('');
+  const [tab, setTab] = useState('risk');
 
   useEffect(() => {
     api.get('/documents?size=100').then(r => setDocs(r.data.content || [])).catch(() => {});
   }, []);
 
-  const handleDocSelect = (id) => {
-    setDocId(id);
-    const doc = docs.find(d => d.id === id);
-    setDocName(doc?.fileName || '');
-    setChecks({});
-  };
-
-  const onToggle = (key, val) => {
-    setChecks(prev => {
-      if (prev[key] === val) {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      }
-      return { ...prev, [key]: val };
-    });
-  };
-
-  const totalItems = CHECKLIST.reduce((sum, c) => sum + c.items.length, 0);
-  const doneCount = Object.values(checks).filter(v => v === 'yes').length;
-  const issueCount = Object.values(checks).filter(v => v === 'no').length;
-  const attentionCount = Object.values(checks).filter(v => v === 'issue').length;
-  const progress = Math.round((doneCount / totalItems) * 100);
-
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Contract Review Checklist</h1>
+      <h1 className="text-2xl font-bold mb-6">Contract Review</h1>
 
+      {/* Shared document selector */}
       <div className="card mb-6">
-        <div className="flex items-end gap-4">
-          <div className="flex-1">
-            <label className="text-xs text-text-muted mb-1 block">Select Document (optional — for reference)</label>
-            <select value={docId} onChange={e => handleDocSelect(e.target.value)} className="input-field w-full text-sm">
-              <option value="">General review (no document)</option>
-              {docs.map(d => <option key={d.id} value={d.id}>{d.fileName}{d.clientName ? ` — ${d.clientName}` : ''}</option>)}
-            </select>
-          </div>
-          <button onClick={() => setChecks({})} className="btn-secondary text-sm">Reset</button>
-        </div>
-        {docName && <p className="text-xs text-text-muted mt-2">Reviewing: <span className="text-primary">{docName}</span></p>}
+        <label className="text-xs text-text-muted mb-1 block">Select Document</label>
+        <select value={docId} onChange={e => setDocId(e.target.value)} className="input-field w-full text-sm">
+          <option value="">Choose a contract…</option>
+          {docs.map(d => (
+            <option key={d.id} value={d.id}>
+              {d.fileName}{d.clientName ? ` — ${d.clientName}` : ''}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Progress summary */}
-      <div className="card mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-medium">Review Progress</span>
-          <span className="text-sm text-text-muted">{doneCount} / {totalItems} items</span>
-        </div>
-        <div className="h-2 bg-surface-el rounded-full overflow-hidden mb-3">
-          <div
-            className="h-full bg-primary rounded-full transition-all duration-500"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <div className="flex gap-4 text-xs">
-          <span className="text-success">{doneCount} Present</span>
-          <span className="text-warning">{attentionCount} Needs attention</span>
-          <span className="text-danger">{issueCount} Missing / Issue</span>
-        </div>
+      {/* Tab bar */}
+      <div className="flex gap-1 mb-6 border-b border-border">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              tab === id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-text-muted hover:text-text-primary'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+            {label}
+          </button>
+        ))}
       </div>
 
-      {CHECKLIST.map(section => (
-        <CategorySection
-          key={section.category}
-          category={section.category}
-          items={section.items}
-          checks={checks}
-          onToggle={onToggle}
-        />
-      ))}
-
-      <div className="card mt-4 text-center py-6">
-        <ClipboardList className="w-8 h-8 text-text-muted mx-auto mb-2" />
-        <p className="text-sm text-text-muted">
-          Use <CheckCircle2 className="inline w-3 h-3 text-success" /> Present,{' '}
-          <AlertCircle className="inline w-3 h-3 text-warning" /> Needs attention,{' '}
-          <XCircle className="inline w-3 h-3 text-danger" /> Missing for each clause
-        </p>
-      </div>
+      {/* Tab content */}
+      {tab === 'risk' && <RiskTab docId={docId} />}
+      {tab === 'checklist' && <ChecklistTab docId={docId} />}
     </div>
   );
 }

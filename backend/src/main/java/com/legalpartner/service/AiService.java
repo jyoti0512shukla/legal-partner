@@ -318,12 +318,13 @@ public class AiService {
         );
     }
 
-    // Scans entire text (possibly single-line) for LABEL: RATING occurrences
-    // Model often ignores newline/pipe format instructions and puts everything on one line
+    // Scans entire text for LABEL[optional words]: RATING occurrences.
+    // Model sometimes emits "Liability Risk Assessment: HIGH" or "1. Liability: HIGH" —
+    // allow up to 4 optional words between the label keyword and the colon.
     private static final java.util.regex.Pattern RISK_TOKEN =
             java.util.regex.Pattern.compile(
                     "(OVERALL|LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE)" +
-                    "\\s*:\\s*(HIGH|MEDIUM|LOW)",
+                    "(?:[^:\\n]{0,40})?:\\s*(HIGH|MEDIUM|LOW)",
                     java.util.regex.Pattern.CASE_INSENSITIVE);
 
     // Optional pipe-delimited justification/ref after rating

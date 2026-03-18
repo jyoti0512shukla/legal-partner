@@ -10,7 +10,6 @@ import IntelligencePage from './pages/IntelligencePage';
 import DocumentsPage from './pages/DocumentsPage';
 import DraftPage from './pages/DraftPage';
 import ComparePage from './pages/ComparePage';
-import RiskAssessmentPage from './pages/RiskAssessmentPage';
 import AuditLogPage from './pages/AuditLogPage';
 import MattersPage from './pages/MattersPage';
 import ExtractionPage from './pages/ExtractionPage';
@@ -48,10 +47,10 @@ export default function App() {
         <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/draft" element={<DraftPage />} />
         <Route path="/compare" element={<ComparePage />} />
-        <Route path="/risk" element={<RiskAssessmentPage />} />
         <Route path="/matters" element={<MattersPage />} />
         <Route path="/extraction" element={<ExtractionPage />} />
         <Route path="/review" element={<ContractReviewPage />} />
+        <Route path="/risk" element={<ContractReviewPage />} />
         {isPartnerOrAdmin && <Route path="/audit" element={<AuditLogPage />} />}
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
