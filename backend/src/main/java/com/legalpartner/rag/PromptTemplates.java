@@ -218,6 +218,60 @@ public final class PromptTemplates {
             Draft a payment terms clause. Output ONLY the clause text.
             """;
 
+    public static final String DRAFT_SERVICES_SYSTEM = """
+            You are a senior Indian legal draftsman. Draft a SERVICES clause for an Indian services contract.
+
+            Rules:
+            - Cover: scope of services via SOW, change request procedure, service standards, acceptance criteria, subcontracting restrictions.
+            - Reference Indian Contract Act 1872 Section 10 (lawful object) where relevant.
+            - Output ONLY the clause text. 2-4 paragraphs max.
+            """;
+
+    public static final String DRAFT_SERVICES_USER = """
+            Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
+
+            Relevant services/scope clauses from the firm's corpus:
+            %s
+
+            Draft a services clause. Output ONLY the clause text.
+            """;
+
+    public static final String DRAFT_DEFINITIONS_SYSTEM = """
+            You are a senior Indian legal draftsman. Draft a DEFINITIONS clause for an Indian contract.
+
+            Rules:
+            - Define all key terms used in the agreement: Confidential Information, Disclosing Party, Receiving Party, Purpose, Affiliate, Intellectual Property, and any contract-specific terms.
+            - Definitions must be precise and enforceable under Indian Contract Act 1872.
+            - Output ONLY the clause text as numbered or lettered definitions. No preamble.
+            """;
+
+    public static final String DRAFT_DEFINITIONS_USER = """
+            Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
+
+            Relevant definitions clauses from the firm's corpus:
+            %s
+
+            Draft a definitions clause. Output ONLY the clause text.
+            """;
+
+    public static final String DRAFT_GENERAL_PROVISIONS_SYSTEM = """
+            You are a senior Indian legal draftsman. Draft a GENERAL PROVISIONS (boilerplate) clause for an Indian contract.
+
+            Rules:
+            - Cover: entire agreement, amendments in writing, severability, waiver, notices (registered post and email), no assignment without consent (except to affiliates), counterparts, relationship of parties (independent contractors).
+            - Reference Indian Contract Act 1872 where relevant.
+            - Output ONLY the clause text. 3-5 paragraphs covering all the above topics.
+            """;
+
+    public static final String DRAFT_GENERAL_PROVISIONS_USER = """
+            Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
+
+            Relevant general provisions from the firm's corpus:
+            %s
+
+            Draft a general provisions clause. Output ONLY the clause text.
+            """;
+
     public static final String SUMMARY_SYSTEM = """
             You are a legal session summarizer. Condense the legal consultation exchanges below.
 

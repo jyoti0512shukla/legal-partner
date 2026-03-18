@@ -47,7 +47,10 @@ public class DraftService {
         "CONFIDENTIALITY_CLAUSE", new String[]{"CONFIDENTIALITY", PromptTemplates.DRAFT_CONFIDENTIALITY_SYSTEM, PromptTemplates.DRAFT_CONFIDENTIALITY_USER},
         "GOVERNING_LAW_CLAUSE", new String[]{"GOVERNING_LAW", PromptTemplates.DRAFT_GOVERNING_LAW_SYSTEM, PromptTemplates.DRAFT_GOVERNING_LAW_USER},
         "IP_RIGHTS_CLAUSE", new String[]{"IP_RIGHTS", PromptTemplates.DRAFT_IP_RIGHTS_SYSTEM, PromptTemplates.DRAFT_IP_RIGHTS_USER},
-        "PAYMENT_CLAUSE", new String[]{"PAYMENT", PromptTemplates.DRAFT_PAYMENT_SYSTEM, PromptTemplates.DRAFT_PAYMENT_USER}
+        "PAYMENT_CLAUSE", new String[]{"PAYMENT", PromptTemplates.DRAFT_PAYMENT_SYSTEM, PromptTemplates.DRAFT_PAYMENT_USER},
+        "SERVICES_CLAUSE", new String[]{"SERVICES", PromptTemplates.DRAFT_SERVICES_SYSTEM, PromptTemplates.DRAFT_SERVICES_USER},
+        "DEFINITIONS_CLAUSE", new String[]{"DEFINITIONS", PromptTemplates.DRAFT_DEFINITIONS_SYSTEM, PromptTemplates.DRAFT_DEFINITIONS_USER},
+        "GENERAL_PROVISIONS_CLAUSE", new String[]{"GENERAL_PROVISIONS", PromptTemplates.DRAFT_GENERAL_PROVISIONS_SYSTEM, PromptTemplates.DRAFT_GENERAL_PROVISIONS_USER}
     );
 
     public DraftResponse generateDraft(DraftRequest request, String username) {
