@@ -356,37 +356,29 @@ public final class PromptTemplates {
             """;
 
     public static final String CHECKLIST_SYSTEM = """
-            You are a senior Indian legal reviewer. Review the contract against a standard checklist.
+            You are a senior Indian legal reviewer. Check 12 clauses in the contract and output EXACTLY 12 lines.
 
-            Status codes:
-            PRESENT = clause exists and is reasonably standard
-            WEAK    = clause exists but is below standard or one-sided
-            MISSING = clause is completely absent
+            Line format: CLAUSE_ID: STATUS | RISK | Section ref or MISSING | One sentence finding. | Recommendation or none.
 
-            Risk codes: HIGH | MEDIUM | LOW
+            STATUS must be exactly: PRESENT, WEAK, or MISSING
+            RISK must be exactly: HIGH, MEDIUM, or LOW
+            CLAUSE_IDs are fixed — use them exactly as shown below.
 
-            Output EXACTLY 12 lines, one per clause. Nothing else — no preamble, no JSON, no blank lines.
+            Example output (12 lines, nothing else):
+            LIABILITY_LIMIT: PRESENT | MEDIUM | Section 8.1 | Cap at 12-month fees but one-sided. | Negotiate mutual cap.
+            INDEMNITY: WEAK | HIGH | Section 9 | Unilateral indemnity, no IP carve-out. | Add mutual indemnity and IP carve-out.
+            TERMINATION_CONVENIENCE: MISSING | HIGH | MISSING | No termination for convenience found. | Add 30-day notice right.
+            TERMINATION_CAUSE: PRESENT | LOW | Section 12.2 | Mutual cause termination with 15-day cure. | Standard.
+            FORCE_MAJEURE: WEAK | MEDIUM | Section 11 | Excludes pandemic and cyber attack. | Add pandemic and cyber to FM events.
+            CONFIDENTIALITY: PRESENT | LOW | Section 5 | NDA with 3-year post-termination survival. | Standard.
+            GOVERNING_LAW: PRESENT | LOW | Section 15 | Indian law, Mumbai courts. | Standard.
+            DISPUTE_RESOLUTION: PRESENT | LOW | Section 15.3 | ICC Arbitration, seat Mumbai. | Standard.
+            IP_OWNERSHIP: MISSING | HIGH | MISSING | Work product ownership not defined. | Add IP assignment for all deliverables.
+            DATA_PROTECTION: MISSING | HIGH | MISSING | No IT Act 2000 or DPDPA obligations. | Add data protection schedule.
+            PAYMENT_TERMS: PRESENT | LOW | Section 6 | 30-day payment, 1.5% late interest. | Standard.
+            ASSIGNMENT: PRESENT | LOW | Section 14 | Restricted without prior written consent. | Standard.
 
-            Line format (pipe-separated, no extra spaces around pipes):
-            CLAUSE_ID|STATUS|RISK|Section ref or MISSING|One sentence assessment.|Recommendation or none.
-
-            Example:
-            LIABILITY_LIMIT|PRESENT|MEDIUM|Section 8.1|Cap exists at 12-month fees but is one-sided.|Negotiate mutual cap.
-            INDEMNITY|WEAK|HIGH|Section 9|Unilateral indemnity only; no IP infringement carve-out.|Add mutual indemnity and IP carve-out.
-            TERMINATION_CONVENIENCE|MISSING|HIGH|MISSING|No termination for convenience clause found.|Add 30-day notice termination right for both parties.
-            TERMINATION_CAUSE|PRESENT|LOW|Section 12.2|Mutual termination for cause with 15-day cure period.|Standard.
-            FORCE_MAJEURE|WEAK|MEDIUM|Section 11|Covers natural disasters but excludes pandemic and cyber attack.|Add pandemic and cyber attack to force majeure events.
-            CONFIDENTIALITY|PRESENT|LOW|Section 5|NDA present with 3-year post-termination survival.|Standard.
-            GOVERNING_LAW|PRESENT|LOW|Section 15|Indian law, exclusive courts at Mumbai.|Standard.
-            DISPUTE_RESOLUTION|PRESENT|LOW|Section 15.3|Arbitration under A&C Act 1996, sole arbitrator, seat Mumbai.|Standard.
-            IP_OWNERSHIP|MISSING|HIGH|MISSING|Work product ownership not defined.|Add IP assignment clause for all deliverables.
-            DATA_PROTECTION|MISSING|HIGH|MISSING|No data processing or IT Act 2000 obligations.|Add data protection schedule per DPDPA 2023.
-            PAYMENT_TERMS|PRESENT|LOW|Section 6|30-day payment, 1.5% monthly late interest.|Standard.
-            ASSIGNMENT|PRESENT|LOW|Section 14|Assignment restricted without prior written consent.|Standard.
-
-            Rules:
-            - CLAUSE_ID must be exactly one of: LIABILITY_LIMIT, INDEMNITY, TERMINATION_CONVENIENCE, TERMINATION_CAUSE, FORCE_MAJEURE, CONFIDENTIALITY, GOVERNING_LAW, DISPUTE_RESOLUTION, IP_OWNERSHIP, DATA_PROTECTION, PAYMENT_TERMS, ASSIGNMENT
-            - Output ONLY the 12 lines. No header, no trailing text.
+            STOP after line 12. Do not add any text before or after the 12 lines.
             """;
 
     public static final String CHECKLIST_USER = """
@@ -395,6 +387,6 @@ public final class PromptTemplates {
             Contract excerpts:
             %s
 
-            Output the 12 pipe-separated lines now:
+            Output the 12 lines now (starting with LIABILITY_LIMIT:):
             """;
 }

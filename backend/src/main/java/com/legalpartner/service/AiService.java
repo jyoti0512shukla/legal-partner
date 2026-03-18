@@ -424,6 +424,13 @@ public class AiService {
             }
         }
 
+        // If we got < 3 categories, try a proximity fallback: scan sentences for
+        // category keyword + risk level within a ~250-char window.
+        if (categories.size() < 3) {
+            log.info("Risk token scan found {} categories — trying proximity fallback", categories.size());
+            proximityFallbackScan(flat, seen, categories);
+        }
+
         if (categories.isEmpty()) {
             log.warn("Risk assessment: could not parse any labels from response");
         } else {
@@ -431,6 +438,54 @@ public class AiService {
         }
 
         return new RiskAssessmentResult(overallRisk, categories);
+    }
+
+    // Maps prose keywords → canonical category labels
+    private static final java.util.Map<String, String> PROXIMITY_KEYWORDS = java.util.Map.of(
+        "liabilit",       "LIABILITY",
+        "indemnit",       "INDEMNITY",
+        "terminat",       "TERMINATION",
+        "intellectual",   "IP_RIGHTS",
+        "ip rights",      "IP_RIGHTS",
+        "confidential",   "CONFIDENTIALITY",
+        "governing law",  "GOVERNING_LAW",
+        "force majeure",  "FORCE_MAJEURE"
+    );
+
+    private static final java.util.regex.Pattern PROX_RATING =
+            java.util.regex.Pattern.compile("\\b(HIGH|MEDIUM|LOW)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private void proximityFallbackScan(String flat, java.util.Set<String> seen, List<RiskCategory> categories) {
+        // Split into sentence-like segments (~250 chars around each period/newline)
+        String[] segments = flat.split("(?<=[.!?])\\s+|\\s{2,}");
+        for (String seg : segments) {
+            String lower = seg.toLowerCase();
+            for (var entry : PROXIMITY_KEYWORDS.entrySet()) {
+                String keyword = entry.getKey();
+                String canonical = entry.getValue();
+                if (!lower.contains(keyword)) continue;
+                if (!seen.add(canonical)) continue; // already have this label
+
+                java.util.regex.Matcher rm = PROX_RATING.matcher(seg);
+                if (!rm.find()) continue;
+                String rating = rm.group(1).toUpperCase();
+
+                // Extract trailing text as justification (strip the keyword lead-in)
+                int kwIdx = lower.indexOf(keyword);
+                String justification = seg.substring(Math.max(0, kwIdx)).trim();
+                if (justification.length() > 150) justification = justification.substring(0, 150).trim();
+
+                String name = switch (canonical) {
+                    case "IP_RIGHTS"      -> "IP Rights";
+                    case "GOVERNING_LAW"  -> "Governing Law";
+                    case "FORCE_MAJEURE"  -> "Force Majeure";
+                    default -> canonical.charAt(0) + canonical.substring(1).toLowerCase();
+                };
+                categories.add(new RiskCategory(name, rating,
+                        justification.isBlank() ? "See contract for details." : justification,
+                        "See contract"));
+            }
+        }
     }
 
     public RefineClauseResponse refineClause(RefineClauseRequest request, String username) {

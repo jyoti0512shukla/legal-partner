@@ -102,32 +102,40 @@ public class ContractReviewService {
             java.util.Map.entry("ASSIGNMENT",                "Assignment / Change of Control")
     );
 
+    // Matches: "LIABILITY_LIMIT: PRESENT | HIGH | Section 8.1 | Finding. | Recommendation."
+    // Also tolerates the model omitting some trailing fields.
+    private static final java.util.regex.Pattern CHECKLIST_LINE =
+            java.util.regex.Pattern.compile(
+                    "(?:^|\\n)\\s*(\\w+):\\s*(PRESENT|WEAK|MISSING)" +
+                    "(?:\\s*\\|\\s*(HIGH|MEDIUM|LOW))?" +
+                    "(?:\\s*\\|\\s*([^|\\n]*))?" +   // section ref
+                    "(?:\\s*\\|\\s*([^|\\n]*))?" +   // assessment
+                    "(?:\\s*\\|\\s*([^|\\n]*))?",    // recommendation
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
     private List<ClauseCheckResult> parseChecklistResponse(String raw) {
         if (raw == null) return List.of();
         List<ClauseCheckResult> results = new ArrayList<>();
 
-        for (String line : raw.split("\\r?\\n")) {
-            line = line.trim();
-            if (line.isBlank()) continue;
-            String[] parts = line.split("\\|", -1);
-            if (parts.length < 5) continue; // must have at least CLAUSE_ID|STATUS|RISK|REF|ASSESSMENT
-
-            String clauseId   = parts[0].trim().toUpperCase();
-            // Validate it's one of our known IDs (skip echo/header lines)
+        java.util.regex.Matcher m = CHECKLIST_LINE.matcher(raw);
+        while (m.find()) {
+            String clauseId = m.group(1).trim().toUpperCase();
             if (!CLAUSE_ID_NAMES.containsKey(clauseId)) continue;
 
-            String status     = normalise(parts[1], "PRESENT", "PRESENT", "MISSING", "WEAK");
-            String riskLevel  = normalise(parts[2], "MEDIUM",  "HIGH", "MEDIUM", "LOW");
-            String sectionRef = parts[3].trim();
-            String assessment = parts.length > 4 ? parts[4].trim() : "";
-            String recommendation = parts.length > 5 ? parts[5].trim() : null;
+            String status     = m.group(2).trim().toUpperCase();
+            String riskLevel  = m.group(3) != null ? m.group(3).trim().toUpperCase() : "MEDIUM";
+            String sectionRef = m.group(4) != null ? m.group(4).trim() : "MISSING";
+            String assessment = m.group(5) != null ? m.group(5).trim() : "";
+            String recommendation = m.group(6) != null ? m.group(6).trim() : null;
 
-            if ("none".equalsIgnoreCase(recommendation) || "".equals(recommendation)) recommendation = null;
+            if (recommendation != null && (recommendation.isBlank() || "none".equalsIgnoreCase(recommendation))) {
+                recommendation = null;
+            }
 
             results.add(new ClauseCheckResult(
                     CLAUSE_ID_NAMES.getOrDefault(clauseId, clauseId),
                     status,
-                    null, // foundText — not extracted in pipe format
+                    null,
                     sectionRef,
                     riskLevel,
                     assessment,
@@ -135,9 +143,8 @@ public class ContractReviewService {
             ));
         }
 
-        // Log raw response if we got nothing parseable
         if (results.isEmpty()) {
-            log.warn("Checklist pipe-parser: no lines matched. Raw length={}, preview={}",
+            log.warn("Checklist parser: no lines matched. Raw length={}, preview={}",
                     raw.length(), raw.substring(0, Math.min(300, raw.length())).replace('\n', ' '));
         }
         return results;
