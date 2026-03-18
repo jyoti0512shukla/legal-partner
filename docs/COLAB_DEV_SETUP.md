@@ -101,34 +101,65 @@ LEGALPARTNER_CHAT_API_MODEL=mistralai/Mistral-7B-Instruct-v0.2
 
 ---
 
-### Option 2: vLLM (faster inference, requires more GPU memory)
+### Option 2: vLLM + AALAP (recommended for proper test setup)
 
-1. [colab.research.google.com](https://colab.research.google.com) → New notebook → **Runtime → GPU** (T4 or A100)
-2. Colab Pro (~$10/mo) or pay-as-you-go
+**Requirements:** Colab Pro with **A100 GPU** (40GB VRAM). T4 is too small for AALAP bf16.
+
+1. [colab.research.google.com](https://colab.research.google.com) → New notebook
+2. **Runtime → Change runtime type → A100 GPU → Save**
 
 **Cell 1 — Install vLLM**
 ```python
-!pip install -q vllm
+!pip install -q vllm pyngrok
 import os
 os.environ["VLLM_USE_V1"] = "0"
 ```
 
-**Cell 2 — Start vLLM (chat)**
+**Cell 2 — HuggingFace login (required — AALAP is a gated model)**
 ```python
-!vllm serve opennyaiorg/Aalap-Mistral-7B-v0.1-bf16 \
-  --port 8000 --host 0.0.0.0 \
-  --max-model-len 2048 --gpu-memory-utilization 0.9
+from huggingface_hub import login
+login(token="YOUR_HF_TOKEN")  # huggingface.co/settings/tokens
 ```
-*First run: ~14 GB download, 5–15 min. Fallback: Mistral-7B-Instruct if AALAP gated.*
+> Request access at huggingface.co/opennyaiorg/Aalap-Mistral-7B-v0.1-bf16 first if not already approved.
 
-**Cell 3 — ngrok (public URL)**
+**Cell 3 — ngrok (run before vLLM so URL is printed immediately)**
 ```python
-!pip install -q pyngrok
 from pyngrok import ngrok
-ngrok.set_auth_token("YOUR_NGROK_TOKEN")
+ngrok.set_auth_token("YOUR_NGROK_TOKEN")  # dashboard.ngrok.com
 url = ngrok.connect(8000)
 print("LEGALPARTNER_CHAT_API_URL:", url.public_url + "/v1")
 ```
+Copy the printed URL — you'll need it for the VM `.env`.
+
+**Cell 4 — Save Mistral chat template (AALAP requires explicit template)**
+```python
+template = """{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}[INST] {{ message['content'] }} [/INST]{% elif message['role'] == 'assistant' %}{{ message['content'] }}{{ eos_token }}{% elif message['role'] == 'system' %}{{ message['content'] }}{% endif %}{% endfor %}"""
+with open("/tmp/mistral.jinja", "w") as f:
+    f.write(template)
+print("Template saved")
+```
+
+**Cell 5 — Start vLLM (blocks while running — first run ~15 min to download 14GB)**
+```python
+!vllm serve opennyaiorg/Aalap-Mistral-7B-v0.1-bf16 \
+  --port 8000 --host 0.0.0.0 \
+  --max-model-len 4096 --gpu-memory-utilization 0.9 \
+  --chat-template /tmp/mistral.jinja
+```
+Wait for `Application startup complete` before testing.
+
+**Set in VM `.env`:**
+```
+LEGALPARTNER_CHAT_API_URL=https://xxxx.ngrok-free.app/v1
+LEGALPARTNER_CHAT_API_MODEL=opennyaiorg/Aalap-Mistral-7B-v0.1-bf16
+```
+
+Then restart backend on VM:
+```bash
+cd ~/legal-partner && docker-compose restart backend
+```
+
+> **Session expiry:** Colab sessions expire after ~90 min idle. Keep the tab open. On restart, re-run all cells and update `LEGALPARTNER_CHAT_API_URL` in `.env` with the new ngrok URL.
 
 **Cell 4 — (Options B/C/D/E) Embedding server (same Colab)**
 ```python
@@ -343,8 +374,13 @@ gcloud compute instances start INSTANCE_NAME --zone=asia-south1-a
 
 | Issue | Fix |
 |-------|-----|
-| vLLM OOM on T4 | Reduce `--max-model-len` to 1024; or use Colab Pro A100 |
-| AALAP gated | HF login + request access; fallback: Mistral-7B-Instruct-v0.2 |
-| ngrok blocked | Try localtunnel, cloudflared |
+| vLLM OOM on T4 | Switch to A100 runtime — T4 (16GB) is too small for AALAP bf16 (14GB) |
+| AALAP gated | HF login + request access at huggingface.co/opennyaiorg/Aalap-Mistral-7B-v0.1-bf16 |
+| ChatTemplateResolutionError | Add `--chat-template /tmp/mistral.jinja` (run Cell 4 first to save template) |
+| Input too long / 400 BadRequest | Increase `--max-model-len` to 4096 (safe on A100) |
+| 0 risk categories shown | Max token limit too low — model truncates response; use 4096 |
+| ngrok URL offline (ERR_NGROK_3200) | Colab session expired — re-run cells, get new URL, update `.env`, restart backend |
+| ngrok cell blocks without printing | Run ngrok cell before vLLM cell |
+| Backend uses wrong model name | Ensure `LEGALPARTNER_CHAT_API_MODEL` is set in `.env` AND passed in `docker-compose.yml` |
 | Backend can't reach Colab | Ensure no trailing slash on URL; use https |
-| Session expired | Re-run Colab cells; update env vars; restart backend |
+| Session expired | Re-run all Colab cells; update `LEGALPARTNER_CHAT_API_URL` in `.env`; `docker-compose restart backend` |
