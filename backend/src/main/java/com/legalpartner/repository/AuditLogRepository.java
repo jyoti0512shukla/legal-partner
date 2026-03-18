@@ -21,9 +21,9 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
             (:username IS NULL OR a.username = :username) AND
             (:userRole IS NULL OR a.user_role = :userRole) AND
             (:action IS NULL OR a.action = :action) AND
-            (:from::timestamptz IS NULL OR a.timestamp >= :from::timestamptz) AND
-            (:to::timestamptz IS NULL OR a.timestamp <= :to::timestamptz) AND
-            (:documentId::uuid IS NULL OR a.document_id = :documentId::uuid)
+            (CAST(:from AS timestamptz) IS NULL OR a.timestamp >= CAST(:from AS timestamptz)) AND
+            (CAST(:to AS timestamptz) IS NULL OR a.timestamp <= CAST(:to AS timestamptz)) AND
+            (CAST(:documentId AS uuid) IS NULL OR a.document_id = CAST(:documentId AS uuid))
             ORDER BY a.timestamp DESC
             """,
             countQuery = """
@@ -31,9 +31,9 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
             (:username IS NULL OR a.username = :username) AND
             (:userRole IS NULL OR a.user_role = :userRole) AND
             (:action IS NULL OR a.action = :action) AND
-            (:from::timestamptz IS NULL OR a.timestamp >= :from::timestamptz) AND
-            (:to::timestamptz IS NULL OR a.timestamp <= :to::timestamptz) AND
-            (:documentId::uuid IS NULL OR a.document_id = :documentId::uuid)
+            (CAST(:from AS timestamptz) IS NULL OR a.timestamp >= CAST(:from AS timestamptz)) AND
+            (CAST(:to AS timestamptz) IS NULL OR a.timestamp <= CAST(:to AS timestamptz)) AND
+            (CAST(:documentId AS uuid) IS NULL OR a.document_id = CAST(:documentId AS uuid))
             """,
             nativeQuery = true)
     Page<AuditLog> findFiltered(
@@ -51,9 +51,9 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
             (:username IS NULL OR a.username = :username) AND
             (:userRole IS NULL OR a.user_role = :userRole) AND
             (:action IS NULL OR a.action = :action) AND
-            (:from::timestamptz IS NULL OR a.timestamp >= :from::timestamptz) AND
-            (:to::timestamptz IS NULL OR a.timestamp <= :to::timestamptz) AND
-            (:documentId::uuid IS NULL OR a.document_id = :documentId::uuid)
+            (CAST(:from AS timestamptz) IS NULL OR a.timestamp >= CAST(:from AS timestamptz)) AND
+            (CAST(:to AS timestamptz) IS NULL OR a.timestamp <= CAST(:to AS timestamptz)) AND
+            (CAST(:documentId AS uuid) IS NULL OR a.document_id = CAST(:documentId AS uuid))
             ORDER BY a.timestamp DESC
             """,
             nativeQuery = true)
