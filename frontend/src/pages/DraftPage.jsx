@@ -21,6 +21,7 @@ export default function DraftPage() {
   const [selectionInfo, setSelectionInfo] = useState(null);   // { text, x, y }
   const [pendingRefinement, setPendingRefinement] = useState(null); // { originalText, improvedText, reasoning, x, y }
   const previewRef = useRef(null);
+  const floatRef = useRef(null);
 
   const [form, setForm] = useState({
     templateId: '',
@@ -64,7 +65,7 @@ export default function DraftPage() {
   // Dismiss floaters when clicking outside preview
   useEffect(() => {
     const onMouseDown = (e) => {
-      if (!previewRef.current?.contains(e.target)) {
+      if (!previewRef.current?.contains(e.target) && !floatRef.current?.contains(e.target)) {
         setSelectionInfo(null);
       }
     };
@@ -328,6 +329,7 @@ export default function DraftPage() {
       {/* Floating improve button — appears at selection */}
       {selectionInfo && !refining && (
         <div
+          ref={floatRef}
           className="fixed z-50 -translate-x-1/2"
           style={{ left: selectionInfo.x, top: selectionInfo.y }}
         >
