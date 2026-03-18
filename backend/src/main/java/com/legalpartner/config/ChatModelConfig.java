@@ -39,15 +39,13 @@ public class ChatModelConfig {
     @ConditionalOnExpression("'${legalpartner.chat-api-url:}'.length() > 0")
     ChatLanguageModel jsonChatModel(
             @Value("${legalpartner.chat-api-url}") String baseUrl,
-            @Value("${legalpartner.chat-api-model:mistralai/Mistral-7B-Instruct-v0.2}") String modelName,
-            @Value("${legalpartner.json-model.max-output-tokens:800}") int maxOutputTokens) {
+            @Value("${legalpartner.chat-api-model:mistralai/Mistral-7B-Instruct-v0.2}") String modelName) {
         return OpenAiChatModel.builder()
                 .baseUrl(baseUrl.endsWith("/v1") ? baseUrl : baseUrl + "/v1")
                 .apiKey("no-op")
                 .modelName(modelName)
                 .timeout(Duration.ofSeconds(300))
                 .responseFormat("json_object")
-                .maxTokens(maxOutputTokens)
                 .build();
     }
 }
