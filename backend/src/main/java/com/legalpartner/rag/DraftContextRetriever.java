@@ -50,43 +50,61 @@ public class DraftContextRetriever {
     @Value("${legalpartner.draft.retrieval.context-max-chars:8000}")
     private int contextMaxChars;
 
-    private static final Map<String, List<String>> CLAUSE_QUERIES = Map.of(
-        "LIABILITY", List.of(
+    private static final Map<String, List<String>> CLAUSE_QUERIES = Map.ofEntries(
+        Map.entry("LIABILITY", List.of(
             "liability limitation indemnity cap damages exclusion consequential",
             "limitation of liability aggregate cap direct damages indirect",
             "indemnify hold harmless defend claims breach",
             "Indian Contract Act Section 73 74 liquidated damages"
-        ),
-        "TERMINATION", List.of(
+        )),
+        Map.entry("TERMINATION", List.of(
             "termination notice period right to terminate exit clause",
             "termination for cause material breach cure period",
             "termination for convenience effects survival obligations",
             "Indian Contract Act Section 39 repudiation"
-        ),
-        "CONFIDENTIALITY", List.of(
+        )),
+        Map.entry("CONFIDENTIALITY", List.of(
             "confidential information non-disclosure NDA proprietary",
             "confidentiality obligations exceptions public domain prior knowledge",
             "return destroy confidential information on termination survival",
             "IT Act trade secret data protection"
-        ),
-        "GOVERNING_LAW", List.of(
+        )),
+        Map.entry("GOVERNING_LAW", List.of(
             "governing law jurisdiction arbitration dispute resolution",
             "arbitration seat venue ICC SIAC LCIA Arbitration Act 1996",
             "mediation conciliation negotiation tiered dispute",
             "applicable law choice of law courts India"
-        ),
-        "IP_RIGHTS", List.of(
+        )),
+        Map.entry("IP_RIGHTS", List.of(
             "intellectual property rights ownership work product license",
             "copyright patent trademark background IP foreground IP",
             "moral rights Copyright Act 1957 Patents Act assignment",
             "IP indemnification infringement third party claims"
-        ),
-        "PAYMENT", List.of(
+        )),
+        Map.entry("PAYMENT", List.of(
             "payment terms invoice due date late payment interest",
             "compensation fees charges GST tax MSMED Act",
             "payment schedule milestone billing disputed invoice",
             "consideration remuneration advance payment"
-        )
+        )),
+        Map.entry("SERVICES", List.of(
+            "scope of services deliverables statement of work SOW",
+            "service standards acceptance criteria change request",
+            "subcontracting obligations performance service level",
+            "Indian Contract Act Section 10 lawful object services"
+        )),
+        Map.entry("DEFINITIONS", List.of(
+            "definitions interpretation meaning terms agreement",
+            "confidential information disclosing receiving party purpose",
+            "affiliate subsidiary intellectual property business day",
+            "defined terms contract definitions schedule annexure"
+        )),
+        Map.entry("GENERAL_PROVISIONS", List.of(
+            "entire agreement amendment modification waiver severability",
+            "notices assignment subcontracting independent contractor",
+            "counterparts force majeure survival governing law general",
+            "boilerplate provisions miscellaneous general terms"
+        ))
     );
 
     private static final List<String> DEFAULT_QUERIES = List.of(
@@ -177,6 +195,9 @@ public class DraftContextRetriever {
             case "GOVERNING_LAW" -> Set.of("GOVERNING_LAW", "GENERAL");
             case "IP_RIGHTS" -> Set.of("IP_RIGHTS", "GENERAL");
             case "PAYMENT" -> Set.of("PAYMENT", "GENERAL");
+            case "SERVICES" -> Set.of("SERVICES", "GENERAL");
+            case "DEFINITIONS" -> Set.of("DEFINITIONS", "GENERAL");
+            case "GENERAL_PROVISIONS" -> Set.of("GENERAL");
             default -> Set.of("GENERAL", clauseType);
         };
     }

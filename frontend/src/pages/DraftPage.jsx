@@ -20,6 +20,7 @@ export default function DraftPage() {
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState('');
+  const [generatingStatus, setGeneratingStatus] = useState(null); // {label, index, total}
   const [refining, setRefining] = useState(false);
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
   const [selectionInfo, setSelectionInfo] = useState(null);
@@ -85,15 +86,58 @@ export default function DraftPage() {
     setLoading(true);
     setError('');
     setDraft(null);
+    setGeneratingStatus(null);
     setSelectionInfo(null);
     setPendingRefinement(null);
     try {
-      const res = await api.post('/ai/draft', form);
-      setDraft(res.data);
+      const response = await fetch('/api/v1/ai/draft/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(form),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || `Error ${response.status}`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const json = line.slice(5).trim();
+          if (!json) continue;
+          let event;
+          try { event = JSON.parse(json); } catch { continue; }
+          if (event.type === 'start') {
+            setGeneratingStatus({ label: 'Preparing…', index: 0, total: event.totalClauses });
+            setDraft({ draftHtml: event.partialHtml, suggestions: [] });
+          } else if (event.type === 'clause_start') {
+            setGeneratingStatus({ label: event.label, index: event.index, total: event.totalClauses });
+          } else if (event.type === 'clause_done') {
+            setGeneratingStatus({ label: event.label, index: event.index, total: event.totalClauses, done: true });
+            setDraft(prev => ({ ...(prev || {}), draftHtml: event.partialHtml }));
+          } else if (event.type === 'complete') {
+            setDraft({ draftHtml: event.draftHtml, suggestions: event.suggestions });
+            setLoading(false);
+            setGeneratingStatus(null);
+          } else if (event.type === 'error') {
+            setError(event.message || 'Generation failed');
+            setLoading(false);
+            setGeneratingStatus(null);
+          }
+        }
+      }
     } catch (e) {
-      setError(e.response?.data?.message || e.response?.data?.error || e.message || 'Draft generation failed');
-    } finally {
+      setError(e.message || 'Draft generation failed');
       setLoading(false);
+      setGeneratingStatus(null);
     }
   };
 
@@ -375,11 +419,32 @@ export default function DraftPage() {
             </>
           )}
 
-          {loading && (
-            <div className="card border-2 border-dashed border-primary/30 text-center py-16">
-              <Loader className="w-12 h-12 text-primary mx-auto mb-4 animate-spin" />
-              <p className="text-text-primary font-medium">Generating your draft...</p>
-              <p className="text-xs text-text-muted mt-2">The AI is drafting your contract. This may take up to a minute.</p>
+          {loading && generatingStatus && (
+            <div className="card border border-primary/30 px-5 py-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-text-primary flex items-center gap-2">
+                  <Loader className="w-4 h-4 animate-spin text-primary" />
+                  {generatingStatus.done
+                    ? `✓ ${generatingStatus.label}`
+                    : `Generating ${generatingStatus.label}…`}
+                </span>
+                <span className="text-xs text-text-muted tabular-nums">
+                  {generatingStatus.index}/{generatingStatus.total}
+                </span>
+              </div>
+              <div className="w-full bg-surface-el rounded-full h-1.5">
+                <div
+                  className="bg-primary h-1.5 rounded-full transition-all duration-500"
+                  style={{ width: `${(generatingStatus.index / generatingStatus.total) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {loading && !generatingStatus && (
+            <div className="card text-center py-8">
+              <Loader className="w-8 h-8 text-primary mx-auto mb-3 animate-spin" />
+              <p className="text-text-muted text-sm">Preparing draft…</p>
             </div>
           )}
 

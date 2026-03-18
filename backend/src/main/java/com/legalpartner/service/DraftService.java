@@ -1,5 +1,6 @@
 package com.legalpartner.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.dto.DraftResponse;
 import com.legalpartner.model.dto.DraftResponse.ClauseSuggestion;
@@ -15,12 +16,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -30,6 +37,7 @@ public class DraftService {
     private final DraftContextRetriever draftContextRetriever;
     private final ChatLanguageModel chatModel;
     private final Semaphore draftSemaphore;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
                         DraftContextRetriever draftContextRetriever,
@@ -122,6 +130,115 @@ public class DraftService {
         ).content();
 
         return response.text().trim();
+    }
+
+    public SseEmitter streamDraft(DraftRequest request, String username) {
+        SseEmitter emitter = new SseEmitter(300_000L);
+        if (!draftSemaphore.tryAcquire()) {
+            try {
+                emitter.send(SseEmitter.event().data(toJson(Map.of("type", "error", "message", "Draft generation is busy. Please try again."))));
+                emitter.complete();
+            } catch (IOException e) { emitter.completeWithError(e); }
+            return emitter;
+        }
+        new Thread(() -> {
+            try { doStreamDraft(request, emitter); }
+            catch (Exception e) {
+                try {
+                    emitter.send(SseEmitter.event().data(toJson(Map.of("type", "error", "message", e.getMessage() != null ? e.getMessage() : "Generation failed"))));
+                    emitter.complete();
+                } catch (IOException ignored) { emitter.completeWithError(e); }
+            } finally { draftSemaphore.release(); }
+        }).start();
+        return emitter;
+    }
+
+    private void doStreamDraft(DraftRequest request, SseEmitter emitter) throws Exception {
+        String template = templateService.loadTemplate(request.getTemplateId());
+        Map<String, String> values = buildPlaceholderMap(request);
+        String filled = replacePlaceholders(template, values);
+
+        // Find placeholders present in the template, ordered by their position
+        List<Map.Entry<String, String[]>> orderedClauses = CLAUSE_PLACEHOLDER_TO_TYPE.entrySet().stream()
+                .filter(e -> filled.contains("{{" + e.getKey() + "}}"))
+                .sorted(Comparator.comparingInt(e -> filled.indexOf("{{" + e.getKey() + "}}")))
+                .collect(Collectors.toList());
+
+        // Initialise all placeholders with "Generating…" spans
+        Map<String, String> clauseValues = new LinkedHashMap<>();
+        for (var entry : orderedClauses) {
+            String label = clauseLabel(entry.getValue()[0]);
+            clauseValues.put("{{" + entry.getKey() + "}}",
+                    "<em style='color:#9CA3AF'>&#x23F3; Generating " + label + " clause…</em>");
+        }
+
+        emitter.send(SseEmitter.event().data(toJson(Map.of(
+                "type", "start",
+                "totalClauses", orderedClauses.size(),
+                "partialHtml", buildPartialHtml(filled, clauseValues)))));
+
+        List<ClauseSuggestion> suggestions = new ArrayList<>();
+
+        for (int i = 0; i < orderedClauses.size(); i++) {
+            var entry = orderedClauses.get(i);
+            String placeholder = "{{" + entry.getKey() + "}}";
+            String clauseType = entry.getValue()[0];
+            String label = clauseLabel(clauseType);
+
+            emitter.send(SseEmitter.event().data(toJson(Map.of(
+                    "type", "clause_start",
+                    "clauseType", clauseType,
+                    "label", label,
+                    "index", i + 1,
+                    "totalClauses", orderedClauses.size()))));
+
+            DraftContext ctx = draftContextRetriever.retrieveForClause(clauseType, request);
+            String generatedClause = generateClause(request, ctx, entry.getValue()[1], entry.getValue()[2]);
+
+            clauseValues.put(placeholder, generatedClause);
+
+            emitter.send(SseEmitter.event().data(toJson(Map.of(
+                    "type", "clause_done",
+                    "clauseType", clauseType,
+                    "label", label,
+                    "index", i + 1,
+                    "totalClauses", orderedClauses.size(),
+                    "partialHtml", buildPartialHtml(filled, clauseValues)))));
+
+            String reasoning = "Generated using RAG from firm's corpus (filtered by contract type, jurisdiction).";
+            if (!ctx.sourceDocuments().isEmpty()) {
+                reasoning += " Sources: " + String.join(", ", ctx.sourceDocuments().subList(0, Math.min(3, ctx.sourceDocuments().size())));
+            }
+            suggestions.add(ClauseSuggestion.builder()
+                    .clauseRef(label + " clause (AI-generated)")
+                    .currentText("(AI-generated)")
+                    .suggestion("Review and customize for your specific matter and client.")
+                    .reasoning(reasoning)
+                    .build());
+        }
+
+        emitter.send(SseEmitter.event().data(toJson(Map.of(
+                "type", "complete",
+                "draftHtml", buildPartialHtml(filled, clauseValues),
+                "suggestions", suggestions))));
+        emitter.complete();
+    }
+
+    private String buildPartialHtml(String template, Map<String, String> clauseValues) {
+        String result = template;
+        for (var e : clauseValues.entrySet()) result = result.replace(e.getKey(), e.getValue());
+        return result;
+    }
+
+    private String clauseLabel(String clauseType) {
+        return Arrays.stream(clauseType.split("_"))
+                .map(w -> Character.toUpperCase(w.charAt(0)) + w.substring(1).toLowerCase())
+                .collect(Collectors.joining(" "));
+    }
+
+    private String toJson(Object obj) {
+        try { return objectMapper.writeValueAsString(obj); }
+        catch (Exception e) { return "{}"; }
     }
 
     private Map<String, String> buildPlaceholderMap(DraftRequest r) {
