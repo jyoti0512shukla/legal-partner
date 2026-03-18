@@ -92,8 +92,7 @@ public class DraftService {
                 UserMessage.from(prompt)
         ).content();
 
-        String clause = response.text().trim();
-        return clause.length() > 3000 ? clause.substring(0, 3000) : clause;
+        return response.text().trim();
     }
 
     private Map<String, String> buildPlaceholderMap(DraftRequest r) {
