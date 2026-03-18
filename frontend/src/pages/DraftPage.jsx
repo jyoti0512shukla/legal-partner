@@ -414,7 +414,10 @@ export default function DraftPage() {
       {pendingRefinement && (
         <div
           className="fixed z-50 -translate-x-1/2 w-[420px] max-w-[90vw]"
-          style={{ left: Math.min(pendingRefinement.x, window.innerWidth - 230), top: pendingRefinement.y }}
+          style={{
+            left: Math.min(Math.max(pendingRefinement.x, 220), window.innerWidth - 220),
+            top: Math.min(pendingRefinement.y, window.innerHeight - 340),
+          }}
         >
           <div className="bg-surface border border-border rounded-xl shadow-2xl p-4">
             <p className="text-xs font-semibold text-text-muted mb-3 flex items-center gap-1.5">
