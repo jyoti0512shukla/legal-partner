@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText } from 'lucide-react';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
@@ -18,8 +18,10 @@ export default function DraftPage() {
   const [error, setError] = useState('');
   const [refining, setRefining] = useState(false);
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
-  const [pendingRefinement, setPendingRefinement] = useState(null);
+  const [selectionInfo, setSelectionInfo] = useState(null);   // { text, x, y }
+  const [pendingRefinement, setPendingRefinement] = useState(null); // { originalText, improvedText, reasoning, x, y }
   const previewRef = useRef(null);
+
   const [form, setForm] = useState({
     templateId: '',
     partyA: '',
@@ -42,11 +44,40 @@ export default function DraftPage() {
     api.get('/ai/templates').then(r => setTemplates(r.data || [])).catch(() => setTemplates([]));
   }, []);
 
+  const handlePreviewMouseUp = useCallback(() => {
+    const sel = window.getSelection();
+    const text = sel?.toString()?.trim();
+    if (text && previewRef.current?.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      setSelectionInfo({
+        text,
+        x: rect.left + rect.width / 2,
+        y: rect.bottom + 8,
+      });
+      setPendingRefinement(null);
+    } else {
+      setSelectionInfo(null);
+    }
+  }, []);
+
+  // Dismiss floaters when clicking outside preview
+  useEffect(() => {
+    const onMouseDown = (e) => {
+      if (!previewRef.current?.contains(e.target)) {
+        setSelectionInfo(null);
+      }
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, []);
+
   const handleGenerate = async () => {
     if (!form.templateId) return;
     setLoading(true);
     setError('');
     setDraft(null);
+    setSelectionInfo(null);
     setPendingRefinement(null);
     try {
       const res = await api.post('/ai/draft', form);
@@ -90,32 +121,21 @@ export default function DraftPage() {
   };
 
   const handleImproveSelection = async () => {
-    const sel = window.getSelection();
-    const selectedText = sel?.toString()?.trim();
-    if (!selectedText) {
-      alert('Please select the text you want to improve first.');
-      return;
-    }
-    if (!previewRef.current?.contains(sel.anchorNode)) {
-      alert('Please select text within the draft preview.');
-      return;
-    }
+    if (!selectionInfo) return;
+    const { text, x, y } = selectionInfo;
+    setSelectionInfo(null);
     setRefining(true);
     setError('');
     try {
       const docContext = stripHtml(draft.draftHtml).slice(0, 4000);
       const res = await api.post('/ai/refine-clause', {
-        selectedText,
+        selectedText: text,
         documentContext: docContext,
         instruction: 'Improve for clarity, legal precision, and Indian law compliance.',
       });
       const improved = res.data?.improvedText || res.data?.improved_text;
       if (improved) {
-        setPendingRefinement({
-          originalText: selectedText,
-          improvedText: improved,
-          reasoning: res.data?.reasoning,
-        });
+        setPendingRefinement({ originalText: text, improvedText: improved, reasoning: res.data?.reasoning, x, y });
       }
     } catch (e) {
       setError(e.response?.data?.message || e.message || 'Refine failed');
@@ -137,9 +157,7 @@ export default function DraftPage() {
     setPendingRefinement(null);
   };
 
-  const handleRejectRefinement = () => {
-    setPendingRefinement(null);
-  };
+  const handleRejectRefinement = () => setPendingRefinement(null);
 
   return (
     <div>
@@ -149,94 +167,50 @@ export default function DraftPage() {
       </h1>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left form panel */}
         <div className="lg:col-span-1">
           <div className="card sticky top-4">
             <h3 className="font-semibold mb-4">Create Draft</h3>
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Template</label>
-                <select
-                  value={form.templateId}
-                  onChange={e => setForm({ ...form, templateId: e.target.value })}
-                  className="input-field w-full text-sm"
-                >
+                <select value={form.templateId} onChange={e => setForm({ ...form, templateId: e.target.value })} className="input-field w-full text-sm">
                   <option value="">Select template...</option>
-                  {templates.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
+                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Party A</label>
-                <input
-                  value={form.partyA}
-                  onChange={e => setForm({ ...form, partyA: e.target.value })}
-                  placeholder="Company name"
-                  className="input-field w-full text-sm"
-                />
+                <input value={form.partyA} onChange={e => setForm({ ...form, partyA: e.target.value })} placeholder="Company name" className="input-field w-full text-sm" />
               </div>
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Party B</label>
-                <input
-                  value={form.partyB}
-                  onChange={e => setForm({ ...form, partyB: e.target.value })}
-                  placeholder="Company name"
-                  className="input-field w-full text-sm"
-                />
+                <input value={form.partyB} onChange={e => setForm({ ...form, partyB: e.target.value })} placeholder="Company name" className="input-field w-full text-sm" />
               </div>
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Party A Address</label>
-                <input
-                  value={form.partyAAddress}
-                  onChange={e => setForm({ ...form, partyAAddress: e.target.value })}
-                  placeholder="Registered office address"
-                  className="input-field w-full text-sm"
-                />
+                <input value={form.partyAAddress} onChange={e => setForm({ ...form, partyAAddress: e.target.value })} placeholder="Registered office address" className="input-field w-full text-sm" />
               </div>
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Party B Address</label>
-                <input
-                  value={form.partyBAddress}
-                  onChange={e => setForm({ ...form, partyBAddress: e.target.value })}
-                  placeholder="Registered office address"
-                  className="input-field w-full text-sm"
-                />
+                <input value={form.partyBAddress} onChange={e => setForm({ ...form, partyBAddress: e.target.value })} placeholder="Registered office address" className="input-field w-full text-sm" />
               </div>
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Party A Representative</label>
-                <input
-                  value={form.partyARep}
-                  onChange={e => setForm({ ...form, partyARep: e.target.value })}
-                  placeholder="e.g. Mr. X, Director"
-                  className="input-field w-full text-sm"
-                />
+                <input value={form.partyARep} onChange={e => setForm({ ...form, partyARep: e.target.value })} placeholder="e.g. Mr. X, Director" className="input-field w-full text-sm" />
               </div>
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Party B Representative</label>
-                <input
-                  value={form.partyBRep}
-                  onChange={e => setForm({ ...form, partyBRep: e.target.value })}
-                  placeholder="e.g. Ms. Y, Managing Director"
-                  className="input-field w-full text-sm"
-                />
+                <input value={form.partyBRep} onChange={e => setForm({ ...form, partyBRep: e.target.value })} placeholder="e.g. Ms. Y, Managing Director" className="input-field w-full text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-text-muted mb-1 block">Effective Date</label>
-                  <input
-                    type="date"
-                    value={form.effectiveDate}
-                    onChange={e => setForm({ ...form, effectiveDate: e.target.value })}
-                    className="input-field w-full text-sm"
-                  />
+                  <input type="date" value={form.effectiveDate} onChange={e => setForm({ ...form, effectiveDate: e.target.value })} className="input-field w-full text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-text-muted mb-1 block">Jurisdiction</label>
-                  <select
-                    value={form.jurisdiction}
-                    onChange={e => setForm({ ...form, jurisdiction: e.target.value })}
-                    className="input-field w-full text-sm"
-                  >
+                  <select value={form.jurisdiction} onChange={e => setForm({ ...form, jurisdiction: e.target.value })} className="input-field w-full text-sm">
                     {JURISDICTIONS.map(j => <option key={j} value={j}>{j}</option>)}
                   </select>
                 </div>
@@ -244,39 +218,18 @@ export default function DraftPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-text-muted mb-1 block">Term (years)</label>
-                  <input
-                    type="text"
-                    value={form.termYears}
-                    onChange={e => setForm({ ...form, termYears: e.target.value })}
-                    placeholder="3"
-                    className="input-field w-full text-sm"
-                  />
+                  <input type="text" value={form.termYears} onChange={e => setForm({ ...form, termYears: e.target.value })} placeholder="3" className="input-field w-full text-sm" />
                 </div>
                 <div>
                   <label className="text-xs text-text-muted mb-1 block">Notice (days)</label>
-                  <input
-                    type="text"
-                    value={form.noticeDays}
-                    onChange={e => setForm({ ...form, noticeDays: e.target.value })}
-                    placeholder="30"
-                    className="input-field w-full text-sm"
-                  />
+                  <input type="text" value={form.noticeDays} onChange={e => setForm({ ...form, noticeDays: e.target.value })} placeholder="30" className="input-field w-full text-sm" />
                 </div>
               </div>
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Agreement Ref (optional)</label>
-                <input
-                  value={form.agreementRef}
-                  onChange={e => setForm({ ...form, agreementRef: e.target.value })}
-                  placeholder="e.g. NDA-2025-001"
-                  className="input-field w-full text-sm"
-                />
+                <input value={form.agreementRef} onChange={e => setForm({ ...form, agreementRef: e.target.value })} placeholder="e.g. NDA-2025-001" className="input-field w-full text-sm" />
               </div>
-              <button
-                onClick={handleGenerate}
-                disabled={loading || !form.templateId}
-                className="btn-primary w-full flex items-center justify-center gap-2 py-3"
-              >
+              <button onClick={handleGenerate} disabled={loading || !form.templateId} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
                 {loading ? <Loader className="w-5 h-5 animate-spin" /> : <FileEdit className="w-5 h-5" />}
                 {loading ? 'Generating...' : 'Generate Draft'}
               </button>
@@ -284,6 +237,7 @@ export default function DraftPage() {
           </div>
         </div>
 
+        {/* Right preview panel */}
         <div className="lg:col-span-2 space-y-6">
           {error && (
             <div className="card border-l-4 border-danger bg-danger/5">
@@ -294,17 +248,12 @@ export default function DraftPage() {
           {draft && (
             <>
               <div className="card flex items-center justify-between flex-wrap gap-3">
-                <span className="text-text-secondary">Draft ready</span>
+                <span className="text-text-secondary text-sm">
+                  {refining
+                    ? <span className="flex items-center gap-2"><Loader className="w-4 h-4 animate-spin" /> Improving selection...</span>
+                    : 'Select text in the preview to improve it inline'}
+                </span>
                 <div className="flex gap-2 flex-wrap">
-                  <button
-                    onClick={handleImproveSelection}
-                    disabled={refining}
-                    className="btn-secondary flex items-center gap-2 text-sm"
-                    title="Select text in the preview, then click to improve"
-                  >
-                    {refining ? <Loader className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    {refining ? 'Improving...' : 'Improve selection'}
-                  </button>
                   <button onClick={() => setShowSaveToCloud(true)} className="btn-secondary flex items-center gap-2 text-sm">
                     <CloudUpload className="w-4 h-4" />
                     Save to Cloud
@@ -329,48 +278,6 @@ export default function DraftPage() {
                 />
               )}
 
-              {pendingRefinement && (
-                <div className="card border border-primary/40 bg-primary/5">
-                  <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
-                    <Sparkles className="w-4 h-4 text-primary" />
-                    Suggested Improvement — Accept or Reject
-                  </h4>
-                  <div className="space-y-3 mb-4">
-                    <div>
-                      <p className="text-xs text-text-muted mb-1">Original</p>
-                      <p className="text-sm p-3 rounded bg-danger/10 border border-danger/20 line-through text-text-secondary">
-                        {pendingRefinement.originalText}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-text-muted mb-1">Improved</p>
-                      <p className="text-sm p-3 rounded bg-success/10 border border-success/20">
-                        {pendingRefinement.improvedText}
-                      </p>
-                    </div>
-                    {pendingRefinement.reasoning && (
-                      <p className="text-xs text-text-muted italic">{pendingRefinement.reasoning}</p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleAcceptRefinement}
-                      className="btn-primary flex items-center gap-2 text-sm"
-                    >
-                      <Check className="w-4 h-4" />
-                      Accept
-                    </button>
-                    <button
-                      onClick={handleRejectRefinement}
-                      className="btn-secondary flex items-center gap-2 text-sm"
-                    >
-                      <X className="w-4 h-4" />
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {draft.suggestions?.length > 0 && (
                 <div className="card">
                   <h4 className="font-semibold mb-3 flex items-center gap-2">
@@ -390,14 +297,22 @@ export default function DraftPage() {
               )}
 
               <div className="card overflow-hidden">
-                <h4 className="font-semibold mb-4">Preview — select text and click &quot;Improve selection&quot; to refine</h4>
                 <div
                   ref={previewRef}
+                  onMouseUp={handlePreviewMouseUp}
                   className="bg-white/5 rounded-lg p-6 overflow-auto max-h-[600px] text-sm text-text-primary select-text [&_h1]:text-xl [&_h1]:font-bold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-medium [&_p]:mb-3 [&_ul]:list-disc [&_ul]:ml-6 [&_ul]:mb-3"
                   dangerouslySetInnerHTML={{ __html: draft.draftHtml }}
                 />
               </div>
             </>
+          )}
+
+          {loading && (
+            <div className="card border-2 border-dashed border-primary/30 text-center py-16">
+              <Loader className="w-12 h-12 text-primary mx-auto mb-4 animate-spin" />
+              <p className="text-text-primary font-medium">Generating your draft...</p>
+              <p className="text-xs text-text-muted mt-2">The AI is drafting your contract. This may take up to a minute.</p>
+            </div>
           )}
 
           {!draft && !loading && (
@@ -409,6 +324,66 @@ export default function DraftPage() {
           )}
         </div>
       </div>
+
+      {/* Floating improve button — appears at selection */}
+      {selectionInfo && !refining && (
+        <div
+          className="fixed z-50 -translate-x-1/2"
+          style={{ left: selectionInfo.x, top: selectionInfo.y }}
+        >
+          <button
+            onClick={handleImproveSelection}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs font-medium shadow-lg hover:bg-primary/90 transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Improve with AI
+          </button>
+        </div>
+      )}
+
+      {/* Floating comparison panel — appears after improvement */}
+      {pendingRefinement && (
+        <div
+          className="fixed z-50 -translate-x-1/2 w-[420px] max-w-[90vw]"
+          style={{ left: Math.min(pendingRefinement.x, window.innerWidth - 230), top: pendingRefinement.y }}
+        >
+          <div className="bg-surface border border-border rounded-xl shadow-2xl p-4">
+            <p className="text-xs font-semibold text-text-muted mb-3 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
+              AI Suggestion — compare and decide
+            </p>
+
+            <div className="space-y-2 mb-4">
+              <div>
+                <p className="text-[10px] text-danger font-medium uppercase tracking-wide mb-1">Original</p>
+                <p className="text-xs p-2.5 rounded-lg bg-danger/10 border border-danger/20 text-text-secondary line-through leading-relaxed">
+                  {pendingRefinement.originalText}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] text-success font-medium uppercase tracking-wide mb-1">Improved</p>
+                <p className="text-xs p-2.5 rounded-lg bg-success/10 border border-success/20 leading-relaxed">
+                  {pendingRefinement.improvedText}
+                </p>
+              </div>
+              {pendingRefinement.reasoning && (
+                <p className="text-[10px] text-text-muted italic px-1">{pendingRefinement.reasoning}</p>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <button onClick={handleAcceptRefinement} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-success/20 hover:bg-success/30 text-success text-xs font-medium transition-colors border border-success/30">
+                <Check className="w-3.5 h-3.5" />
+                Accept
+              </button>
+              <button onClick={handleRejectRefinement} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-danger/10 hover:bg-danger/20 text-danger text-xs font-medium transition-colors border border-danger/20">
+                <X className="w-3.5 h-3.5" />
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
