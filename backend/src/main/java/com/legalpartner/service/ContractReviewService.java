@@ -4,23 +4,17 @@ import com.legalpartner.model.dto.ClauseCheckResult;
 import com.legalpartner.model.dto.ContractReviewRequest;
 import com.legalpartner.model.dto.ContractReviewResult;
 import com.legalpartner.model.entity.DocumentMetadata;
+import com.legalpartner.rag.DocumentFullTextRetriever;
 import com.legalpartner.rag.PromptTemplates;
 import com.legalpartner.repository.DocumentMetadataRepository;
-import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatLanguageModel;
-import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.store.embedding.EmbeddingMatch;
-import dev.langchain4j.store.embedding.EmbeddingStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -28,18 +22,15 @@ import java.util.stream.Collectors;
 public class ContractReviewService {
 
     private final ChatLanguageModel chatModel;
-    private final EmbeddingModel embeddingModel;
-    private final EmbeddingStore<TextSegment> embeddingStore;
     private final DocumentMetadataRepository documentRepository;
-    private final EncryptionService encryptionService;
-    @Value("${legalpartner.rag.retrieve-candidates:200}")
-    private int retrieveCandidates;
+    private final DocumentFullTextRetriever fullTextRetriever;
 
     public ContractReviewResult review(ContractReviewRequest request, String username) {
         DocumentMetadata doc = documentRepository.findById(request.documentId())
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + request.documentId()));
 
-        String context = retrieveComprehensiveContext(doc.getId());
+        // Full document — checklist must see every clause to detect what's missing
+        String context = fullTextRetriever.retrieveFullText(doc.getId());
 
         if (context.isBlank()) {
             return new ContractReviewResult(doc.getFileName(), "UNKNOWN", 0, 0, 0,
@@ -168,43 +159,4 @@ public class ContractReviewService {
         return "LOW";
     }
 
-    private String retrieveComprehensiveContext(UUID docId) {
-        List<String> queries = List.of(
-                "liability indemnity limitation damages exclusion consequential",
-                "termination notice period cause breach force majeure",
-                "confidentiality NDA governing law arbitration dispute resolution",
-                "intellectual property ownership work product assignment data protection",
-                "payment terms invoice assignment change of control"
-        );
-        Set<String> seen = new HashSet<>();
-        List<EmbeddingMatch<TextSegment>> forDoc = new ArrayList<>();
-
-        for (String q : queries) {
-            if (forDoc.size() >= 15) break;
-            Embedding emb = embeddingModel.embed(q).content();
-            List<EmbeddingMatch<TextSegment>> all = embeddingStore.findRelevant(emb, retrieveCandidates);
-            for (EmbeddingMatch<TextSegment> m : all) {
-                if (!docId.toString().equals(m.embedded().metadata().getString("document_id"))) continue;
-                String key = m.embedded().metadata().getString("chunk_index") + ":" + m.embedded().text().hashCode();
-                if (seen.add(key)) {
-                    forDoc.add(m);
-                    if (forDoc.size() >= 15) break;
-                }
-            }
-        }
-
-        return forDoc.stream()
-                .sorted(Comparator.comparing(m -> {
-                    String idx = m.embedded().metadata().getString("chunk_index");
-                    return idx != null ? Integer.parseInt(idx) : 0;
-                }))
-                .map(m -> {
-                    String text;
-                    try { text = encryptionService.decrypt(m.embedded().text()); }
-                    catch (Exception e) { text = m.embedded().text(); }
-                    String section = m.embedded().metadata().getString("section_path");
-                    return String.format("[%s]\n%s", section != null ? section : "", text);
-                })
-                .collect(Collectors.joining("\n\n---\n\n"));
-    }
 }

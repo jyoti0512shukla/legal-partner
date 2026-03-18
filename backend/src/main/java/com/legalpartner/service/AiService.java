@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.dto.*;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.rag.*;
+import com.legalpartner.rag.DocumentFullTextRetriever;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.AiMessage;
@@ -38,6 +39,7 @@ public class AiService {
     private final EncryptionService encryptionService;
     private final DocumentMetadataRepository documentRepository;
     private final ConversationStore conversationStore;
+    private final DocumentFullTextRetriever fullTextRetriever;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${legalpartner.rag.candidate-count:20}")
@@ -86,7 +88,8 @@ public class AiService {
             ResponseValidator responseValidator,
             EncryptionService encryptionService,
             DocumentMetadataRepository documentRepository,
-            ConversationStore conversationStore) {
+            ConversationStore conversationStore,
+            DocumentFullTextRetriever fullTextRetriever) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
@@ -98,6 +101,7 @@ public class AiService {
         this.encryptionService = encryptionService;
         this.documentRepository = documentRepository;
         this.conversationStore = conversationStore;
+        this.fullTextRetriever = fullTextRetriever;
     }
 
     public QueryResult query(QueryRequest request, String username) {
@@ -265,7 +269,9 @@ public class AiService {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
 
-        String context = retrieveContextForDocument(documentId);
+        // Full document context — not just top-K chunks. A missing clause (e.g. no
+        // force majeure) can only be detected by seeing the whole contract.
+        String context = fullTextRetriever.retrieveFullText(documentId);
 
         if (context.isBlank()) {
             return new RiskAssessmentResult("UNKNOWN", List.of(new RiskCategory(
@@ -292,7 +298,8 @@ public class AiService {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
 
-        String context = retrieveContextForDocument(documentId);
+        // Full document — party names, dates, values can appear anywhere in the contract
+        String context = fullTextRetriever.retrieveFullText(documentId);
         if (context.isBlank()) {
             return new ExtractionResult(null, null, null, null, null, null, null, null, null);
         }

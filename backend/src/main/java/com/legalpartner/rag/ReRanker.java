@@ -1,7 +1,9 @@
 package com.legalpartner.rag;
 
+import com.legalpartner.service.EncryptionService;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -9,7 +11,10 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Component
+@RequiredArgsConstructor
 public class ReRanker {
+
+    private final EncryptionService encryptionService;
 
     // Document type authority order (higher index = more authoritative)
     private static final Map<String, Double> DOCTYPE_AUTHORITY = Map.of(
@@ -43,7 +48,14 @@ public class ReRanker {
 
         List<ScoredMatch> scored = candidates.stream().map(match -> {
             double vectorScore = match.score();
-            double keywordScore = computeKeywordOverlap(match.embedded().text(), queryKeywords);
+            // Decrypt before keyword scoring — scoring on ciphertext is meaningless
+            String plainText;
+            try {
+                plainText = encryptionService.decrypt(match.embedded().text());
+            } catch (Exception e) {
+                plainText = match.embedded().text();
+            }
+            double keywordScore = computeKeywordOverlap(plainText, queryKeywords);
             double doctypeScore = computeDoctypeAuthority(match.embedded().metadata().getString("document_type"));
             double finalScore = (vectorWeight * vectorScore) + (keywordWeight * keywordScore) + (doctypeWeight * doctypeScore);
             return new ScoredMatch(match, finalScore);

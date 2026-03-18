@@ -32,10 +32,13 @@ public class LegalDocumentChunker {
             Map.entry(ClauseType.PAYMENT, List.of("payment", "invoice", "compensation", "fee", "charges", "remuneration"))
     );
 
-    @Value("${legalpartner.chunking.target-size:400}")
+    @Value("${legalpartner.chunking.target-size:600}")
     private int targetSize;
 
-    @Value("${legalpartner.chunking.max-size:500}")
+    // Raised from 500 → 1500 words so a full clause (liability, termination etc.)
+    // stays in one chunk rather than being split across two. Embedding is still
+    // truncated to 400 chars (all-MiniLM limit) but the stored text is the full clause.
+    @Value("${legalpartner.chunking.max-size:1500}")
     private int maxSize;
 
     @Value("${legalpartner.chunking.min-size:50}")
