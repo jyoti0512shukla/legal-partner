@@ -100,26 +100,32 @@ public final class PromptTemplates {
 
     public static final String DRAFT_LIABILITY_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-            
+            %s
             Below are relevant liability and indemnity clauses from the firm's contract corpus (with source metadata).
             Use them as precedent. Match style and substance where appropriate. Reference Indian Contract Act 1872 (Sections 73, 74) where relevant.
-            
+
             Firm's precedent:
             %s
-            
+
             Draft a liability and indemnity clause suitable for this contract. Output ONLY the clause text, no preamble or JSON.
             """;
 
     public static final String REFINE_CLAUSE_SYSTEM = """
             You are a senior Indian legal editor. Improve the selected contract text for clarity, legal precision, and Indian law compliance.
-            
+
             Rules:
             - Preserve the original intent and meaning.
             - Use precise legal language. Reference Indian Contract Act 1872 where relevant.
             - Fix ambiguities, improve structure, ensure enforceability.
             - If the user provides a specific instruction, follow it.
-            - Output ONLY valid JSON: {"improved_text": "...", "reasoning": "..."}
-            - Do not add any text before or after the JSON.
+
+            Output format — EXACTLY two labelled lines, nothing else:
+            IMPROVED: <the improved clause text on a single line>
+            REASONING: <one sentence explaining the change>
+
+            Example:
+            IMPROVED: Neither Party shall be liable for any indirect, incidental, consequential, punitive or special damages howsoever arising, even if advised of the possibility of such damages (Indian Contract Act 1872, Sections 73-74).
+            REASONING: Expanded exclusion to cover punitive and special damages and added statutory reference for enforceability.
             """;
 
     public static final String REFINE_CLAUSE_USER = """
@@ -131,7 +137,7 @@ public final class PromptTemplates {
 
             User instruction (optional): %s
 
-            Output JSON with improved_text and reasoning:
+            Output the two labelled lines (IMPROVED: and REASONING:) now:
             """;
 
     // --- DRAFT PROMPTS FOR NON-LIABILITY CLAUSE TYPES ---
@@ -150,7 +156,7 @@ public final class PromptTemplates {
 
     public static final String DRAFT_TERMINATION_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-
+            %s
             Relevant termination clauses from the firm's corpus:
             %s
 
@@ -170,7 +176,7 @@ public final class PromptTemplates {
 
     public static final String DRAFT_CONFIDENTIALITY_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-
+            %s
             Relevant confidentiality clauses from the firm's corpus:
             %s
 
@@ -191,7 +197,7 @@ public final class PromptTemplates {
 
     public static final String DRAFT_GOVERNING_LAW_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-
+            %s
             Relevant governing law clauses from the firm's corpus:
             %s
 
@@ -209,7 +215,7 @@ public final class PromptTemplates {
 
     public static final String DRAFT_IP_RIGHTS_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-
+            %s
             Relevant IP rights clauses from the firm's corpus:
             %s
 
@@ -227,7 +233,7 @@ public final class PromptTemplates {
 
     public static final String DRAFT_PAYMENT_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-
+            %s
             Relevant payment clauses from the firm's corpus:
             %s
 
@@ -245,7 +251,7 @@ public final class PromptTemplates {
 
     public static final String DRAFT_SERVICES_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-
+            %s
             Relevant services/scope clauses from the firm's corpus:
             %s
 
@@ -270,7 +276,7 @@ public final class PromptTemplates {
 
     public static final String DRAFT_DEFINITIONS_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-
+            %s
             Relevant definitions clauses from the firm's corpus:
             %s
 
@@ -296,7 +302,7 @@ public final class PromptTemplates {
 
     public static final String DRAFT_GENERAL_PROVISIONS_USER = """
             Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
-
+            %s
             Relevant general provisions from the firm's corpus:
             %s
 
@@ -350,17 +356,37 @@ public final class PromptTemplates {
             """;
 
     public static final String CHECKLIST_SYSTEM = """
-            You are a senior Indian legal reviewer conducting a structured contract review for a law firm.
+            You are a senior Indian legal reviewer. Review the contract against a standard checklist.
 
-            Review the provided contract excerpt against the firm's standard checklist. For each clause:
-            - PRESENT: clause exists and is reasonably standard
-            - MISSING: clause is completely absent (HIGH risk for a services contract)
-            - WEAK: clause exists but is below standard or one-sided against the firm's client
+            Status codes:
+            PRESENT = clause exists and is reasonably standard
+            WEAK    = clause exists but is below standard or one-sided
+            MISSING = clause is completely absent
 
-            Indian law context: Reference Indian Contract Act 1872, Arbitration and Conciliation Act 1996, IT Act 2000, Copyright Act 1957 where relevant.
+            Risk codes: HIGH | MEDIUM | LOW
 
-            Output ONLY valid JSON array. Each element:
-            {"clause_name": "...", "status": "PRESENT|MISSING|WEAK", "found_text": "exact text or null if missing", "section_ref": "Section X.Y or MISSING", "risk_level": "HIGH|MEDIUM|LOW", "assessment": "1-2 sentence analysis", "recommendation": "specific action if any"}
+            Output EXACTLY 12 lines, one per clause. Nothing else — no preamble, no JSON, no blank lines.
+
+            Line format (pipe-separated, no extra spaces around pipes):
+            CLAUSE_ID|STATUS|RISK|Section ref or MISSING|One sentence assessment.|Recommendation or none.
+
+            Example:
+            LIABILITY_LIMIT|PRESENT|MEDIUM|Section 8.1|Cap exists at 12-month fees but is one-sided.|Negotiate mutual cap.
+            INDEMNITY|WEAK|HIGH|Section 9|Unilateral indemnity only; no IP infringement carve-out.|Add mutual indemnity and IP carve-out.
+            TERMINATION_CONVENIENCE|MISSING|HIGH|MISSING|No termination for convenience clause found.|Add 30-day notice termination right for both parties.
+            TERMINATION_CAUSE|PRESENT|LOW|Section 12.2|Mutual termination for cause with 15-day cure period.|Standard.
+            FORCE_MAJEURE|WEAK|MEDIUM|Section 11|Covers natural disasters but excludes pandemic and cyber attack.|Add pandemic and cyber attack to force majeure events.
+            CONFIDENTIALITY|PRESENT|LOW|Section 5|NDA present with 3-year post-termination survival.|Standard.
+            GOVERNING_LAW|PRESENT|LOW|Section 15|Indian law, exclusive courts at Mumbai.|Standard.
+            DISPUTE_RESOLUTION|PRESENT|LOW|Section 15.3|Arbitration under A&C Act 1996, sole arbitrator, seat Mumbai.|Standard.
+            IP_OWNERSHIP|MISSING|HIGH|MISSING|Work product ownership not defined.|Add IP assignment clause for all deliverables.
+            DATA_PROTECTION|MISSING|HIGH|MISSING|No data processing or IT Act 2000 obligations.|Add data protection schedule per DPDPA 2023.
+            PAYMENT_TERMS|PRESENT|LOW|Section 6|30-day payment, 1.5% monthly late interest.|Standard.
+            ASSIGNMENT|PRESENT|LOW|Section 14|Assignment restricted without prior written consent.|Standard.
+
+            Rules:
+            - CLAUSE_ID must be exactly one of: LIABILITY_LIMIT, INDEMNITY, TERMINATION_CONVENIENCE, TERMINATION_CAUSE, FORCE_MAJEURE, CONFIDENTIALITY, GOVERNING_LAW, DISPUTE_RESOLUTION, IP_OWNERSHIP, DATA_PROTECTION, PAYMENT_TERMS, ASSIGNMENT
+            - Output ONLY the 12 lines. No header, no trailing text.
             """;
 
     public static final String CHECKLIST_USER = """
@@ -369,18 +395,6 @@ public final class PromptTemplates {
             Contract excerpts:
             %s
 
-            Review for these clauses and output the JSON array:
-            1. Limitation of Liability (is there a cap? mutual or one-sided?)
-            2. Indemnification (scope, mutual vs unilateral, IP infringement carve-out?)
-            3. Termination for Convenience (by both parties? notice period?)
-            4. Termination for Cause (material breach, cure period?)
-            5. Force Majeure (comprehensive coverage including pandemic/epidemic?)
-            6. Confidentiality / NDA (duration, scope, post-termination survival?)
-            7. Governing Law and Jurisdiction (Indian law? which court/arbitration?)
-            8. Dispute Resolution / Arbitration (institution, seat, number of arbitrators?)
-            9. Intellectual Property Ownership (work product ownership clear?)
-            10. Data Protection (IT Act 2000 compliance, data processing obligations?)
-            11. Payment Terms (payment schedule, late payment interest, GST treatment?)
-            12. Assignment / Change of Control (restrictions on assignment?)
+            Output the 12 pipe-separated lines now:
             """;
 }

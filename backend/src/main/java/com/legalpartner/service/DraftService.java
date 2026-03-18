@@ -111,14 +111,64 @@ public class DraftService {
                 .build();
     }
 
+    /**
+     * Build the deal context block that is injected into every clause prompt.
+     * Empty string when no context fields are set (backward-compatible).
+     */
+    private String buildDealContext(DraftRequest request) {
+        StringBuilder sb = new StringBuilder();
+
+        String brief = request.getDealBrief();
+        if (brief != null && !brief.isBlank()) {
+            sb.append("\nDeal brief: ").append(brief.strip()).append("\n");
+        }
+
+        String position = request.getClientPosition();
+        if (position != null && !position.isBlank()) {
+            String posLabel = switch (position.toUpperCase()) {
+                case "PARTY_A" -> "Firm represents Party A — draft clauses favourably for Party A.";
+                case "PARTY_B" -> "Firm represents Party B — draft clauses favourably for Party B.";
+                default -> "Firm is acting as neutral drafter — balanced terms preferred.";
+            };
+            sb.append("Client position: ").append(posLabel).append("\n");
+        }
+
+        String industry = request.getIndustry();
+        if (industry != null && !industry.isBlank()) {
+            String regRef = switch (industry.toUpperCase()) {
+                case "FINTECH"        -> "Reference RBI guidelines, FEMA 1999, and Payment & Settlement Systems Act 2007 where relevant.";
+                case "PHARMA"        -> "Reference Drugs and Cosmetics Act 1940, Clinical Establishment Act 2010, and DPDPA 2023 where relevant.";
+                case "IT_SERVICES"   -> "Reference IT Act 2000, DPDPA 2023, and SEBI (if listed entity) where relevant.";
+                case "MANUFACTURING" -> "Reference Factories Act 1948, Environment Protection Act 1986, and GST Act 2017 where relevant.";
+                default -> "";
+            };
+            if (!regRef.isEmpty()) {
+                sb.append("Industry: ").append(industry).append(". ").append(regRef).append("\n");
+            }
+        }
+
+        String stance = request.getDraftStance();
+        if (stance != null && !stance.isBlank()) {
+            String stanceLabel = switch (stance.toUpperCase()) {
+                case "FIRST_DRAFT" -> "This is a first draft — maximise protections for the client; include strong caps, broad indemnity carve-outs, liberal termination rights.";
+                case "FINAL_OFFER" -> "This is a final offer — use firm but commercially reasonable language; avoid overreaching terms that may cause deadlock.";
+                default -> "Use balanced, commercially standard terms acceptable to both parties.";
+            };
+            sb.append("Drafting stance: ").append(stanceLabel).append("\n");
+        }
+
+        return sb.length() == 0 ? "" : sb.toString();
+    }
+
     private String generateClause(DraftRequest request, DraftContext ctx,
                                    String systemPrompt, String userPromptTemplate) {
         String contractType = request.getTemplateId() != null ? request.getTemplateId().toUpperCase() : "CONTRACT";
         String jurisdiction = nullToDefault(request.getJurisdiction(), "India");
         String counterparty = nullToDefault(request.getCounterpartyType(), "general");
         String practiceArea = nullToDefault(request.getPracticeArea(), "general");
+        String dealContext = buildDealContext(request);
 
-        String prompt = String.format(userPromptTemplate, contractType, jurisdiction, counterparty, practiceArea, ctx.structuredContext());
+        String prompt = String.format(userPromptTemplate, contractType, jurisdiction, counterparty, practiceArea, dealContext, ctx.structuredContext());
 
         if (ctx.chunkCount() > 0) {
             log.info("Draft context: {} chunks from {} sources", ctx.chunkCount(), ctx.sourceDocuments().size());

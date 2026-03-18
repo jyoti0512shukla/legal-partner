@@ -318,13 +318,16 @@ public class AiService {
         );
     }
 
-    // Scans entire text for LABEL[optional words]: RATING occurrences.
-    // Model sometimes emits "Liability Risk Assessment: HIGH" or "1. Liability: HIGH" —
-    // allow up to 4 optional words between the label keyword and the colon.
+    // Maps prose label variants → canonical label used in parseRiskLines
     private static final java.util.regex.Pattern RISK_TOKEN =
             java.util.regex.Pattern.compile(
-                    "(OVERALL|LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE)" +
-                    "(?:[^:\\n]{0,40})?:\\s*(HIGH|MEDIUM|LOW)",
+                    // Canonical underscored labels
+                    "(OVERALL|LIABILITY|INDEMNITY|INDEMNIFICATION|TERMINATION" +
+                    "|IP_RIGHTS|IP RIGHTS|INTELLECTUAL PROPERTY" +
+                    "|CONFIDENTIALITY|CONFIDENTIAL" +
+                    "|GOVERNING_LAW|GOVERNING LAW" +
+                    "|FORCE_MAJEURE|FORCE MAJEURE)" +
+                    "(?:[^:\\n]{0,50})?:\\s*(HIGH|MEDIUM|LOW)",
                     java.util.regex.Pattern.CASE_INSENSITIVE);
 
     // Optional pipe-delimited justification/ref after rating
@@ -350,7 +353,16 @@ public class AiService {
 
         for (int i = 0; i < hits.size(); i++) {
             Hit hit = hits.get(i);
-            if (!seen.add(hit.label())) continue; // skip duplicate labels
+            // Normalise for dedup (e.g. INDEMNIFICATION == INDEMNITY)
+            String dedupKey = switch (hit.label().toUpperCase().replace(' ', '_')) {
+                case "INDEMNIFICATION" -> "INDEMNITY";
+                case "IP_RIGHTS", "INTELLECTUAL_PROPERTY" -> "IP_RIGHTS";
+                case "GOVERNING_LAW" -> "GOVERNING_LAW";
+                case "FORCE_MAJEURE" -> "FORCE_MAJEURE";
+                case "CONFIDENTIAL" -> "CONFIDENTIALITY";
+                default -> hit.label().toUpperCase().replace(' ', '_');
+            };
+            if (!seen.add(dedupKey)) continue; // skip duplicate labels
 
             // Text between this hit's end and the next hit's start = possible justification
             int nextStart = (i + 1 < hits.size())
@@ -383,14 +395,29 @@ public class AiService {
                 if (ref.isBlank()) ref = "See contract";
             }
 
-            if ("OVERALL".equals(hit.label())) {
+            // Normalise label variants to canonical form
+            String canonicalLabel = switch (hit.label().toUpperCase().replace(' ', '_')) {
+                case "INDEMNIFICATION"   -> "INDEMNITY";
+                case "IP_RIGHTS",
+                     "INTELLECTUAL_PROPERTY" -> "IP_RIGHTS";
+                case "GOVERNING_LAW"    -> "GOVERNING_LAW";
+                case "FORCE_MAJEURE"    -> "FORCE_MAJEURE";
+                case "CONFIDENTIAL"     -> "CONFIDENTIALITY";
+                default                 -> hit.label().toUpperCase().replace(' ', '_');
+            };
+
+            if ("OVERALL".equals(canonicalLabel)) {
                 overallRisk = hit.rating();
             } else {
-                String name = switch (hit.label()) {
-                    case "IP_RIGHTS" -> "IP Rights";
-                    case "GOVERNING_LAW" -> "Governing Law";
-                    case "FORCE_MAJEURE" -> "Force Majeure";
-                    default -> hit.label().charAt(0) + hit.label().substring(1).toLowerCase();
+                String name = switch (canonicalLabel) {
+                    case "IP_RIGHTS"      -> "IP Rights";
+                    case "GOVERNING_LAW"  -> "Governing Law";
+                    case "FORCE_MAJEURE"  -> "Force Majeure";
+                    case "INDEMNITY"      -> "Indemnity";
+                    case "CONFIDENTIALITY"-> "Confidentiality";
+                    case "TERMINATION"    -> "Termination";
+                    case "LIABILITY"      -> "Liability";
+                    default -> canonicalLabel.charAt(0) + canonicalLabel.substring(1).toLowerCase();
                 };
                 categories.add(new RiskCategory(name, hit.rating(),
                         justification.isBlank() ? "See contract for details." : justification, ref));
@@ -421,16 +448,51 @@ public class AiService {
                 UserMessage.from(prompt)
         ).content();
 
-        JsonNode parsed = responseValidator.parseAndValidate(response.text());
-        if (parsed != null && parsed.has("improved_text")) {
-            return RefineClauseResponse.builder()
-                    .improvedText(parsed.path("improved_text").asText())
-                    .reasoning(parsed.has("reasoning") ? parsed.path("reasoning").asText() : null)
-                    .build();
+        return parseRefineResponse(response.text());
+    }
+
+    private static final java.util.regex.Pattern REFINE_IMPROVED =
+            java.util.regex.Pattern.compile("(?:^|\\n)IMPROVED:\\s*(.+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern REFINE_REASONING =
+            java.util.regex.Pattern.compile("(?:^|\\n)REASONING:\\s*(.+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private RefineClauseResponse parseRefineResponse(String raw) {
+        if (raw == null) raw = "";
+        // Strip any CSS / HTML that leaked in (template styles sometimes injected)
+        String cleaned = raw.replaceAll("(?s)<style[^>]*>.*?</style>", "")
+                            .replaceAll("<[^>]+>", "")
+                            .trim();
+
+        java.util.regex.Matcher im = REFINE_IMPROVED.matcher(cleaned);
+        java.util.regex.Matcher rm = REFINE_REASONING.matcher(cleaned);
+
+        String improvedText = im.find() ? im.group(1).trim() : null;
+        String reasoning    = rm.find() ? rm.group(1).trim() : null;
+
+        // Fallback: try JSON "improved_text" field
+        if (improvedText == null) {
+            JsonNode parsed = responseValidator.parseAndValidate(cleaned);
+            if (parsed != null && parsed.has("improved_text")) {
+                improvedText = parsed.path("improved_text").asText(null);
+                reasoning    = parsed.has("reasoning") ? parsed.path("reasoning").asText(null) : null;
+            }
         }
+
+        // Last resort: return whatever text was generated, stripped of obvious noise
+        if (improvedText == null || improvedText.isBlank()) {
+            // Remove lines that look like system prompt echo or CSS
+            String stripped = Arrays.stream(cleaned.split("\\n"))
+                    .filter(l -> !l.matches("(?i).*\\{.*\\}.*") && !l.isBlank())
+                    .collect(Collectors.joining(" "))
+                    .trim();
+            improvedText = stripped.isBlank() ? raw.trim() : stripped;
+            reasoning    = "Model returned unstructured response — text extracted as-is.";
+            log.warn("Refine clause: could not parse IMPROVED/REASONING labels from response length={}", raw.length());
+        }
+
         return RefineClauseResponse.builder()
-                .improvedText(response.text().trim())
-                .reasoning("Model returned unstructured response.")
+                .improvedText(improvedText)
+                .reasoning(reasoning)
                 .build();
     }
 

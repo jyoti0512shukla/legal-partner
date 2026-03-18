@@ -1,7 +1,5 @@
 package com.legalpartner.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.dto.ClauseCheckResult;
 import com.legalpartner.model.dto.ContractReviewRequest;
 import com.legalpartner.model.dto.ContractReviewResult;
@@ -34,8 +32,6 @@ public class ContractReviewService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final DocumentMetadataRepository documentRepository;
     private final EncryptionService encryptionService;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-
     @Value("${legalpartner.rag.retrieve-candidates:200}")
     private int retrieveCandidates;
 
@@ -90,47 +86,70 @@ public class ContractReviewService {
         );
     }
 
+    // Human-readable names for the 12 canonical CLAUSE_IDs
+    private static final java.util.Map<String, String> CLAUSE_ID_NAMES = java.util.Map.ofEntries(
+            java.util.Map.entry("LIABILITY_LIMIT",           "Limitation of Liability"),
+            java.util.Map.entry("INDEMNITY",                 "Indemnification"),
+            java.util.Map.entry("TERMINATION_CONVENIENCE",   "Termination for Convenience"),
+            java.util.Map.entry("TERMINATION_CAUSE",         "Termination for Cause"),
+            java.util.Map.entry("FORCE_MAJEURE",             "Force Majeure"),
+            java.util.Map.entry("CONFIDENTIALITY",           "Confidentiality / NDA"),
+            java.util.Map.entry("GOVERNING_LAW",             "Governing Law"),
+            java.util.Map.entry("DISPUTE_RESOLUTION",        "Dispute Resolution / Arbitration"),
+            java.util.Map.entry("IP_OWNERSHIP",              "Intellectual Property Ownership"),
+            java.util.Map.entry("DATA_PROTECTION",           "Data Protection"),
+            java.util.Map.entry("PAYMENT_TERMS",             "Payment Terms"),
+            java.util.Map.entry("ASSIGNMENT",                "Assignment / Change of Control")
+    );
+
     private List<ClauseCheckResult> parseChecklistResponse(String raw) {
         if (raw == null) return List.of();
-        String cleaned = raw.trim();
         List<ClauseCheckResult> results = new ArrayList<>();
 
-        JsonNode root = null;
-        try {
-            root = objectMapper.readTree(cleaned);
-        } catch (Exception e) {
-            int start = cleaned.indexOf('[');
-            int end = cleaned.lastIndexOf(']');
-            if (start >= 0 && end > start) {
-                try { root = objectMapper.readTree(cleaned.substring(start, end + 1)); }
-                catch (Exception ignored) {}
-            }
-        }
-        if (root == null || !root.isArray()) return List.of();
+        for (String line : raw.split("\\r?\\n")) {
+            line = line.trim();
+            if (line.isBlank()) continue;
+            String[] parts = line.split("\\|", -1);
+            if (parts.length < 5) continue; // must have at least CLAUSE_ID|STATUS|RISK|REF|ASSESSMENT
 
-        for (JsonNode item : root) {
-            try {
-                results.add(new ClauseCheckResult(
-                        item.path("clause_name").asText("Unknown"),
-                        item.path("status").asText("PRESENT"),
-                        nullableText(item, "found_text"),
-                        item.path("section_ref").asText(""),
-                        item.path("risk_level").asText("MEDIUM"),
-                        item.path("assessment").asText(""),
-                        nullableText(item, "recommendation")
-                ));
-            } catch (Exception e) {
-                log.debug("Failed to parse checklist item: {}", item);
-            }
+            String clauseId   = parts[0].trim().toUpperCase();
+            // Validate it's one of our known IDs (skip echo/header lines)
+            if (!CLAUSE_ID_NAMES.containsKey(clauseId)) continue;
+
+            String status     = normalise(parts[1], "PRESENT", "PRESENT", "MISSING", "WEAK");
+            String riskLevel  = normalise(parts[2], "MEDIUM",  "HIGH", "MEDIUM", "LOW");
+            String sectionRef = parts[3].trim();
+            String assessment = parts.length > 4 ? parts[4].trim() : "";
+            String recommendation = parts.length > 5 ? parts[5].trim() : null;
+
+            if ("none".equalsIgnoreCase(recommendation) || "".equals(recommendation)) recommendation = null;
+
+            results.add(new ClauseCheckResult(
+                    CLAUSE_ID_NAMES.getOrDefault(clauseId, clauseId),
+                    status,
+                    null, // foundText — not extracted in pipe format
+                    sectionRef,
+                    riskLevel,
+                    assessment,
+                    recommendation
+            ));
+        }
+
+        // Log raw response if we got nothing parseable
+        if (results.isEmpty()) {
+            log.warn("Checklist pipe-parser: no lines matched. Raw length={}, preview={}",
+                    raw.length(), raw.substring(0, Math.min(300, raw.length())).replace('\n', ' '));
         }
         return results;
     }
 
-    private String nullableText(JsonNode node, String field) {
-        JsonNode v = node.get(field);
-        if (v == null || v.isNull()) return null;
-        String s = v.asText().trim();
-        return s.isEmpty() || "null".equalsIgnoreCase(s) ? null : s;
+    /** Return the value if it matches one of the allowed tokens (case-insensitive), else defaultVal. */
+    private String normalise(String value, String defaultVal, String... allowed) {
+        String v = value.trim().toUpperCase();
+        for (String a : allowed) {
+            if (a.equals(v)) return a;
+        }
+        return defaultVal;
     }
 
     private String computeOverallRisk(List<ClauseCheckResult> clauses) {

@@ -29,4 +29,25 @@ public class DraftRequest {
     private String survivalYears;
     private String practiceArea;
     private String counterpartyType;
+
+    /** Free-text deal brief — injected verbatim into every clause prompt. */
+    private String dealBrief;
+
+    /**
+     * Which party the firm represents.
+     * Values: PARTY_A | PARTY_B | NEUTRAL
+     */
+    private String clientPosition;
+
+    /**
+     * Industry sector for regulatory references.
+     * Values: FINTECH | PHARMA | IT_SERVICES | MANUFACTURING | GENERAL
+     */
+    private String industry;
+
+    /**
+     * Negotiation stance affecting drafting bias.
+     * Values: FIRST_DRAFT | BALANCED | FINAL_OFFER
+     */
+    private String draftStance;
 }

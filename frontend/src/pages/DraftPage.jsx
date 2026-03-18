@@ -54,6 +54,10 @@ export default function DraftPage() {
     survivalYears: '5',
     practiceArea: 'CORPORATE',
     counterpartyType: 'vendor',
+    dealBrief: '',
+    clientPosition: 'NEUTRAL',
+    industry: 'GENERAL',
+    draftStance: 'BALANCED',
   });
 
   useEffect(() => {
@@ -341,6 +345,51 @@ export default function DraftPage() {
                   </div>
                 )}
               </div>
+              {/* ── Deal Context ─────────────────────────── */}
+              <div className="border-t border-border pt-4 mt-2">
+                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Negotiation Context</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-text-muted mb-1 block">Deal Brief <span className="text-text-muted/60">(optional)</span></label>
+                    <textarea
+                      value={form.dealBrief}
+                      onChange={e => setForm({ ...form, dealBrief: e.target.value })}
+                      placeholder="Describe the deal in 2-4 sentences. E.g. 'SaaS vendor providing cloud payroll software to a mid-size Fintech. Vendor is a startup; client has high leverage. Key risk: data residency and liability cap.'"
+                      rows={3}
+                      className="input-field w-full text-sm resize-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-text-muted mb-1 block">We represent</label>
+                      <select value={form.clientPosition} onChange={e => setForm({ ...form, clientPosition: e.target.value })} className="input-field w-full text-sm">
+                        <option value="NEUTRAL">Neutral</option>
+                        <option value="PARTY_A">Party A</option>
+                        <option value="PARTY_B">Party B</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-text-muted mb-1 block">Draft stance</label>
+                      <select value={form.draftStance} onChange={e => setForm({ ...form, draftStance: e.target.value })} className="input-field w-full text-sm">
+                        <option value="FIRST_DRAFT">First draft</option>
+                        <option value="BALANCED">Balanced</option>
+                        <option value="FINAL_OFFER">Final offer</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-text-muted mb-1 block">Industry</label>
+                    <select value={form.industry} onChange={e => setForm({ ...form, industry: e.target.value })} className="input-field w-full text-sm">
+                      <option value="GENERAL">General / Not specified</option>
+                      <option value="IT_SERVICES">IT Services</option>
+                      <option value="FINTECH">Fintech</option>
+                      <option value="PHARMA">Pharma / Healthcare</option>
+                      <option value="MANUFACTURING">Manufacturing</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
               <button onClick={handleGenerate} disabled={loading || !form.templateId} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
                 {loading ? <Loader className="w-5 h-5 animate-spin" /> : <FileEdit className="w-5 h-5" />}
                 {loading ? 'Generating...' : 'Generate Draft'}
