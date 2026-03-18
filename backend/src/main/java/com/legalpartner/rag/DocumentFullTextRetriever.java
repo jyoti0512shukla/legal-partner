@@ -1,8 +1,8 @@
 package com.legalpartner.rag;
 
 import com.legalpartner.service.EncryptionService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -16,21 +16,45 @@ import java.util.UUID;
  *
  * Used for single-document structured tasks (risk assessment, clause checklist,
  * key terms extraction) where you need the full contract text, not just the
- * top-K semantically similar chunks. Sending the whole document avoids the
- * "lost in the middle" problem and ensures missing clauses (e.g. absent force
- * majeure) are correctly detected.
+ * top-K semantically similar chunks.
+ *
+ * Context budget for AALAP-Mistral-7B (--max-model-len 8192):
+ *   System prompt:    ~500 tokens  (~1,750 chars)
+ *   User header:       ~30 tokens  (~  105 chars)
+ *   Response budget:  ~300 tokens  (~1,050 chars)
+ *   Available for doc: 7,362 tokens ≈ ~9,000 chars @ 3.5 chars/token (Mistral BPE)
+ *
+ * SHORT_DOC_THRESHOLD: contracts under this size get sent in full.
+ * MAX_CHARS: hard cap — contracts above this are truncated.
+ * Both can be overridden in application.properties.
  */
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class DocumentFullTextRetriever {
 
     private final JdbcTemplate jdbcTemplate;
     private final EncryptionService encryptionService;
 
-    // Max chars to send to the model — stay within the model's context window.
-    // AALAP/Mistral 7B: 8192 tokens ≈ ~24k chars. Use 18k to leave room for prompt.
-    private static final int MAX_CHARS = 18_000;
+    /**
+     * Contracts at or below this character count are sent whole — the model
+     * can attend to all clauses without "lost in the middle" degradation.
+     * ~10 pages × ~900 chars/page = 9,000 chars.
+     */
+    @Value("${legalpartner.fulltext.short-doc-threshold:9000}")
+    private int shortDocThreshold;
+
+    /**
+     * Hard cap applied to all documents regardless of length.
+     * Keeps total tokens safely under --max-model-len 8192 even with
+     * the longest system prompts (checklist system prompt ≈ 500 tokens).
+     */
+    @Value("${legalpartner.fulltext.max-chars:9000}")
+    private int maxChars;
+
+    public DocumentFullTextRetriever(JdbcTemplate jdbcTemplate, EncryptionService encryptionService) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.encryptionService = encryptionService;
+    }
 
     /**
      * Returns the full plaintext of a document concatenated in reading order.
@@ -73,8 +97,8 @@ public class DocumentFullTextRetriever {
                     ? "[" + sectionPath + "]\n" + plain + "\n\n"
                     : plain + "\n\n";
 
-            if (totalChars + block.length() > MAX_CHARS) {
-                int remaining = MAX_CHARS - totalChars;
+            if (totalChars + block.length() > maxChars) {
+                int remaining = maxChars - totalChars;
                 if (remaining > 200) {
                     sb.append(block, 0, remaining);
                 }
@@ -86,7 +110,7 @@ public class DocumentFullTextRetriever {
         }
 
         if (truncated) {
-            sb.append("\n[... document truncated at ").append(MAX_CHARS).append(" chars ...]");
+            sb.append("\n[... document truncated at ").append(maxChars).append(" chars ...]");
         }
 
         log.info("Full-text retrieval for doc {}: {} chunks, {} chars{}",
