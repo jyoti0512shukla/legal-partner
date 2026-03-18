@@ -287,7 +287,7 @@ public class AiService {
 
         String prompt = String.format(PromptTemplates.REFINE_CLAUSE_USER,
                 context, request.getSelectedText(), instruction);
-        AiMessage response = chatModel.generate(
+        AiMessage response = jsonChatModel.generate(
                 SystemMessage.from(PromptTemplates.REFINE_CLAUSE_SYSTEM),
                 UserMessage.from(prompt)
         ).content();
