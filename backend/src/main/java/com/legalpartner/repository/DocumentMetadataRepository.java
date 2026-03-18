@@ -37,4 +37,7 @@ public interface DocumentMetadataRepository extends JpaRepository<DocumentMetada
     int countByMatterUuid(@Param("matterUuid") UUID matterUuid);
 
     List<DocumentMetadata> findByExtractionStatus(ExtractionStatus status);
+
+    @Query("SELECT CAST(d.id AS string) FROM DocumentMetadata d WHERE d.matter.id = :matterUuid")
+    List<String> findIdStringsByMatterUuid(@Param("matterUuid") UUID matterUuid);
 }

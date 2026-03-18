@@ -475,49 +475,52 @@ export default function DraftPage() {
         </div>
       )}
 
-      {/* Floating comparison panel — appears after improvement */}
+      {/* AI refinement panel — fixed right-side drawer, always fully visible */}
       {pendingRefinement && (
-        <div
-          className="fixed z-50 -translate-x-1/2 w-[420px] max-w-[90vw]"
-          style={{
-            left: Math.min(Math.max(pendingRefinement.x, 220), window.innerWidth - 220),
-            top: Math.min(pendingRefinement.y, window.innerHeight - 340),
-          }}
-        >
-          <div className="bg-surface border border-border rounded-xl shadow-2xl p-4">
-            <p className="text-xs font-semibold text-text-muted mb-3 flex items-center gap-1.5">
+        <div className="fixed bottom-6 right-6 z-50 w-[400px] max-w-[calc(100vw-24px)] flex flex-col bg-surface border border-border rounded-xl shadow-2xl"
+             style={{ maxHeight: 'calc(100vh - 48px)' }}>
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+            <p className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-primary" />
               AI Suggestion — compare and decide
             </p>
+            <button onClick={handleRejectRefinement} className="text-text-muted hover:text-text-primary">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-            <div className="space-y-2 mb-4">
-              <div>
-                <p className="text-[10px] text-danger font-medium uppercase tracking-wide mb-1">Original</p>
-                <p className="text-xs p-2.5 rounded-lg bg-danger/10 border border-danger/20 text-text-secondary line-through leading-relaxed">
-                  {pendingRefinement.originalText}
-                </p>
-              </div>
-              <div>
-                <p className="text-[10px] text-success font-medium uppercase tracking-wide mb-1">Improved</p>
-                <p className="text-xs p-2.5 rounded-lg bg-success/10 border border-success/20 leading-relaxed">
-                  {pendingRefinement.improvedText}
-                </p>
-              </div>
-              {pendingRefinement.reasoning && (
-                <p className="text-[10px] text-text-muted italic px-1">{pendingRefinement.reasoning}</p>
-              )}
+          {/* Scrollable content */}
+          <div className="overflow-y-auto px-4 py-3 space-y-3 flex-1">
+            <div>
+              <p className="text-[10px] text-danger font-semibold uppercase tracking-wide mb-1.5">Original</p>
+              <p className="text-xs p-2.5 rounded-lg bg-danger/10 border border-danger/20 text-text-secondary line-through leading-relaxed whitespace-pre-wrap">
+                {pendingRefinement.originalText}
+              </p>
             </div>
+            <div>
+              <p className="text-[10px] text-success font-semibold uppercase tracking-wide mb-1.5">Improved</p>
+              <p className="text-xs p-2.5 rounded-lg bg-success/10 border border-success/20 leading-relaxed whitespace-pre-wrap">
+                {pendingRefinement.improvedText}
+              </p>
+            </div>
+            {pendingRefinement.reasoning && (
+              <p className="text-[10px] text-text-muted italic leading-relaxed">{pendingRefinement.reasoning}</p>
+            )}
+          </div>
 
-            <div className="flex gap-2">
-              <button onClick={handleAcceptRefinement} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-success/20 hover:bg-success/30 text-success text-xs font-medium transition-colors border border-success/30">
-                <Check className="w-3.5 h-3.5" />
-                Accept
-              </button>
-              <button onClick={handleRejectRefinement} className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-danger/10 hover:bg-danger/20 text-danger text-xs font-medium transition-colors border border-danger/20">
-                <X className="w-3.5 h-3.5" />
-                Reject
-              </button>
-            </div>
+          {/* Always-visible action buttons */}
+          <div className="flex gap-2 px-4 py-3 border-t border-border shrink-0">
+            <button onClick={handleAcceptRefinement}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-success/20 hover:bg-success/30 text-success text-xs font-semibold transition-colors border border-success/30">
+              <Check className="w-3.5 h-3.5" />
+              Accept Change
+            </button>
+            <button onClick={handleRejectRefinement}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-surface-el hover:bg-danger/10 text-text-muted hover:text-danger text-xs font-semibold transition-colors border border-border">
+              <X className="w-3.5 h-3.5" />
+              Discard
+            </button>
           </div>
         </div>
       )}

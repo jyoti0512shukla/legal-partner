@@ -9,5 +9,6 @@ public record QueryRequest(
         String clauseType,
         String practiceArea,
         String clientName,
-        String conversationId  // null for new conversation; UUID string for follow-up queries
+        String conversationId,  // null for new conversation; UUID string for follow-up queries
+        String matterId         // optional: scope query to documents in this matter
 ) {}

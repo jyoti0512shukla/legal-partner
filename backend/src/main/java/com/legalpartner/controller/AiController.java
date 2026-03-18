@@ -53,6 +53,11 @@ public class AiController {
         return aiService.assessRisk(docId, auth.getName());
     }
 
+    @PostMapping("/extract/{docId}")
+    public ExtractionResult extract(@PathVariable UUID docId, Authentication auth) {
+        return aiService.extractKeyTerms(docId, auth.getName());
+    }
+
     @PostMapping("/refine-clause")
     public RefineClauseResponse refineClause(@Valid @RequestBody RefineClauseRequest request, Authentication auth) {
         return aiService.refineClause(request, auth.getName());

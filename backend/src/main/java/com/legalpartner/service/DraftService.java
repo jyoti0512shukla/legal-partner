@@ -129,7 +129,102 @@ public class DraftService {
                 UserMessage.from(prompt)
         ).content();
 
-        return response.text().trim();
+        return sanitizeClauseText(response.text().trim());
+    }
+
+    /**
+     * Clean and format LLM clause output for HTML insertion:
+     * 1. Strip "Response:" / "Xxx Clause:" prefix echoes
+     * 2. Split inline numbered clauses onto separate lines (model often emits them as one long line)
+     * 3. Truncate on character-level repetition (111..., n-n-n...)
+     * 4. Truncate on semantic repetition (same numbered clause body appearing twice)
+     * 5. Trim trailing incomplete sentence
+     * 6. Wrap each numbered sub-clause in <p> for proper HTML rendering
+     */
+    private static final java.util.regex.Pattern DEGENERATE_LINE =
+            java.util.regex.Pattern.compile("(\\d)\\1{9,}|(-n){5,}|(n-){5,}|([a-zA-Z0-9])\\4{15,}");
+
+    // Matches "N." or "N.N" at start of a clause segment
+    private static final java.util.regex.Pattern CLAUSE_NUMBER =
+            java.util.regex.Pattern.compile("^(\\d+(?:\\.\\d+)?)[.)\\s]");
+
+    // Splits inline "... text. 2. Next clause..." into separate segments
+    // Looks for: space + number + dot/paren + space (not inside a year like 1872)
+    private static final java.util.regex.Pattern INLINE_CLAUSE_SPLIT =
+            java.util.regex.Pattern.compile("(?<=[.!?)])\\s+(?=\\d{1,3}[.)\\s])");
+
+    private String sanitizeClauseText(String text) {
+        // Strip prefix echoes: "Response:", "Confidentiality Clause:", "Definitions Clause" etc.
+        String cleaned = text
+                .replaceFirst("(?i)^\\s*Response\\s*:\\s*", "")
+                .replaceFirst("(?i)^\\s*[A-Za-z][A-Za-z ]{2,39}\\s+Clause\\s*:?\\s*", "")
+                .trim();
+
+        // Split inline clauses onto their own lines
+        // Model often emits: "1. Entire Agreement: ... 2. Amendments: ... 3. ..."
+        String[] rawLines = cleaned.split("\\r?\\n");
+        List<String> lines = new java.util.ArrayList<>();
+        for (String rawLine : rawLines) {
+            // If a line contains embedded inline numbered clauses, split it
+            String[] parts = INLINE_CLAUSE_SPLIT.split(rawLine);
+            for (String part : parts) {
+                if (!part.isBlank()) lines.add(part.trim());
+            }
+        }
+
+        // Pass 1 — char-level degenerate + semantic dedup
+        java.util.Set<String> seenBodies = new java.util.LinkedHashSet<>();
+        List<String> kept = new java.util.ArrayList<>();
+
+        for (String line : lines) {
+            if (DEGENERATE_LINE.matcher(line).find()) {
+                log.warn("Draft sanitizer: char-degenerate truncation at: {}", line.substring(0, Math.min(60, line.length())));
+                break;
+            }
+            java.util.regex.Matcher m = CLAUSE_NUMBER.matcher(line);
+            if (m.find()) {
+                String body = line.substring(m.end()).trim().toLowerCase();
+                String fingerprint = body.substring(0, Math.min(80, body.length()));
+                if (!fingerprint.isBlank() && !seenBodies.add(fingerprint)) {
+                    log.warn("Draft sanitizer: semantic-loop truncation at duplicate: {}", line.substring(0, Math.min(80, line.length())));
+                    break;
+                }
+            }
+            kept.add(line);
+        }
+
+        // Pass 2 — trim trailing incomplete sentence on the last kept line
+        if (!kept.isEmpty()) {
+            String last = kept.get(kept.size() - 1);
+            int lastEnd = -1;
+            for (int i = last.length() - 1; i >= 0; i--) {
+                char c = last.charAt(i);
+                if (c == '.' || c == '?' || c == '!' || c == ')' || c == ']') {
+                    lastEnd = i;
+                    break;
+                }
+            }
+            if (lastEnd > 0 && lastEnd < last.length() - 1) {
+                kept.set(kept.size() - 1, last.substring(0, lastEnd + 1));
+            }
+        }
+
+        // Pass 3 — render as HTML paragraphs
+        // Numbered clause lines → <p class="clause-sub">...; plain lines → <p>
+        StringBuilder html = new StringBuilder();
+        for (String line : kept) {
+            if (line.isBlank()) continue;
+            java.util.regex.Matcher m = CLAUSE_NUMBER.matcher(line);
+            if (m.find()) {
+                String num = m.group(1);
+                String body = line.substring(m.end()).trim();
+                html.append("<p class=\"clause-sub\"><strong>").append(num).append(".</strong> ").append(body).append("</p>\n");
+            } else {
+                html.append("<p>").append(line).append("</p>\n");
+            }
+        }
+
+        return html.toString().stripTrailing();
     }
 
     public SseEmitter streamDraft(DraftRequest request, String username) {

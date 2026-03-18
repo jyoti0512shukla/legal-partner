@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Brain, Search, CheckCircle, AlertTriangle } from 'lucide-react';
 import api from '../api/client';
 import ConfidenceBadge from '../components/shared/ConfidenceBadge';
@@ -12,13 +13,20 @@ const SUGGESTIONS = [
 ];
 
 export default function IntelligencePage() {
+  const [searchParams] = useSearchParams();
   const [query, setQuery] = useState('');
   const [jurisdiction, setJurisdiction] = useState('');
   const [year, setYear] = useState('');
   const [clauseType, setClauseType] = useState('');
+  const [matterId, setMatterId] = useState(searchParams.get('matterId') || '');
+  const [matters, setMatters] = useState([]);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/matters').then(r => setMatters(r.data)).catch(() => {});
+  }, []);
 
   const handleQuery = async () => {
     if (!query.trim()) return;
@@ -30,6 +38,7 @@ export default function IntelligencePage() {
         query, jurisdiction: jurisdiction || null,
         year: year ? parseInt(year) : null,
         clauseType: clauseType || null,
+        matterId: matterId || null,
       });
       setResult(res.data);
     } catch (e) {
@@ -53,6 +62,12 @@ export default function IntelligencePage() {
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleQuery())}
         />
         <div className="flex items-center gap-3 flex-wrap">
+          <select value={matterId} onChange={e => setMatterId(e.target.value)} className="input-field text-sm">
+            <option value="">All Matters</option>
+            {matters.map(m => (
+              <option key={m.id} value={m.id}>{m.name} — {m.clientName}</option>
+            ))}
+          </select>
           <select value={jurisdiction} onChange={e => setJurisdiction(e.target.value)} className="input-field text-sm">
             <option value="">All Jurisdictions</option>
             {['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan'].map(j => (

@@ -32,6 +32,8 @@ public class ChatModelConfig {
                 .apiKey("no-op")
                 .modelName(modelName)
                 .timeout(Duration.ofSeconds(300))
+                .maxTokens(900)
+                .frequencyPenalty(0.7)
                 .build();
     }
 

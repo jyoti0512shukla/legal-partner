@@ -12,6 +12,9 @@ import DraftPage from './pages/DraftPage';
 import ComparePage from './pages/ComparePage';
 import RiskAssessmentPage from './pages/RiskAssessmentPage';
 import AuditLogPage from './pages/AuditLogPage';
+import MattersPage from './pages/MattersPage';
+import ExtractionPage from './pages/ExtractionPage';
+import ContractReviewPage from './pages/ContractReviewPage';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -46,6 +49,9 @@ export default function App() {
         <Route path="/draft" element={<DraftPage />} />
         <Route path="/compare" element={<ComparePage />} />
         <Route path="/risk" element={<RiskAssessmentPage />} />
+        <Route path="/matters" element={<MattersPage />} />
+        <Route path="/extraction" element={<ExtractionPage />} />
+        <Route path="/review" element={<ContractReviewPage />} />
         {isPartnerOrAdmin && <Route path="/audit" element={<AuditLogPage />} />}
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />

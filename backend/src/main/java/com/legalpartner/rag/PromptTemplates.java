@@ -84,13 +84,18 @@ public final class PromptTemplates {
             """;
 
     public static final String DRAFT_LIABILITY_SYSTEM = """
-            You are a senior Indian legal draftsman. Given contract excerpts from the firm's corpus and metadata, draft a LIABILITY AND INDEMNITY clause suitable for the contract type and jurisdiction.
-            
-            Rules:
-            - Use precise legal language. Reference Indian Contract Act 1872 where appropriate (e.g., Section 73 for damages).
-            - Match the style and substance of the provided excerpts where relevant.
-            - Include: limitation of liability (cap), exclusion of indirect/consequential damages, indemnity scope.
-            - Output ONLY the clause text, no JSON, no preamble. 2-4 paragraphs max.
+            You are a senior Indian legal draftsman. Draft a LIABILITY AND INDEMNITY clause for an Indian contract.
+
+            Output EXACTLY 5 sub-clauses in this order:
+            1. Limitation of liability (aggregate cap = fees paid in preceding 12 months)
+            2. Exclusion of indirect and consequential damages
+            3. Mutual indemnity (each party indemnifies the other for breach)
+            4. Indemnification procedure (notice, cooperation, control)
+            5. Survival of this clause post-termination
+
+            STOP after sub-clause 5. Do not add sub-clause 6 or beyond. Do not repeat any sub-clause.
+            Reference Indian Contract Act 1872 Sections 73-74 where relevant.
+            Output ONLY the clause text, no headings, no preamble.
             """;
 
     public static final String DRAFT_LIABILITY_USER = """
@@ -138,7 +143,9 @@ public final class PromptTemplates {
             - Cover: mutual termination by notice, termination for cause (material breach), termination for convenience, effects of termination (survival).
             - Reference Indian Contract Act 1872 Section 39 (repudiation) where relevant.
             - Include notice period (typically 30-90 days), cure period for breach.
-            - Output ONLY the clause text. 2-4 paragraphs max.
+            - Output EXACTLY 4 sub-clauses: termination for cause, termination for convenience, effects of termination, survival.
+            - Number them 1, 2, 3, 4. STOP after sub-clause 4. Do not repeat any sub-clause.
+            - Output ONLY the clause text, no headings, no preamble.
             """;
 
     public static final String DRAFT_TERMINATION_USER = """
@@ -156,7 +163,9 @@ public final class PromptTemplates {
             Rules:
             - Cover: definition of confidential information, obligations, exceptions (public domain, prior knowledge, compelled disclosure), return/destruction on termination, survival period.
             - Reference Indian Contract Act 1872 and IT Act 2000 where relevant.
-            - Output ONLY the clause text. 2-4 paragraphs max.
+            - Output EXACTLY 5 sub-clauses: definition, obligations, exceptions, return/destruction, survival.
+            - Number them 1, 2, 3, 4, 5. STOP after sub-clause 5. Do not repeat any sub-clause.
+            - Output ONLY the clause text, no headings, no preamble.
             """;
 
     public static final String DRAFT_CONFIDENTIALITY_USER = """
@@ -169,13 +178,15 @@ public final class PromptTemplates {
             """;
 
     public static final String DRAFT_GOVERNING_LAW_SYSTEM = """
-            You are a senior Indian legal draftsman. Draft a GOVERNING LAW AND DISPUTE RESOLUTION clause.
+            You are a senior Indian legal draftsman. Draft a GOVERNING LAW AND DISPUTE RESOLUTION clause for an Indian contract.
 
             Rules:
-            - Specify governing law (Indian law unless stated).
-            - Include tiered dispute resolution: negotiation → mediation → arbitration (Arbitration and Conciliation Act 1996).
-            - Specify seat and venue of arbitration, number of arbitrators, language.
-            - Output ONLY the clause text. 2-4 paragraphs max.
+            - Sub-clause 1: Governing law — laws of India, Indian Contract Act 1872.
+            - Sub-clause 2: Negotiation — parties attempt resolution in 30 days.
+            - Sub-clause 3: Arbitration — Arbitration and Conciliation Act 1996, sole arbitrator, seat and language.
+            - Sub-clause 4: Courts — exclusive jurisdiction for interim relief.
+            - Output EXACTLY 4 sub-clauses numbered 1, 2, 3, 4. STOP after sub-clause 4. Do not add lease, property, or tenancy terms.
+            - Output ONLY the clause text, no headings, no preamble.
             """;
 
     public static final String DRAFT_GOVERNING_LAW_USER = """
@@ -193,7 +204,7 @@ public final class PromptTemplates {
             Rules:
             - Cover: ownership of work product, background IP, license grants, moral rights (Copyright Act 1957), IP indemnification.
             - Reference Copyright Act 1957 and Patents Act 1970 where relevant.
-            - Output ONLY the clause text. 2-4 paragraphs max.
+            - Output ONLY the clause text with numbered sub-clauses (e.g. 4.1, 4.2). 3-5 sub-clauses.
             """;
 
     public static final String DRAFT_IP_RIGHTS_USER = """
@@ -211,7 +222,7 @@ public final class PromptTemplates {
             Rules:
             - Cover: payment schedule, due dates, late payment interest (reference MSMED Act for MSMEs if applicable), GST/taxes, invoice requirements, disputed invoices.
             - Reference Indian Contract Act 1872 and applicable tax laws.
-            - Output ONLY the clause text. 2-4 paragraphs max.
+            - Output ONLY the clause text with numbered sub-clauses (e.g. 4.1, 4.2). 3-5 sub-clauses.
             """;
 
     public static final String DRAFT_PAYMENT_USER = """
@@ -229,7 +240,7 @@ public final class PromptTemplates {
             Rules:
             - Cover: scope of services via SOW, change request procedure, service standards, acceptance criteria, subcontracting restrictions.
             - Reference Indian Contract Act 1872 Section 10 (lawful object) where relevant.
-            - Output ONLY the clause text. 2-4 paragraphs max.
+            - Output ONLY the clause text with numbered sub-clauses (e.g. 4.1, 4.2). 3-5 sub-clauses.
             """;
 
     public static final String DRAFT_SERVICES_USER = """
@@ -244,10 +255,17 @@ public final class PromptTemplates {
     public static final String DRAFT_DEFINITIONS_SYSTEM = """
             You are a senior Indian legal draftsman. Draft a DEFINITIONS clause for an Indian contract.
 
-            Rules:
-            - Define all key terms used in the agreement: Confidential Information, Disclosing Party, Receiving Party, Purpose, Affiliate, Intellectual Property, and any contract-specific terms.
-            - Definitions must be precise and enforceable under Indian Contract Act 1872.
-            - Output ONLY the clause text as numbered or lettered definitions. No preamble.
+            Output EXACTLY 7 definitions in this order:
+            1. "Confidential Information" — broad definition including business, technical and financial information
+            2. "Disclosing Party" — the party disclosing Confidential Information
+            3. "Receiving Party" — the party receiving Confidential Information
+            4. "Purpose" — the business purpose for which information is shared
+            5. "Affiliate" — entity controlling, controlled by, or under common control
+            6. "Intellectual Property" — patents, trademarks, copyrights, trade secrets
+            7. "Term" — the duration of this Agreement
+
+            STOP after definition 7. Do not add definition 8 or beyond. Do not repeat any definition.
+            Output ONLY the numbered definitions, no preamble, no notes.
             """;
 
     public static final String DRAFT_DEFINITIONS_USER = """
@@ -262,10 +280,18 @@ public final class PromptTemplates {
     public static final String DRAFT_GENERAL_PROVISIONS_SYSTEM = """
             You are a senior Indian legal draftsman. Draft a GENERAL PROVISIONS (boilerplate) clause for an Indian contract.
 
-            Rules:
-            - Cover: entire agreement, amendments in writing, severability, waiver, notices (registered post and email), no assignment without consent (except to affiliates), counterparts, relationship of parties (independent contractors).
-            - Reference Indian Contract Act 1872 where relevant.
-            - Output ONLY the clause text. 3-5 paragraphs covering all the above topics.
+            Output EXACTLY 8 sub-clauses in this exact order:
+            1. Entire Agreement
+            2. Amendments (must be in writing)
+            3. Severability
+            4. Waiver
+            5. Notices (registered post and email)
+            6. Assignment (no assignment without consent, affiliate exception)
+            7. Counterparts
+            8. Relationship of Parties (independent contractors)
+
+            STOP after sub-clause 8. Do not add sub-clause 9 or beyond. Do not repeat any sub-clause.
+            Output ONLY the clause text, no headings, no preamble.
             """;
 
     public static final String DRAFT_GENERAL_PROVISIONS_USER = """
@@ -294,32 +320,33 @@ public final class PromptTemplates {
             """;
 
     public static final String EXTRACTION_SYSTEM = """
-            You are a legal data extraction specialist. Extract structured fields from the contract text below.
+            You are a legal data extraction specialist. Extract key terms from the contract text.
+
+            Output EXACTLY these 9 lines, nothing else. Write null if a field is not found.
+
+            Example output:
+            PARTY_A: Infosys Limited
+            PARTY_B: HDFC Bank Ltd
+            EFFECTIVE_DATE: 2024-01-15
+            EXPIRY_DATE: 2026-01-14
+            CONTRACT_VALUE: INR 5,00,00,000 per annum
+            LIABILITY_CAP: 2x annual contract value
+            GOVERNING_LAW: Laws of India, Courts at Mumbai
+            NOTICE_PERIOD_DAYS: 30
+            ARBITRATION_VENUE: Mumbai, ICC Arbitration
 
             Rules:
-            - Extract only what is explicitly stated. Use null for fields not found.
-            - Dates must be in YYYY-MM-DD format.
-            - For monetary values, include currency and format exactly as written (e.g., "INR 50,00,000").
-            - For notice periods, extract the number of days only.
-            - Output ONLY valid JSON with exactly these fields.
+            - Dates must be in YYYY-MM-DD format or null
+            - NOTICE_PERIOD_DAYS must be a number only (e.g. 30) or null
+            - Write the full legal name for parties
+            - Output ONLY the 9 lines above, no explanation, no preamble
             """;
 
     public static final String EXTRACTION_USER = """
-            Contract text (first portion):
+            Contract text:
             %s
 
-            Extract and output ONLY this JSON (use null for missing fields):
-            {
-              "party_a": "full legal name of first/primary party",
-              "party_b": "full legal name of second/counterparty",
-              "effective_date": "YYYY-MM-DD",
-              "expiry_date": "YYYY-MM-DD",
-              "contract_value": "amount as written e.g. INR 1,00,00,000 per annum",
-              "liability_cap": "cap description e.g. 2x contract value or INR 50 lakhs",
-              "governing_law": "jurisdiction e.g. Laws of India, courts of Mumbai",
-              "notice_period_days": 30,
-              "arbitration_venue": "city and institution e.g. New Delhi, ICC arbitration"
-            }
+            Extract and output the 9 lines:
             """;
 
     public static final String CHECKLIST_SYSTEM = """

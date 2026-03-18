@@ -15,6 +15,7 @@ const STATUS_ICONS = {
 export default function DocumentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [docs, setDocs] = useState([]);
+  const [matters, setMatters] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showCloudImport, setShowCloudImport] = useState(false);
@@ -22,7 +23,10 @@ export default function DocumentsPage() {
   const [meta, setMeta] = useState({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '' });
 
   const fetchDocs = () => api.get('/documents?size=50&sort=uploadDate,desc').then(r => setDocs(r.data.content || [])).catch(() => {});
-  useEffect(() => { fetchDocs(); }, []);
+  useEffect(() => {
+    fetchDocs();
+    api.get('/matters').then(r => setMatters(r.data)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (searchParams.get('cloud') === 'connected') {
@@ -92,7 +96,10 @@ export default function DocumentsPage() {
               {['CORPORATE', 'LITIGATION', 'IP', 'TAX', 'REAL_ESTATE', 'LABOR', 'BANKING', 'REGULATORY', 'OTHER'].map(p => <option key={p} value={p}>{p}</option>)}
             </select>
             <input placeholder="Client Name" value={meta.clientName} onChange={e => setMeta({ ...meta, clientName: e.target.value })} className="input-field text-sm" />
-            <input placeholder="Matter ID (optional)" value={meta.matterId} onChange={e => setMeta({ ...meta, matterId: e.target.value })} className="input-field text-sm" />
+            <select value={meta.matterId} onChange={e => setMeta({ ...meta, matterId: e.target.value })} className="input-field text-sm">
+              <option value="">No matter (unlinked)</option>
+              {matters.map(m => <option key={m.id} value={m.id}>{m.name} — {m.clientName}</option>)}
+            </select>
             <select value={meta.jurisdiction} onChange={e => setMeta({ ...meta, jurisdiction: e.target.value })} className="input-field text-sm">
               <option value="">Jurisdiction</option>
               {['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan', 'Supreme Court'].map(j => <option key={j} value={j}>{j}</option>)}

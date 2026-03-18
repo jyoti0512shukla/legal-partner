@@ -125,7 +125,20 @@ public class AiService {
                 ? List.of()
                 : embeddingStore.findRelevant(embeddingModel.embed(expanded).content(), candidateCount / 2);
         List<EmbeddingMatch<TextSegment>> merged = mergeAndDeduplicate(primaryCandidates, expandedCandidates);
-        List<EmbeddingMatch<TextSegment>> ranked = reRanker.rerank(merged, request.query(), topK);
+
+        // Matter-scoped filter: if matterId provided, keep only chunks from that matter's documents
+        List<EmbeddingMatch<TextSegment>> scoped = merged;
+        if (request.matterId() != null && !request.matterId().isBlank()) {
+            Set<String> matterDocIds = new HashSet<>(
+                    documentRepository.findIdStringsByMatterUuid(UUID.fromString(request.matterId())));
+            if (!matterDocIds.isEmpty()) {
+                scoped = merged.stream()
+                        .filter(m -> matterDocIds.contains(m.embedded().metadata().getString("document_id")))
+                        .toList();
+                log.debug("Matter filter: {} → {} chunks from {} docs", merged.size(), scoped.size(), matterDocIds.size());
+            }
+        }
+        List<EmbeddingMatch<TextSegment>> ranked = reRanker.rerank(scoped, request.query(), topK);
 
         // Step 5: Assemble RAG context within dynamic budget
         String ragContext = assembleContext(ranked, contextBudgetChars);
@@ -258,10 +271,61 @@ public class AiService {
         return parseRiskLines(rawText);
     }
 
+    public ExtractionResult extractKeyTerms(UUID documentId, String username) {
+        documentRepository.findById(documentId)
+                .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
+
+        String context = retrieveContextForDocument(documentId);
+        if (context.isBlank()) {
+            return new ExtractionResult(null, null, null, null, null, null, null, null, null);
+        }
+
+        AiMessage response = chatModel.generate(
+                SystemMessage.from(PromptTemplates.EXTRACTION_SYSTEM),
+                UserMessage.from(String.format(PromptTemplates.EXTRACTION_USER, context))
+        ).content();
+
+        return parseExtractionLines(response.text());
+    }
+
+    private static final java.util.regex.Pattern EXTRACTION_LINE =
+            java.util.regex.Pattern.compile("^(PARTY_A|PARTY_B|EFFECTIVE_DATE|EXPIRY_DATE|CONTRACT_VALUE|LIABILITY_CAP|GOVERNING_LAW|NOTICE_PERIOD_DAYS|ARBITRATION_VENUE)\\s*:\\s*(.+)$",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private ExtractionResult parseExtractionLines(String raw) {
+        Map<String, String> fields = new HashMap<>();
+        for (String line : raw.split("\\r?\\n")) {
+            java.util.regex.Matcher m = EXTRACTION_LINE.matcher(line.trim());
+            if (!m.matches()) continue;
+            String value = m.group(2).trim();
+            if (!value.equalsIgnoreCase("null") && !value.isEmpty()) {
+                fields.put(m.group(1).toUpperCase(), value);
+            }
+        }
+        return new ExtractionResult(
+                fields.get("PARTY_A"),
+                fields.get("PARTY_B"),
+                fields.get("EFFECTIVE_DATE"),
+                fields.get("EXPIRY_DATE"),
+                fields.get("CONTRACT_VALUE"),
+                fields.get("LIABILITY_CAP"),
+                fields.get("GOVERNING_LAW"),
+                fields.get("NOTICE_PERIOD_DAYS"),
+                fields.get("ARBITRATION_VENUE")
+        );
+    }
+
+    // Matches: LABEL: RATING [optional extra text] | justification | ref
     private static final java.util.regex.Pattern RISK_LINE =
             java.util.regex.Pattern.compile(
-                    "^(OVERALL|LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE)" +
-                    "\\s*:\\s*(HIGH|MEDIUM|LOW)\\s*\\|\\s*(.+?)\\s*\\|\\s*(.+)$",
+                    "^(LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE)" +
+                    "\\s*:\\s*(HIGH|MEDIUM|LOW)[^|]*\\|\\s*(.+?)\\s*\\|\\s*(.+)$",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    // Matches: OVERALL: RATING (no pipes required)
+    private static final java.util.regex.Pattern OVERALL_LINE =
+            java.util.regex.Pattern.compile(
+                    "^OVERALL\\s*:\\s*(HIGH|MEDIUM|LOW)",
                     java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private RiskAssessmentResult parseRiskLines(String raw) {
@@ -269,24 +333,29 @@ public class AiService {
         List<RiskCategory> categories = new ArrayList<>();
 
         for (String line : raw.split("\\r?\\n")) {
-            java.util.regex.Matcher m = RISK_LINE.matcher(line.trim());
-            if (!m.matches()) continue;
+            String trimmed = line.trim();
+
+            // Check OVERALL first (no pipes needed)
+            java.util.regex.Matcher om = OVERALL_LINE.matcher(trimmed);
+            if (om.find()) {
+                overallRisk = om.group(1).toUpperCase();
+                continue;
+            }
+
+            java.util.regex.Matcher m = RISK_LINE.matcher(trimmed);
+            if (!m.find()) continue;
             String label = m.group(1).toUpperCase();
             String rating = m.group(2).toUpperCase();
             String justification = m.group(3).trim();
             String ref = m.group(4).trim();
 
-            if ("OVERALL".equals(label)) {
-                overallRisk = rating;
-            } else {
-                String name = switch (label) {
-                    case "IP_RIGHTS" -> "IP Rights";
-                    case "GOVERNING_LAW" -> "Governing Law";
-                    case "FORCE_MAJEURE" -> "Force Majeure";
-                    default -> label.charAt(0) + label.substring(1).toLowerCase();
-                };
-                categories.add(new RiskCategory(name, rating, justification, ref));
-            }
+            String name = switch (label) {
+                case "IP_RIGHTS" -> "IP Rights";
+                case "GOVERNING_LAW" -> "Governing Law";
+                case "FORCE_MAJEURE" -> "Force Majeure";
+                default -> label.charAt(0) + label.substring(1).toLowerCase();
+            };
+            categories.add(new RiskCategory(name, rating, justification, ref));
         }
 
         if (categories.isEmpty()) {
