@@ -15,8 +15,8 @@ import dev.langchain4j.model.chat.ChatLanguageModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -24,13 +24,13 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class AiService {
 
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final ChatLanguageModel chatModel;
+    private final ChatLanguageModel jsonChatModel;
     private final QueryExpander queryExpander;
     private final ReRanker reRanker;
     private final CitationExtractor citationExtractor;
@@ -74,6 +74,31 @@ public class AiService {
 
     @Value("${legalpartner.conversation.semantic-relevance-threshold:0.35}")
     private double semanticRelevanceThreshold;
+
+    public AiService(
+            EmbeddingModel embeddingModel,
+            EmbeddingStore<TextSegment> embeddingStore,
+            ChatLanguageModel openAiChatModel,
+            @Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
+            QueryExpander queryExpander,
+            ReRanker reRanker,
+            CitationExtractor citationExtractor,
+            ResponseValidator responseValidator,
+            EncryptionService encryptionService,
+            DocumentMetadataRepository documentRepository,
+            ConversationStore conversationStore) {
+        this.embeddingModel = embeddingModel;
+        this.embeddingStore = embeddingStore;
+        this.chatModel = openAiChatModel;
+        this.jsonChatModel = jsonChatModel;
+        this.queryExpander = queryExpander;
+        this.reRanker = reRanker;
+        this.citationExtractor = citationExtractor;
+        this.responseValidator = responseValidator;
+        this.encryptionService = encryptionService;
+        this.documentRepository = documentRepository;
+        this.conversationStore = conversationStore;
+    }
 
     public QueryResult query(QueryRequest request, String username) {
         // Step 1: Embed ORIGINAL query first — used for both retrieval and semantic history pruning
@@ -173,7 +198,7 @@ public class AiService {
         String prompt = String.format(PromptTemplates.COMPARE_USER,
                 doc1.getFileName(), context1, doc2.getFileName(), context2);
 
-        AiMessage response = chatModel.generate(
+        AiMessage response = jsonChatModel.generate(
                 SystemMessage.from(PromptTemplates.COMPARE_SYSTEM),
                 UserMessage.from(prompt)
         ).content();
@@ -220,7 +245,7 @@ public class AiService {
         }
 
         String prompt = String.format(PromptTemplates.RISK_USER, documentId, context);
-        AiMessage response = chatModel.generate(
+        AiMessage response = jsonChatModel.generate(
                 SystemMessage.from(PromptTemplates.RISK_SYSTEM),
                 UserMessage.from(prompt)
         ).content();
