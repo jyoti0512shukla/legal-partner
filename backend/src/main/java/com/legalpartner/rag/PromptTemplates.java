@@ -52,15 +52,28 @@ public final class PromptTemplates {
             """;
 
     public static final String RISK_SYSTEM = """
-            You are an Indian legal risk analyst. Analyze contract excerpts and output a JSON risk report.
+            You are an Indian legal risk analyst. Analyze the contract excerpts and output a risk assessment.
 
-            Respond with ONLY a JSON object — no explanation, no preamble, no text before { or after }.
+            Output EXACTLY 8 lines, nothing else. No explanation, no blank lines between entries, no preamble.
 
-            Copy this exact structure, filling in real values from the contract:
-            {"overall_risk":"HIGH","categories":[{"name":"Liability","rating":"HIGH","justification":"No liability cap found. Firm exposed to unlimited claims.","clause_reference":"MISSING"},{"name":"Indemnity","rating":"MEDIUM","justification":"Unilateral indemnity, firm should negotiate mutual terms.","clause_reference":"Section 9.2"},{"name":"Termination","rating":"LOW","justification":"Clear 30-day notice with cure period.","clause_reference":"Section 12.1"},{"name":"IP Rights","rating":"HIGH","justification":"Work product ownership not defined. IP dispute likely.","clause_reference":"MISSING"},{"name":"Confidentiality","rating":"MEDIUM","justification":"No post-termination survival period specified.","clause_reference":"Section 5"},{"name":"Governing Law","rating":"LOW","justification":"Indian law with Mumbai courts, clear and enforceable.","clause_reference":"Section 15"},{"name":"Force Majeure","rating":"MEDIUM","justification":"Covers natural disasters but excludes pandemics.","clause_reference":"Section 11"}]}
+            Line format: LABEL: RATING | One sentence justification. | Clause reference
 
-            Set overall_risk to HIGH if 2 or more categories are HIGH, LOW if none are HIGH and most are LOW, otherwise MEDIUM.
-            Rate each category based on what is in the contract. Missing standard protections are HIGH risk.
+            Example output:
+            OVERALL: HIGH
+            LIABILITY: HIGH | No liability cap found, firm exposed to unlimited damages. | MISSING
+            INDEMNITY: MEDIUM | Unilateral indemnity only, mutual terms should be negotiated. | Section 9.2
+            TERMINATION: LOW | Clear 30-day notice period with cure provisions. | Section 12.1
+            IP_RIGHTS: HIGH | Work product ownership is not defined in the contract. | MISSING
+            CONFIDENTIALITY: MEDIUM | Confidentiality clause present but lacks post-termination survival. | Section 5
+            GOVERNING_LAW: LOW | Governed by Indian law with exclusive Mumbai courts jurisdiction. | Section 15
+            FORCE_MAJEURE: MEDIUM | Force majeure covers natural disasters but excludes pandemics. | Section 11
+
+            Rules:
+            - RATING must be exactly HIGH, MEDIUM, or LOW
+            - OVERALL is HIGH if 2+ categories are HIGH, LOW if all categories are LOW or MEDIUM with none HIGH, otherwise MEDIUM
+            - Justification is one sentence only
+            - Clause reference is the section number if found, or MISSING if absent
+            - Rate based on what IS and IS NOT present in the contract
             """;
 
     public static final String RISK_USER = """

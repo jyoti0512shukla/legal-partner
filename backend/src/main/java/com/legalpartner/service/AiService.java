@@ -245,7 +245,8 @@ public class AiService {
         }
 
         String prompt = String.format(PromptTemplates.RISK_USER, documentId, context);
-        AiMessage response = jsonChatModel.generate(
+        // Use plain chatModel — smaller models generate pipe-delimited text far more reliably than nested JSON
+        AiMessage response = chatModel.generate(
                 SystemMessage.from(PromptTemplates.RISK_SYSTEM),
                 UserMessage.from(prompt)
         ).content();
@@ -254,31 +255,46 @@ public class AiService {
         log.info("Risk assessment raw response length={}, preview={}",
                 rawText.length(), rawText.substring(0, Math.min(300, rawText.length())).replace('\n', ' '));
 
-        JsonNode parsed = responseValidator.parseAndValidate(rawText);
+        return parseRiskLines(rawText);
+    }
+
+    private static final java.util.regex.Pattern RISK_LINE =
+            java.util.regex.Pattern.compile(
+                    "^(OVERALL|LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE)" +
+                    "\\s*:\\s*(HIGH|MEDIUM|LOW)\\s*\\|\\s*(.+?)\\s*\\|\\s*(.+)$",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private RiskAssessmentResult parseRiskLines(String raw) {
         String overallRisk = "MEDIUM";
         List<RiskCategory> categories = new ArrayList<>();
 
-        if (parsed != null) {
-            overallRisk = parsed.path("overall_risk").asText("MEDIUM");
-            log.info("Risk assessment parsed OK: overall_risk={}, has_categories={}, categories_size={}",
-                    overallRisk, parsed.has("categories"),
-                    parsed.has("categories") ? parsed.get("categories").size() : 0);
-            if (parsed.has("categories")) {
-                for (JsonNode cat : parsed.get("categories")) {
-                    categories.add(new RiskCategory(
-                            cat.path("name").asText(), cat.path("rating").asText(),
-                            cat.path("justification").asText(), cat.path("clause_reference").asText()
-                    ));
-                }
+        for (String line : raw.split("\\r?\\n")) {
+            java.util.regex.Matcher m = RISK_LINE.matcher(line.trim());
+            if (!m.matches()) continue;
+            String label = m.group(1).toUpperCase();
+            String rating = m.group(2).toUpperCase();
+            String justification = m.group(3).trim();
+            String ref = m.group(4).trim();
+
+            if ("OVERALL".equals(label)) {
+                overallRisk = rating;
+            } else {
+                String name = switch (label) {
+                    case "IP_RIGHTS" -> "IP Rights";
+                    case "GOVERNING_LAW" -> "Governing Law";
+                    case "FORCE_MAJEURE" -> "Force Majeure";
+                    default -> label.charAt(0) + label.substring(1).toLowerCase();
+                };
+                categories.add(new RiskCategory(name, rating, justification, ref));
             }
-        } else {
-            // Fallback: extract risk level from plain text response
-            String upper = rawText.toUpperCase();
-            if (upper.contains("HIGH")) overallRisk = "HIGH";
-            else if (upper.contains("LOW")) overallRisk = "LOW";
-            else overallRisk = "MEDIUM";
-            log.warn("LLM did not return JSON for risk assessment, extracted overall risk: {}", overallRisk);
         }
+
+        if (categories.isEmpty()) {
+            log.warn("Risk assessment: could not parse any category lines from response");
+        } else {
+            log.info("Risk assessment parsed: overall={}, categories={}", overallRisk, categories.size());
+        }
+
         return new RiskAssessmentResult(overallRisk, categories);
     }
 
