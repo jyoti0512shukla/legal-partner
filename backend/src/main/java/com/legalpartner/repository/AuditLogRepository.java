@@ -66,7 +66,12 @@ public interface AuditLogRepository extends JpaRepository<AuditLog, UUID> {
             @Param("documentId") String documentId
     );
 
-    @Query("SELECT DISTINCT a.username FROM AuditLog a WHERE (:from IS NULL OR a.timestamp >= :from) AND (:to IS NULL OR a.timestamp <= :to) ORDER BY a.username")
+    @Query(value = """
+            SELECT DISTINCT a.username FROM audit_logs a
+            WHERE (CAST(:from AS timestamptz) IS NULL OR a.timestamp >= CAST(:from AS timestamptz))
+              AND (CAST(:to AS timestamptz) IS NULL OR a.timestamp <= CAST(:to AS timestamptz))
+            ORDER BY a.username
+            """, nativeQuery = true)
     List<String> findDistinctUsernames(@Param("from") Instant from, @Param("to") Instant to);
 
     long countByAction(AuditActionType action);

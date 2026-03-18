@@ -285,7 +285,10 @@ public class AiService {
                 UserMessage.from(String.format(PromptTemplates.EXTRACTION_USER, context))
         ).content();
 
-        return parseExtractionLines(response.text());
+        String rawText = response.text();
+        log.info("Extraction raw response length={}, preview={}",
+                rawText.length(), rawText.substring(0, Math.min(400, rawText.length())).replace('\n', ' '));
+        return parseExtractionLines(rawText);
     }
 
     private static final java.util.regex.Pattern EXTRACTION_LINE =
@@ -315,51 +318,86 @@ public class AiService {
         );
     }
 
-    // Matches: LABEL: RATING [optional extra text] | justification | ref
-    private static final java.util.regex.Pattern RISK_LINE =
+    // Scans entire text (possibly single-line) for LABEL: RATING occurrences
+    // Model often ignores newline/pipe format instructions and puts everything on one line
+    private static final java.util.regex.Pattern RISK_TOKEN =
             java.util.regex.Pattern.compile(
-                    "^(LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE)" +
-                    "\\s*:\\s*(HIGH|MEDIUM|LOW)[^|]*\\|\\s*(.+?)\\s*\\|\\s*(.+)$",
+                    "(OVERALL|LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE)" +
+                    "\\s*:\\s*(HIGH|MEDIUM|LOW)",
                     java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    // Matches: OVERALL: RATING (no pipes required)
-    private static final java.util.regex.Pattern OVERALL_LINE =
-            java.util.regex.Pattern.compile(
-                    "^OVERALL\\s*:\\s*(HIGH|MEDIUM|LOW)",
-                    java.util.regex.Pattern.CASE_INSENSITIVE);
+    // Optional pipe-delimited justification/ref after rating
+    private static final java.util.regex.Pattern PIPE_PARTS =
+            java.util.regex.Pattern.compile("[^|]*\\|\\s*(.+?)\\s*\\|\\s*(.+)$");
 
     private RiskAssessmentResult parseRiskLines(String raw) {
         String overallRisk = "MEDIUM";
         List<RiskCategory> categories = new ArrayList<>();
+        // Seen labels (dedup — model sometimes repeats labels)
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
 
-        for (String line : raw.split("\\r?\\n")) {
-            String trimmed = line.trim();
+        // Flatten to single line for global scan, then also try per-line for pipe-format
+        String flat = raw.replace('\n', ' ').replace('\r', ' ');
+        java.util.regex.Matcher m = RISK_TOKEN.matcher(flat);
 
-            // Check OVERALL first (no pipes needed)
-            java.util.regex.Matcher om = OVERALL_LINE.matcher(trimmed);
-            if (om.find()) {
-                overallRisk = om.group(1).toUpperCase();
-                continue;
+        // Collect all (label, rating, startPos, endPos)
+        record Hit(String label, String rating, int end) {}
+        List<Hit> hits = new ArrayList<>();
+        while (m.find()) {
+            hits.add(new Hit(m.group(1).toUpperCase(), m.group(2).toUpperCase(), m.end()));
+        }
+
+        for (int i = 0; i < hits.size(); i++) {
+            Hit hit = hits.get(i);
+            if (!seen.add(hit.label())) continue; // skip duplicate labels
+
+            // Text between this hit's end and the next hit's start = possible justification
+            int nextStart = (i + 1 < hits.size())
+                    ? flat.lastIndexOf(hits.get(i + 1).label(), flat.length()) // rough
+                    : flat.length();
+            // Get the text after the rating up to ~120 chars or next label
+            String after = flat.substring(hit.end(), Math.min(hit.end() + 150, flat.length())).trim();
+
+            // Try to find pipe-separated parts in "after"
+            java.util.regex.Matcher pm = PIPE_PARTS.matcher(after);
+            String justification = "";
+            String ref = "";
+            if (pm.find()) {
+                justification = pm.group(1).trim();
+                ref = pm.group(2).trim();
+            } else {
+                // Clean up "after" — strip leading connector words and section refs
+                // e.g. "RATING HIGH MISSING: LOW" → take text before next label keyword
+                String clean = after.replaceAll("(?i)\\s*(OVERALL|LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE).*", "").trim();
+                // Look for section reference pattern
+                java.util.regex.Matcher secMatcher = java.util.regex.Pattern
+                        .compile("(?i)(section|clause|article)\\s*[\\d.]+")
+                        .matcher(clean);
+                if (secMatcher.find()) {
+                    ref = secMatcher.group().trim();
+                    justification = clean.substring(0, secMatcher.start()).trim();
+                } else if (clean.length() > 3) {
+                    justification = clean;
+                }
+                if (ref.isBlank()) ref = "See contract";
             }
 
-            java.util.regex.Matcher m = RISK_LINE.matcher(trimmed);
-            if (!m.find()) continue;
-            String label = m.group(1).toUpperCase();
-            String rating = m.group(2).toUpperCase();
-            String justification = m.group(3).trim();
-            String ref = m.group(4).trim();
-
-            String name = switch (label) {
-                case "IP_RIGHTS" -> "IP Rights";
-                case "GOVERNING_LAW" -> "Governing Law";
-                case "FORCE_MAJEURE" -> "Force Majeure";
-                default -> label.charAt(0) + label.substring(1).toLowerCase();
-            };
-            categories.add(new RiskCategory(name, rating, justification, ref));
+            if ("OVERALL".equals(hit.label())) {
+                overallRisk = hit.rating();
+            } else {
+                String name = switch (hit.label()) {
+                    case "IP_RIGHTS" -> "IP Rights";
+                    case "GOVERNING_LAW" -> "Governing Law";
+                    case "FORCE_MAJEURE" -> "Force Majeure";
+                    default -> hit.label().charAt(0) + hit.label().substring(1).toLowerCase();
+                };
+                categories.add(new RiskCategory(name, hit.rating(),
+                        justification.isBlank() ? "See contract for details." : justification, ref));
+            }
         }
 
         if (categories.isEmpty()) {
-            log.warn("Risk assessment: could not parse any category lines from response");
+            log.warn("Risk assessment: could not parse any labels from response");
         } else {
             log.info("Risk assessment parsed: overall={}, categories={}", overallRisk, categories.size());
         }
