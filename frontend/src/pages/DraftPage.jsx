@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText } from 'lucide-react';
+import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save } from 'lucide-react';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
 
@@ -20,6 +20,8 @@ export default function DraftPage() {
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
   const [selectionInfo, setSelectionInfo] = useState(null);   // { text, x, y }
   const [pendingRefinement, setPendingRefinement] = useState(null); // { originalText, improvedText, reasoning, x, y }
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const previewRef = useRef(null);
   const floatRef = useRef(null);
 
@@ -160,6 +162,31 @@ export default function DraftPage() {
 
   const handleRejectRefinement = () => setPendingRefinement(null);
 
+  const handleSaveToSystem = async () => {
+    if (!draft?.draftHtml) return;
+    setSaving(true);
+    setSaveSuccess(false);
+    try {
+      const fileName = `draft-${form.templateId}-${form.effectiveDate || 'draft'}.html`;
+      const blob = new Blob([draft.draftHtml], { type: 'text/html' });
+      const file = new File([blob], fileName, { type: 'text/html' });
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('jurisdiction', form.jurisdiction || '');
+      fd.append('year', form.effectiveDate ? form.effectiveDate.slice(0, 4) : new Date().getFullYear());
+      fd.append('documentType', 'DRAFT');
+      fd.append('practiceArea', form.practiceArea || 'CORPORATE');
+      if (form.partyA) fd.append('clientName', form.partyA);
+      await api.post('/documents/upload', fd, { headers: { 'Content-Type': undefined } });
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 4000);
+    } catch (e) {
+      setError(e.response?.data?.message || e.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
@@ -255,6 +282,14 @@ export default function DraftPage() {
                     : 'Select text in the preview to improve it inline'}
                 </span>
                 <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={handleSaveToSystem}
+                    disabled={saving}
+                    className="btn-primary flex items-center gap-2 text-sm"
+                  >
+                    {saving ? <Loader className="w-4 h-4 animate-spin" /> : saveSuccess ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                    {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save to System'}
+                  </button>
                   <button onClick={() => setShowSaveToCloud(true)} className="btn-secondary flex items-center gap-2 text-sm">
                     <CloudUpload className="w-4 h-4" />
                     Save to Cloud
