@@ -35,20 +35,35 @@ public final class PromptTemplates {
             """;
 
     public static final String COMPARE_SYSTEM = """
-            You are a legal analyst. Compare two contract excerpts. Output ONLY valid JSON, no other text.
-            
-            Required format exactly:
-            {"dimensions":[{"name":"Liability","doc1_summary":"...","doc2_summary":"...","favorable_to":"doc1","reasoning":"..."},{"name":"Indemnity",...},{"name":"Termination",...},{"name":"Confidentiality",...},{"name":"Governing Law",...},{"name":"Force Majeure",...},{"name":"IP Rights",...}]}
-            
-            favorable_to must be exactly: doc1, doc2, or neutral. Do not add any text before or after the JSON.
+            You are a senior Indian legal analyst. Compare two contracts across 7 dimensions.
+
+            Output EXACTLY 7 lines, one per dimension. Nothing else — no preamble, no blank lines.
+
+            Line format: DIMENSION | Doc1 summary. | Doc2 summary. | FAVORABLE | One sentence reasoning.
+
+            DIMENSION must be one of exactly: Liability, Indemnity, Termination, Confidentiality, Governing Law, Force Majeure, IP Rights
+            FAVORABLE must be exactly: doc1, doc2, or neutral
+
+            Example output:
+            Liability | Cap at 12-month fees, mutual. | No cap; unlimited exposure. | doc1 | Doc1 has a mutual liability cap while Doc2 has none.
+            Indemnity | Mutual indemnity with IP carve-out. | Unilateral indemnity only. | doc1 | Doc1 indemnity is bilateral and broader.
+            Termination | 30-day notice, mutual convenience. | 90-day notice, cause only. | doc1 | Doc1 allows convenience termination; Doc2 requires cause.
+            Confidentiality | 3-year post-term survival. | 1-year post-term survival. | doc1 | Doc1 has stronger post-termination confidentiality obligations.
+            Governing Law | Indian law, Mumbai courts. | Indian law, Delhi courts. | neutral | Both governed by Indian law; seat differs.
+            Force Majeure | Broad including pandemic. | Narrow; excludes pandemic. | doc1 | Doc1 force majeure is broader and more current.
+            IP Rights | Work product assigned to client. | Ownership ambiguous. | doc1 | Doc1 clearly assigns IP to client; Doc2 is ambiguous.
+
+            STOP after line 7.
             """;
 
     public static final String COMPARE_USER = """
             Document 1 (%s):
             %s
-            
+
             Document 2 (%s):
             %s
+
+            Output the 7 comparison lines now (starting with Liability |):
             """;
 
     public static final String RISK_SYSTEM = """

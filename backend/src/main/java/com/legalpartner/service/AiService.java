@@ -216,32 +216,49 @@ public class AiService {
                 UserMessage.from(prompt)
         ).content();
 
-        JsonNode parsed = responseValidator.parseAndValidate(response.text());
-        List<ComparisonDimension> dimensions = new ArrayList<>();
-
-        if (parsed != null && parsed.has("dimensions")) {
-            for (JsonNode dim : parsed.get("dimensions")) {
-                String favorable = dim.path("favorable_to").asText("neutral");
-                if (!favorable.matches("doc1|doc2|neutral")) favorable = "neutral";
-                dimensions.add(new ComparisonDimension(
-                        dim.path("name").asText(),
-                        dim.path("doc1_summary").asText(),
-                        dim.path("doc2_summary").asText(),
-                        favorable,
-                        dim.path("reasoning").asText()
-                ));
-            }
-        }
+        List<ComparisonDimension> dimensions = parseCompareResponse(response.text());
 
         if (dimensions.isEmpty()) {
-            log.warn("Compare produced no dimensions; model returned invalid JSON");
+            log.warn("Compare produced no dimensions; raw length={}, preview={}",
+                    response.text().length(),
+                    response.text().substring(0, Math.min(200, response.text().length())).replace('\n', ' '));
             dimensions.add(new ComparisonDimension(
                     "Analysis", "Insufficient structured output from model.",
                     "Try comparing contracts with clearer clause structure.",
-                    "neutral", "Model returned unstructured response."
-            ));
+                    "neutral", "Model returned unstructured response."));
         }
         return new CompareResult(dimensions);
+    }
+
+    private static final java.util.Set<String> COMPARE_DIMENSIONS = java.util.Set.of(
+            "liability", "indemnity", "termination", "confidentiality",
+            "governing law", "force majeure", "ip rights");
+
+    private List<ComparisonDimension> parseCompareResponse(String raw) {
+        if (raw == null) return List.of();
+        List<ComparisonDimension> results = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+
+        for (String line : raw.split("\\r?\\n")) {
+            line = line.trim();
+            if (line.isBlank()) continue;
+            String[] parts = line.split("\\|", -1);
+            if (parts.length < 4) continue;
+
+            String name = parts[0].trim();
+            // Validate it's one of our 7 known dimensions (case-insensitive)
+            if (!COMPARE_DIMENSIONS.contains(name.toLowerCase())) continue;
+            if (!seen.add(name.toLowerCase())) continue; // dedup
+
+            String doc1Summary  = parts[1].trim();
+            String doc2Summary  = parts.length > 2 ? parts[2].trim() : "";
+            String favorable    = parts.length > 3 ? parts[3].trim().toLowerCase() : "neutral";
+            if (!favorable.matches("doc1|doc2|neutral")) favorable = "neutral";
+            String reasoning    = parts.length > 4 ? parts[4].trim() : "";
+
+            results.add(new ComparisonDimension(name, doc1Summary, doc2Summary, favorable, reasoning));
+        }
+        return results;
     }
 
     public RiskAssessmentResult assessRisk(UUID documentId, String username) {
