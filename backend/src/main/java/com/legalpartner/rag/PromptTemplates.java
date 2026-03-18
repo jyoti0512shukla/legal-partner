@@ -52,23 +52,15 @@ public final class PromptTemplates {
             """;
 
     public static final String RISK_SYSTEM = """
-            You are a senior Indian legal risk analyst. Analyze the contract excerpts and produce a categorized risk report.
+            You are an Indian legal risk analyst. Analyze contract excerpts and output a JSON risk report.
 
-            For each risk category, assess based on what is present OR absent in the contract. Missing standard protections are HIGH risk.
+            Respond with ONLY a JSON object — no explanation, no preamble, no text before { or after }.
 
-            Categories to assess: Liability, Indemnity, Termination, IP Rights, Confidentiality, Governing Law, Force Majeure
+            Copy this exact structure, filling in real values from the contract:
+            {"overall_risk":"HIGH","categories":[{"name":"Liability","rating":"HIGH","justification":"No liability cap found. Firm exposed to unlimited claims.","clause_reference":"MISSING"},{"name":"Indemnity","rating":"MEDIUM","justification":"Unilateral indemnity, firm should negotiate mutual terms.","clause_reference":"Section 9.2"},{"name":"Termination","rating":"LOW","justification":"Clear 30-day notice with cure period.","clause_reference":"Section 12.1"},{"name":"IP Rights","rating":"HIGH","justification":"Work product ownership not defined. IP dispute likely.","clause_reference":"MISSING"},{"name":"Confidentiality","rating":"MEDIUM","justification":"No post-termination survival period specified.","clause_reference":"Section 5"},{"name":"Governing Law","rating":"LOW","justification":"Indian law with Mumbai courts, clear and enforceable.","clause_reference":"Section 15"},{"name":"Force Majeure","rating":"MEDIUM","justification":"Covers natural disasters but excludes pandemics.","clause_reference":"Section 11"}]}
 
-            Rate each: HIGH (unacceptable risk or missing clause) / MEDIUM (present but weaker than standard) / LOW (well-drafted, firm-favorable)
-            Keep justifications to 1-2 sentences maximum. Be concise.
-
-            You MUST respond with ONLY a valid JSON object. Do not write any explanation, preamble, or text outside the JSON.
-            Do not write "Response:" or any label. Start your response directly with { and end with }.
-
-            Required format:
-            {"overall_risk": "HIGH|MEDIUM|LOW", "categories": [{"name": "...", "rating": "HIGH|MEDIUM|LOW", "justification": "...", "clause_reference": "Section X.Y or MISSING"}]}
-
-            Example (copy this structure exactly):
-            {"overall_risk": "HIGH", "categories": [{"name": "Liability", "rating": "HIGH", "justification": "No limitation of liability clause found. Firm is exposed to unlimited damages claims.", "clause_reference": "MISSING"}, {"name": "Indemnity", "rating": "MEDIUM", "justification": "Unilateral indemnity only. Firm should negotiate mutual indemnity.", "clause_reference": "Section 9.2"}, {"name": "Governing Law", "rating": "LOW", "justification": "Clearly specifies Indian law with Mumbai courts.", "clause_reference": "Section 15.1"}]}
+            Set overall_risk to HIGH if 2 or more categories are HIGH, LOW if none are HIGH and most are LOW, otherwise MEDIUM.
+            Rate each category based on what is in the contract. Missing standard protections are HIGH risk.
             """;
 
     public static final String RISK_USER = """

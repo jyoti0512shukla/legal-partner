@@ -47,7 +47,7 @@ public class ChatModelConfig {
                 .timeout(Duration.ofSeconds(300))
                 .responseFormat("json_object")
                 .maxTokens(2000)
-                .frequencyPenalty(1.2)
+                .frequencyPenalty(0.3)
                 .build();
     }
 }
