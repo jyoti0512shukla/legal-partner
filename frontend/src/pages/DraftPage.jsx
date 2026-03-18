@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload } from 'lucide-react';
+import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText } from 'lucide-react';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
 
@@ -18,6 +18,7 @@ export default function DraftPage() {
   const [error, setError] = useState('');
   const [refining, setRefining] = useState(false);
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
+  const [pendingRefinement, setPendingRefinement] = useState(null);
   const previewRef = useRef(null);
   const [form, setForm] = useState({
     templateId: '',
@@ -46,6 +47,7 @@ export default function DraftPage() {
     setLoading(true);
     setError('');
     setDraft(null);
+    setPendingRefinement(null);
     try {
       const res = await api.post('/ai/draft', form);
       setDraft(res.data);
@@ -56,7 +58,7 @@ export default function DraftPage() {
     }
   };
 
-  const handleDownload = () => {
+  const handleDownloadHtml = () => {
     if (!draft?.draftHtml) return;
     const blob = new Blob([draft.draftHtml], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
@@ -65,6 +67,26 @@ export default function DraftPage() {
     a.download = `draft-${form.templateId}-${form.effectiveDate || 'draft'}.html`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadPdf = () => {
+    if (!draft?.draftHtml) return;
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>Draft Contract</title>
+      <style>
+        body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.6; margin: 2cm; color: #000; }
+        h1 { font-size: 18pt; text-align: center; margin-bottom: 24pt; }
+        h2 { font-size: 14pt; margin-top: 18pt; }
+        h3 { font-size: 12pt; }
+        p { margin-bottom: 10pt; text-align: justify; }
+        ul { margin-left: 20pt; margin-bottom: 10pt; }
+        @media print { body { margin: 2cm; } }
+      </style>
+    </head><body>${draft.draftHtml}</body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); }, 500);
   };
 
   const handleImproveSelection = async () => {
@@ -89,20 +111,34 @@ export default function DraftPage() {
       });
       const improved = res.data?.improvedText || res.data?.improved_text;
       if (improved) {
-        setDraft(prev => ({
-          ...prev,
-          draftHtml: prev.draftHtml.replace(selectedText, improved),
-          suggestions: [
-            ...(prev.suggestions || []),
-            { clauseRef: 'Refined selection', suggestion: improved, reasoning: res.data?.reasoning },
-          ],
-        }));
+        setPendingRefinement({
+          originalText: selectedText,
+          improvedText: improved,
+          reasoning: res.data?.reasoning,
+        });
       }
     } catch (e) {
       setError(e.response?.data?.message || e.message || 'Refine failed');
     } finally {
       setRefining(false);
     }
+  };
+
+  const handleAcceptRefinement = () => {
+    if (!pendingRefinement) return;
+    setDraft(prev => ({
+      ...prev,
+      draftHtml: prev.draftHtml.replace(pendingRefinement.originalText, pendingRefinement.improvedText),
+      suggestions: [
+        ...(prev.suggestions || []),
+        { clauseRef: 'Refined selection', suggestion: pendingRefinement.improvedText, reasoning: pendingRefinement.reasoning },
+      ],
+    }));
+    setPendingRefinement(null);
+  };
+
+  const handleRejectRefinement = () => {
+    setPendingRefinement(null);
   };
 
   return (
@@ -273,7 +309,11 @@ export default function DraftPage() {
                     <CloudUpload className="w-4 h-4" />
                     Save to Cloud
                   </button>
-                  <button onClick={handleDownload} className="btn-secondary flex items-center gap-2 text-sm">
+                  <button onClick={handleDownloadPdf} className="btn-secondary flex items-center gap-2 text-sm">
+                    <FileText className="w-4 h-4" />
+                    Download PDF
+                  </button>
+                  <button onClick={handleDownloadHtml} className="btn-secondary flex items-center gap-2 text-sm">
                     <Download className="w-4 h-4" />
                     Download HTML
                   </button>
@@ -287,6 +327,48 @@ export default function DraftPage() {
                   onClose={() => setShowSaveToCloud(false)}
                   onSaved={() => setShowSaveToCloud(false)}
                 />
+              )}
+
+              {pendingRefinement && (
+                <div className="card border border-primary/40 bg-primary/5">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    Suggested Improvement — Accept or Reject
+                  </h4>
+                  <div className="space-y-3 mb-4">
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Original</p>
+                      <p className="text-sm p-3 rounded bg-danger/10 border border-danger/20 line-through text-text-secondary">
+                        {pendingRefinement.originalText}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted mb-1">Improved</p>
+                      <p className="text-sm p-3 rounded bg-success/10 border border-success/20">
+                        {pendingRefinement.improvedText}
+                      </p>
+                    </div>
+                    {pendingRefinement.reasoning && (
+                      <p className="text-xs text-text-muted italic">{pendingRefinement.reasoning}</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleAcceptRefinement}
+                      className="btn-primary flex items-center gap-2 text-sm"
+                    >
+                      <Check className="w-4 h-4" />
+                      Accept
+                    </button>
+                    <button
+                      onClick={handleRejectRefinement}
+                      className="btn-secondary flex items-center gap-2 text-sm"
+                    >
+                      <X className="w-4 h-4" />
+                      Reject
+                    </button>
+                  </div>
+                </div>
               )}
 
               {draft.suggestions?.length > 0 && (
