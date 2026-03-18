@@ -10,6 +10,14 @@ function stripHtml(html) {
   return div.innerText || div.textContent || '';
 }
 
+// Extract only the <body> content so the template's <style> block
+// doesn't leak out and break the app layout when rendered inline.
+function extractBodyContent(html) {
+  if (!html) return '';
+  const m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  return m ? m[1] : html;
+}
+
 const JURISDICTIONS = ['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan', 'Supreme Court', 'India'];
 
 export default function DraftPage() {
@@ -412,8 +420,8 @@ export default function DraftPage() {
                 <div
                   ref={previewRef}
                   onMouseUp={handlePreviewMouseUp}
-                  className="bg-white/5 rounded-lg p-6 overflow-auto max-h-[600px] text-sm text-text-primary select-text [&_h1]:text-xl [&_h1]:font-bold [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:text-base [&_h3]:font-medium [&_p]:mb-3 [&_ul]:list-disc [&_ul]:ml-6 [&_ul]:mb-3"
-                  dangerouslySetInnerHTML={{ __html: draft.draftHtml }}
+                  className="bg-white/5 rounded-lg p-6 overflow-auto max-h-[600px] text-sm text-text-primary select-text [&_h1]:text-xl [&_h1]:font-bold [&_h1]:text-center [&_h1]:mb-4 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:mt-6 [&_h2]:mb-2 [&_h2]:border-b [&_h2]:border-border [&_h2]:pb-1 [&_p]:mb-2 [&_p]:leading-relaxed [&_.clause-sub]:pl-5 [&_.clause-sub]:mb-2 [&_ul]:list-disc [&_ul]:ml-6 [&_ul]:mb-3"
+                  dangerouslySetInnerHTML={{ __html: extractBodyContent(draft.draftHtml) }}
                 />
               </div>
             </>
