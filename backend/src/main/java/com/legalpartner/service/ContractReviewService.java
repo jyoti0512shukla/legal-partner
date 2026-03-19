@@ -6,6 +6,7 @@ import com.legalpartner.model.dto.ContractReviewResult;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.rag.DocumentFullTextRetriever;
 import com.legalpartner.rag.PromptTemplates;
+import com.legalpartner.rag.VllmGuidedClient;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -24,6 +25,7 @@ public class ContractReviewService {
     private final ChatLanguageModel chatModel;
     private final DocumentMetadataRepository documentRepository;
     private final DocumentFullTextRetriever fullTextRetriever;
+    private final VllmGuidedClient vllmClient;
 
     public ContractReviewResult review(ContractReviewRequest request, String username) {
         DocumentMetadata doc = documentRepository.findById(request.documentId())
@@ -39,10 +41,9 @@ public class ContractReviewService {
 
         String prompt = String.format(PromptTemplates.CHECKLIST_USER, doc.getFileName(), context);
 
-        String rawResponse = chatModel.generate(
-                SystemMessage.from(PromptTemplates.CHECKLIST_SYSTEM),
-                UserMessage.from(prompt)
-        ).content().text();
+        // Use assistant-prefix priming so model continues from "LIABILITY_LIMIT:" rather than echoing input
+        String rawResponse = vllmClient.generateText(
+                PromptTemplates.CHECKLIST_SYSTEM, prompt, "LIABILITY_LIMIT:", 400);
 
         // Strip "Response:" prefix and [/INST] echoes that AALAP adds
         String cleaned = rawResponse;

@@ -5,7 +5,7 @@ public final class PromptTemplates {
     private PromptTemplates() {}
 
     /** Bump this whenever prompts change — appears in logs for easy correlation with results. */
-    public static final String PROMPT_VERSION = "v5-few-shot";
+    public static final String PROMPT_VERSION = "v6-assistant-prefix";
 
     public static final String QUERY_SYSTEM = """
             You are a senior Indian legal analyst with expertise in contract law, Indian Contract Act 1872, and Indian corporate law.

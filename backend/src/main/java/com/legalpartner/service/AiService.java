@@ -40,6 +40,7 @@ public class AiService {
     private final DocumentMetadataRepository documentRepository;
     private final ConversationStore conversationStore;
     private final DocumentFullTextRetriever fullTextRetriever;
+    private final VllmGuidedClient vllmClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${legalpartner.rag.candidate-count:20}")
@@ -89,7 +90,8 @@ public class AiService {
             EncryptionService encryptionService,
             DocumentMetadataRepository documentRepository,
             ConversationStore conversationStore,
-            DocumentFullTextRetriever fullTextRetriever) {
+            DocumentFullTextRetriever fullTextRetriever,
+            VllmGuidedClient vllmClient) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
@@ -102,6 +104,7 @@ public class AiService {
         this.documentRepository = documentRepository;
         this.conversationStore = conversationStore;
         this.fullTextRetriever = fullTextRetriever;
+        this.vllmClient = vllmClient;
     }
 
     public QueryResult query(QueryRequest request, String username) {
@@ -281,13 +284,10 @@ public class AiService {
         }
 
         String prompt = String.format(PromptTemplates.RISK_USER, documentId, context);
-        // Use plain chatModel — smaller models generate pipe-delimited text far more reliably than nested JSON
-        AiMessage response = chatModel.generate(
-                SystemMessage.from(PromptTemplates.RISK_SYSTEM),
-                UserMessage.from(prompt)
-        ).content();
-
-        String rawText = stripResponsePrefix(response.text());
+        // Use assistant-prefix priming: model continues from "OVERALL:" instead of deciding how to start.
+        // This is the most reliable approach for fill-in-the-blank tasks with instruction-tuned 7B models.
+        String rawText = stripResponsePrefix(
+                vllmClient.generateText(PromptTemplates.RISK_SYSTEM, prompt, "OVERALL:", 200));
         log.info("[prompt={}] Risk assessment raw response length={}, preview={}",
                 PromptTemplates.PROMPT_VERSION,
                 rawText.length(), rawText.substring(0, Math.min(300, rawText.length())).replace('\n', ' '));

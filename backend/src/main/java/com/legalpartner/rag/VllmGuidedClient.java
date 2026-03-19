@@ -11,6 +11,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -117,7 +118,76 @@ public class VllmGuidedClient {
         return objectMapper.createObjectNode();
     }
 
+    /**
+     * Generate plain text with an optional assistant prefix to prime the response.
+     * Adding assistantPrefix forces the model to continue from that starting text
+     * rather than deciding how to begin — the most reliable approach for fill-in-the-blank tasks.
+     *
+     * @param assistantPrefix  partial text that the model will continue (e.g. "OVERALL:")
+     *                         pass null to let the model start from scratch
+     */
+    public String generateText(String systemPrompt, String userPrompt,
+                                String assistantPrefix, int maxTokens) {
+        if (baseUrl.isBlank()) {
+            throw new IllegalStateException("legalpartner.chat-api-url not configured");
+        }
+        try {
+            String content = callVllmWithPrefix(systemPrompt, userPrompt, assistantPrefix, maxTokens);
+            // The API returns only the continuation — prepend the prefix so callers
+            // see the full response (e.g. "OVERALL:\nHIGH\nLIABILITY:\nHIGH\n...")
+            return (assistantPrefix != null ? assistantPrefix : "") + content;
+        } catch (LlmUnavailableException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("generateText failed: {}", e.getMessage());
+            return "";
+        }
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────────
+
+    private String callVllmWithPrefix(String system, String user,
+                                       String assistantPrefix, int maxTokens) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", modelName);
+        List<Map<String, String>> messages = new ArrayList<>();
+        messages.add(Map.of("role", "system", "content", system));
+        messages.add(Map.of("role", "user", "content", user));
+        if (assistantPrefix != null && !assistantPrefix.isBlank()) {
+            messages.add(Map.of("role", "assistant", "content", assistantPrefix));
+        }
+        body.put("messages", messages);
+        body.put("max_tokens", maxTokens);
+        body.put("temperature", 0.0);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth("no-op");
+
+        ResponseEntity<String> response;
+        try {
+            response = restTemplate.exchange(
+                    baseUrl + "/chat/completions",
+                    HttpMethod.POST,
+                    new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
+                    String.class
+            );
+        } catch (org.springframework.web.client.ResourceAccessException e) {
+            throw new LlmUnavailableException("LLM endpoint unreachable at " + baseUrl +
+                    " — is the vLLM server running and ngrok tunnel active?", e);
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            String body2 = e.getResponseBodyAsString();
+            if (body2.contains("<!DOCTYPE") || body2.contains("<html")) {
+                throw new LlmUnavailableException(
+                        "LLM endpoint returned an error page (HTTP " + e.getStatusCode() +
+                        ") — ngrok tunnel may be offline. Restart ngrok on the GCP VM.", e);
+            }
+            throw e;
+        }
+
+        JsonNode root = objectMapper.readTree(response.getBody());
+        return root.path("choices").path(0).path("message").path("content").asText();
+    }
 
     private String callVllm(String system, String user,
                              Map<String, Object> guidedJson,
