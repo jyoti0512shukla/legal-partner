@@ -99,28 +99,24 @@ public final class PromptTemplates {
             """;
 
     public static final String RISK_SYSTEM = """
-            You are an Indian legal risk analyst. Analyze the contract excerpts and output a risk assessment.
+            You are an Indian legal risk analyst. Rate contract risk for 8 labels.
+            Write exactly 8 lines. Each line: LABEL: RATING
+            RATING must be HIGH, MEDIUM, or LOW. Nothing else on each line.
 
-            Output EXACTLY 8 lines, nothing else. No explanation, no blank lines between entries, no preamble.
+            HIGH = clause missing or one-sided. MEDIUM = present but weak. LOW = clear and balanced.
 
-            Line format: LABEL: RATING | One sentence justification. | Clause reference
-
-            Example output:
             OVERALL: HIGH
-            LIABILITY: HIGH | No liability cap found, firm exposed to unlimited damages. | MISSING
-            INDEMNITY: MEDIUM | Unilateral indemnity only, mutual terms should be negotiated. | Section 9.2
-            TERMINATION: LOW | Clear 30-day notice period with cure provisions. | Section 12.1
-            IP_RIGHTS: HIGH | Work product ownership is not defined in the contract. | MISSING
-            CONFIDENTIALITY: MEDIUM | Confidentiality clause present but lacks post-termination survival. | Section 5
-            GOVERNING_LAW: LOW | Governed by Indian law with exclusive Mumbai courts jurisdiction. | Section 15
-            FORCE_MAJEURE: MEDIUM | Force majeure covers natural disasters but excludes pandemics. | Section 11
+            LIABILITY: HIGH
+            INDEMNITY: MEDIUM
+            TERMINATION: LOW
+            IP_RIGHTS: HIGH
+            CONFIDENTIALITY: LOW
+            GOVERNING_LAW: LOW
+            FORCE_MAJEURE: MEDIUM
 
-            Rules:
-            - RATING must be exactly HIGH, MEDIUM, or LOW
-            - OVERALL is HIGH if 2+ categories are HIGH, LOW if all categories are LOW or MEDIUM with none HIGH, otherwise MEDIUM
-            - Justification is one sentence only
-            - Clause reference is the section number if found, or MISSING if absent
-            - Rate based on what IS and IS NOT present in the contract
+            That was an example. Now rate the actual contract below.
+            Start your answer with OVERALL: and end with FORCE_MAJEURE:
+            Do not write "Response:" or any other prefix.
             """;
 
     public static final String RISK_USER = """
@@ -452,29 +448,26 @@ public final class PromptTemplates {
             """;
 
     public static final String CHECKLIST_SYSTEM = """
-            You are a senior Indian legal reviewer. Check 12 clauses in the contract and output EXACTLY 12 lines.
+            You are a senior Indian legal reviewer. Check 12 clauses and output exactly 12 lines.
+            Each line format: CLAUSE_ID: STATUS | RISK
+            STATUS = PRESENT, WEAK, or MISSING. RISK = HIGH, MEDIUM, or LOW.
 
-            Line format: CLAUSE_ID: STATUS | RISK | Section ref or MISSING | One sentence finding. | Recommendation or none.
+            LIABILITY_LIMIT: PRESENT | MEDIUM
+            INDEMNITY: WEAK | HIGH
+            TERMINATION_CONVENIENCE: MISSING | HIGH
+            TERMINATION_CAUSE: PRESENT | LOW
+            FORCE_MAJEURE: WEAK | MEDIUM
+            CONFIDENTIALITY: PRESENT | LOW
+            GOVERNING_LAW: PRESENT | LOW
+            DISPUTE_RESOLUTION: PRESENT | LOW
+            IP_OWNERSHIP: MISSING | HIGH
+            DATA_PROTECTION: MISSING | HIGH
+            PAYMENT_TERMS: PRESENT | LOW
+            ASSIGNMENT: PRESENT | LOW
 
-            STATUS must be exactly: PRESENT, WEAK, or MISSING
-            RISK must be exactly: HIGH, MEDIUM, or LOW
-            CLAUSE_IDs are fixed — use them exactly as shown below.
-
-            Example output (12 lines, nothing else):
-            LIABILITY_LIMIT: PRESENT | MEDIUM | Section 8.1 | Cap at 12-month fees but one-sided. | Negotiate mutual cap.
-            INDEMNITY: WEAK | HIGH | Section 9 | Unilateral indemnity, no IP carve-out. | Add mutual indemnity and IP carve-out.
-            TERMINATION_CONVENIENCE: MISSING | HIGH | MISSING | No termination for convenience found. | Add 30-day notice right.
-            TERMINATION_CAUSE: PRESENT | LOW | Section 12.2 | Mutual cause termination with 15-day cure. | Standard.
-            FORCE_MAJEURE: WEAK | MEDIUM | Section 11 | Excludes pandemic and cyber attack. | Add pandemic and cyber to FM events.
-            CONFIDENTIALITY: PRESENT | LOW | Section 5 | NDA with 3-year post-termination survival. | Standard.
-            GOVERNING_LAW: PRESENT | LOW | Section 15 | Indian law, Mumbai courts. | Standard.
-            DISPUTE_RESOLUTION: PRESENT | LOW | Section 15.3 | ICC Arbitration, seat Mumbai. | Standard.
-            IP_OWNERSHIP: MISSING | HIGH | MISSING | Work product ownership not defined. | Add IP assignment for all deliverables.
-            DATA_PROTECTION: MISSING | HIGH | MISSING | No IT Act 2000 or DPDPA obligations. | Add data protection schedule.
-            PAYMENT_TERMS: PRESENT | LOW | Section 6 | 30-day payment, 1.5% late interest. | Standard.
-            ASSIGNMENT: PRESENT | LOW | Section 14 | Restricted without prior written consent. | Standard.
-
-            STOP after line 12. Do not add any text before or after the 12 lines.
+            That was an example. Now check the actual contract below.
+            Start your answer with LIABILITY_LIMIT: and write all 12 lines.
+            Do not write "Response:" or any other prefix. No extra text.
             """;
 
     public static final String CHECKLIST_USER = """

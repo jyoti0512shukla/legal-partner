@@ -287,7 +287,7 @@ public class AiService {
                 UserMessage.from(prompt)
         ).content();
 
-        String rawText = response.text();
+        String rawText = stripResponsePrefix(response.text());
         log.info("Risk assessment raw response length={}, preview={}",
                 rawText.length(), rawText.substring(0, Math.min(300, rawText.length())).replace('\n', ' '));
 
@@ -309,7 +309,7 @@ public class AiService {
                 UserMessage.from(String.format(PromptTemplates.EXTRACTION_USER, context))
         ).content();
 
-        String rawText = response.text();
+        String rawText = stripResponsePrefix(response.text());
         log.info("Extraction raw response length={}, preview={}",
                 rawText.length(), rawText.substring(0, Math.min(400, rawText.length())).replace('\n', ' '));
         return parseExtractionLines(rawText);
@@ -479,30 +479,52 @@ public class AiService {
     private static final java.util.regex.Pattern PROX_RATING =
             java.util.regex.Pattern.compile("\\b(HIGH|MEDIUM|LOW)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
 
+    // Prose phrases that imply HIGH risk when no explicit rating found (model often skips the word)
+    private static final List<String> HIGH_RISK_PHRASES = List.of(
+        "no ", "not found", "not defined", "not present", "missing", "absent",
+        "no cap", "unlimited", "one-sided", "unilateral", "undefined", "does not",
+        "no provision", "not addressed"
+    );
+    // Prose phrases that imply LOW risk
+    private static final List<String> LOW_RISK_PHRASES = List.of(
+        "clear", "balanced", "mutual", "standard", "well-defined", "explicitly",
+        "both parties", "adequate", "comprehensive"
+    );
+
     private void proximityFallbackScan(String flat, java.util.Set<String> seen, List<RiskCategory> categories) {
-        // Split into sentence-like segments (~250 chars around each period/newline)
-        String[] segments = flat.split("(?<=[.!?])\\s+|\\s{2,}");
+        String[] segments = flat.split("(?<=[.!?])\\s+|\\n|\\d+\\.\\s+");
         for (String seg : segments) {
             String lower = seg.toLowerCase();
             for (var entry : PROXIMITY_KEYWORDS.entrySet()) {
                 String keyword = entry.getKey();
                 String canonical = entry.getValue();
                 if (!lower.contains(keyword)) continue;
-                if (!seen.add(canonical)) continue; // already have this label
+                if (!seen.add(canonical)) continue;
 
+                // Try explicit HIGH/MEDIUM/LOW first
                 java.util.regex.Matcher rm = PROX_RATING.matcher(seg);
-                if (!rm.find()) continue;
-                String rating = rm.group(1).toUpperCase();
+                String rating = rm.find() ? rm.group(1).toUpperCase() : null;
 
-                // Extract trailing text as justification (strip the keyword lead-in)
-                int kwIdx = lower.indexOf(keyword);
-                String justification = seg.substring(Math.max(0, kwIdx)).trim();
+                // If no explicit rating, infer from prose
+                if (rating == null) {
+                    boolean impliesHigh = HIGH_RISK_PHRASES.stream().anyMatch(lower::contains);
+                    boolean impliesLow  = LOW_RISK_PHRASES.stream().anyMatch(lower::contains);
+                    if (impliesHigh) rating = "HIGH";
+                    else if (impliesLow) rating = "LOW";
+                    else rating = "MEDIUM"; // default for known category without rating
+                }
+
+                String justification = seg.trim();
                 if (justification.length() > 150) justification = justification.substring(0, 150).trim();
 
                 String name = switch (canonical) {
-                    case "IP_RIGHTS"      -> "IP Rights";
-                    case "GOVERNING_LAW"  -> "Governing Law";
-                    case "FORCE_MAJEURE"  -> "Force Majeure";
+                    case "IP_RIGHTS"       -> "IP Rights";
+                    case "GOVERNING_LAW"   -> "Governing Law";
+                    case "FORCE_MAJEURE"   -> "Force Majeure";
+                    case "CONFIDENTIALITY" -> "Confidentiality";
+                    case "TERMINATION"     -> "Termination";
+                    case "INDEMNITY"       -> "Indemnity";
+                    case "LIABILITY"       -> "Liability";
                     default -> canonical.charAt(0) + canonical.substring(1).toLowerCase();
                 };
                 categories.add(new RiskCategory(name, rating,
@@ -510,6 +532,19 @@ public class AiService {
                         "See contract"));
             }
         }
+    }
+
+    /**
+     * Strip the "Response:" prefix that AALAP/Mistral models add automatically.
+     * Also strips [/INST] echoes that appear when contract text confuses the template.
+     */
+    private String stripResponsePrefix(String raw) {
+        if (raw == null) return "";
+        // Remove everything up to and including [/INST] if present (prompt leak)
+        int instEnd = raw.lastIndexOf("[/INST]");
+        if (instEnd >= 0) raw = raw.substring(instEnd + 7);
+        // Strip leading "Response:" or "Response :" with optional whitespace
+        return raw.replaceAll("(?i)^\\s*Response\\s*:\\s*", "").trim();
     }
 
     public RefineClauseResponse refineClause(RefineClauseRequest request, String username) {

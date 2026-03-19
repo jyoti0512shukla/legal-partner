@@ -44,7 +44,13 @@ public class ContractReviewService {
                 UserMessage.from(prompt)
         ).content().text();
 
-        List<ClauseCheckResult> clauses = parseChecklistResponse(rawResponse);
+        // Strip "Response:" prefix and [/INST] echoes that AALAP adds
+        String cleaned = rawResponse;
+        int instEnd = cleaned.lastIndexOf("[/INST]");
+        if (instEnd >= 0) cleaned = cleaned.substring(instEnd + 7);
+        cleaned = cleaned.replaceAll("(?i)^\\s*Response\\s*:\\s*", "").trim();
+
+        List<ClauseCheckResult> clauses = parseChecklistResponse(cleaned);
 
         if (clauses.isEmpty()) {
             log.warn("Checklist review returned no structured clauses for doc {}", doc.getFileName());
