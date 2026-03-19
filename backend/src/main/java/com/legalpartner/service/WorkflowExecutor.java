@@ -24,9 +24,15 @@ public class WorkflowExecutor {
     private final AiService aiService;
     private final ContractReviewService contractReviewService;
     private final WorkflowRunRepository runRepo;
+    private final ConnectorService connectorService;
     private final ObjectMapper objectMapper;
 
     public SseEmitter execute(WorkflowRun run, List<WorkflowStepConfig> steps, String workflowName) {
+        return execute(run, steps, workflowName, List.of());
+    }
+
+    public SseEmitter execute(WorkflowRun run, List<WorkflowStepConfig> steps, String workflowName,
+                              List<WorkflowConnector> connectors) {
         SseEmitter emitter = new SseEmitter(0L);
 
         Thread.ofVirtual().start(() -> {
@@ -86,6 +92,12 @@ public class WorkflowExecutor {
                         "skippedSteps", skippedIndices
                 ));
                 emitter.complete();
+
+                // Fire output connectors async (email, webhook) — after SSE closed
+                if (connectors != null && !connectors.isEmpty()) {
+                    runRepo.findById(runId).ifPresent(completedRun ->
+                            connectorService.fireAll(completedRun, connectors, results, workflowName));
+                }
 
             } catch (Exception e) {
                 log.error("Workflow run {} failed: {}", runId, e.getMessage(), e);

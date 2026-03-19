@@ -13,4 +13,6 @@ public class CreateWorkflowRequest {
     private String description;
     @NotEmpty
     private List<WorkflowStepConfig> steps;
+    private List<WorkflowConnector> connectors;
+    private boolean autoTrigger;
 }

@@ -19,7 +19,9 @@ public class WorkflowDefinitionDto {
     private String description;
     private boolean predefined;
     private boolean team;
+    private boolean autoTrigger;
     private List<WorkflowStepConfig> steps;
+    private List<WorkflowConnector> connectors;
     private String createdBy;
     private Instant createdAt;
 }

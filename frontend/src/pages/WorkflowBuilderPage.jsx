@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Trash2, GripVertical, Save, ShieldAlert, Key, ClipboardList, ArrowDown, FileText, Sparkles, Users } from 'lucide-react';
+import {
+  ArrowLeft, Plus, Trash2, GripVertical, Save, ShieldAlert, Key,
+  ClipboardList, ArrowDown, FileText, Sparkles, Users, Zap, Mail, Globe, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import api from '../api/client';
 
 const STEP_DEFS = [
@@ -85,7 +88,7 @@ function StepPalette({ onAdd }) {
   );
 }
 
-function WorkflowStep({ step, index, stepCount, onRemove, onUpdate, isLast }) {
+function WorkflowStep({ step, index, onRemove, onUpdate, isLast }) {
   const def = STEP_DEFS.find(s => s.type === step.type);
   const Icon = def?.icon || Key;
 
@@ -113,7 +116,6 @@ function WorkflowStep({ step, index, stepCount, onRemove, onUpdate, isLast }) {
           </button>
         </div>
 
-        {/* Step config — condition + retry */}
         <div className="border-t border-border/50 px-4 py-2.5 bg-surface-el/30 flex flex-wrap gap-3 items-center">
           <div className="flex items-center gap-2">
             <label className="text-[10px] text-text-muted font-medium whitespace-nowrap">Run when:</label>
@@ -155,12 +157,132 @@ function WorkflowStep({ step, index, stepCount, onRemove, onUpdate, isLast }) {
   );
 }
 
+function ConnectorPanel({ connectors, onChange }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const addWebhook = () => onChange([...connectors, { type: 'WEBHOOK', config: { url: '', secret: '' } }]);
+  const addEmail = () => onChange([...connectors, { type: 'EMAIL', config: { recipients: '', subject: '' } }]);
+  const remove = (i) => onChange(connectors.filter((_, idx) => idx !== i));
+  const updateConfig = (i, key, value) => {
+    const updated = connectors.map((c, idx) =>
+      idx === i ? { ...c, config: { ...c.config, [key]: value } } : c
+    );
+    onChange(updated);
+  };
+
+  return (
+    <div className="card">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center justify-between"
+      >
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-primary" />
+          <span className="text-sm font-semibold">Output Connectors</span>
+          {connectors.length > 0 && (
+            <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">
+              {connectors.length}
+            </span>
+          )}
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-text-muted" /> : <ChevronDown className="w-4 h-4 text-text-muted" />}
+      </button>
+
+      {expanded && (
+        <div className="mt-4 space-y-3">
+          <p className="text-xs text-text-muted">
+            Connectors fire automatically when the workflow completes. Add a webhook to push results to an external system, or an email to notify team members.
+          </p>
+
+          {connectors.map((c, i) => (
+            <div key={i} className="border border-border rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {c.type === 'WEBHOOK'
+                    ? <Globe className="w-3.5 h-3.5 text-primary" />
+                    : <Mail className="w-3.5 h-3.5 text-primary" />}
+                  <span className="text-xs font-medium">{c.type === 'WEBHOOK' ? 'Webhook' : 'Email'}</span>
+                </div>
+                <button onClick={() => remove(i)} className="text-text-muted hover:text-danger transition-colors">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {c.type === 'WEBHOOK' ? (
+                <>
+                  <div>
+                    <label className="text-[10px] text-text-muted block mb-1">Endpoint URL *</label>
+                    <input
+                      value={c.config.url || ''}
+                      onChange={e => updateConfig(i, 'url', e.target.value)}
+                      placeholder="https://your-service.example.com/webhook"
+                      className="input-field w-full text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-text-muted block mb-1">Secret (optional — sent as X-LegalPartner-Secret header)</label>
+                    <input
+                      value={c.config.secret || ''}
+                      onChange={e => updateConfig(i, 'secret', e.target.value)}
+                      placeholder="optional shared secret"
+                      className="input-field w-full text-xs"
+                      type="password"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-[10px] text-text-muted block mb-1">Recipients * (comma-separated)</label>
+                    <input
+                      value={c.config.recipients || ''}
+                      onChange={e => updateConfig(i, 'recipients', e.target.value)}
+                      placeholder="alice@firm.com, bob@firm.com"
+                      className="input-field w-full text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-text-muted block mb-1">Subject (optional)</label>
+                    <input
+                      value={c.config.subject || ''}
+                      onChange={e => updateConfig(i, 'subject', e.target.value)}
+                      placeholder="Leave blank to use default"
+                      className="input-field w-full text-xs"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+
+          <div className="flex gap-2">
+            <button
+              onClick={addWebhook}
+              className="flex items-center gap-1.5 text-xs text-text-muted hover:text-primary border border-dashed border-border hover:border-primary/40 rounded-lg px-3 py-2 transition-colors"
+            >
+              <Globe className="w-3.5 h-3.5" /> Add Webhook
+            </button>
+            <button
+              onClick={addEmail}
+              className="flex items-center gap-1.5 text-xs text-text-muted hover:text-primary border border-dashed border-border hover:border-primary/40 rounded-lg px-3 py-2 transition-colors"
+            >
+              <Mail className="w-3.5 h-3.5" /> Add Email
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function WorkflowBuilderPage() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState([]);
   const [isTeam, setIsTeam] = useState(false);
+  const [autoTrigger, setAutoTrigger] = useState(false);
+  const [connectors, setConnectors] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -174,9 +296,20 @@ export default function WorkflowBuilderPage() {
   const handleSave = async () => {
     if (!name.trim()) { setError('Workflow name is required'); return; }
     if (steps.length === 0) { setError('Add at least one step'); return; }
+
+    // Validate connectors
+    for (const c of connectors) {
+      if (c.type === 'WEBHOOK' && !c.config.url?.trim()) {
+        setError('Webhook connector requires an endpoint URL'); return;
+      }
+      if (c.type === 'EMAIL' && !c.config.recipients?.trim()) {
+        setError('Email connector requires at least one recipient'); return;
+      }
+    }
+
     setSaving(true); setError('');
     try {
-      await api.post('/workflows/definitions', { name, description, steps });
+      await api.post('/workflows/definitions', { name, description, steps, connectors, autoTrigger, team: isTeam });
       navigate('/workflows');
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to save workflow');
@@ -218,16 +351,33 @@ export default function WorkflowBuilderPage() {
                 className="input-field w-full text-sm"
               />
             </div>
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={isTeam}
-                onChange={e => setIsTeam(e.target.checked)}
-                className="w-4 h-4 accent-primary"
-              />
-              <Users className="w-4 h-4 text-text-muted" />
-              <span className="text-xs text-text-secondary">Share with all team members (Partner/Admin can promote)</span>
-            </label>
+            <div className="flex flex-wrap gap-4 pt-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isTeam}
+                  onChange={e => setIsTeam(e.target.checked)}
+                  className="w-4 h-4 accent-primary"
+                />
+                <Users className="w-4 h-4 text-text-muted" />
+                <span className="text-xs text-text-secondary">Share with team</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoTrigger}
+                  onChange={e => setAutoTrigger(e.target.checked)}
+                  className="w-4 h-4 accent-primary"
+                />
+                <Zap className="w-4 h-4 text-warning" />
+                <span className="text-xs text-text-secondary">Auto-run on document upload</span>
+              </label>
+            </div>
+            {autoTrigger && (
+              <p className="text-[10px] text-warning bg-warning/10 rounded-lg px-3 py-2">
+                This workflow will automatically run in the background whenever a new document is uploaded and indexed.
+              </p>
+            )}
           </div>
 
           <div className="card min-h-[300px]">
@@ -249,7 +399,6 @@ export default function WorkflowBuilderPage() {
                     key={`${step.type}-${i}`}
                     step={step}
                     index={i}
-                    stepCount={steps.length}
                     onRemove={() => removeStep(i)}
                     onUpdate={updated => updateStep(i, updated)}
                     isLast={i === steps.length - 1}
@@ -258,6 +407,8 @@ export default function WorkflowBuilderPage() {
               </div>
             )}
           </div>
+
+          <ConnectorPanel connectors={connectors} onChange={setConnectors} />
 
           {error && (
             <div className="card border-l-4 border-danger bg-danger/5">

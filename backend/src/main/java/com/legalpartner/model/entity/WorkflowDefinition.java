@@ -32,6 +32,17 @@ public class WorkflowDefinition {
     @Builder.Default
     private boolean team = false;
 
+    /** Auto-run this workflow whenever a new document is indexed */
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean autoTrigger = false;
+
+    /** JSON array of WorkflowConnector — fires on workflow completion */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb", nullable = false)
+    @Builder.Default
+    private String connectors = "[]";
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb", nullable = false)
     private String steps;   // JSON array of step configs

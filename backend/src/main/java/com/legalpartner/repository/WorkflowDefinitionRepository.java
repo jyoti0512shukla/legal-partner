@@ -16,4 +16,7 @@ public interface WorkflowDefinitionRepository extends JpaRepository<WorkflowDefi
 
     /** Used during seeding to avoid duplicate predefined workflows */
     boolean existsByNameAndCreatedByIsNull(String name);
+
+    /** Returns all workflows configured to auto-run on document upload */
+    List<WorkflowDefinition> findByAutoTriggerTrue();
 }

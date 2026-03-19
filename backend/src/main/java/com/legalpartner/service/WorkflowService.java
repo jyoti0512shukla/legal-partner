@@ -190,8 +190,13 @@ public class WorkflowService implements ApplicationRunner {
         WorkflowDefinition def = definitionRepo.findById(definitionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found"));
         List<WorkflowStepConfig> steps;
+        List<WorkflowConnector> connectors;
         try {
             steps = objectMapper.readValue(def.getSteps(), new TypeReference<>() {});
+            String connectorsJson = def.getConnectors();
+            connectors = (connectorsJson != null && !connectorsJson.isBlank())
+                    ? objectMapper.readValue(connectorsJson, new TypeReference<>() {})
+                    : List.of();
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Invalid workflow definition");
         }
@@ -202,7 +207,7 @@ public class WorkflowService implements ApplicationRunner {
                 .status(WorkflowStatus.PENDING)
                 .build();
         WorkflowRun saved = runRepo.save(run);
-        return executor.execute(saved, steps, def.getName());
+        return executor.execute(saved, steps, def.getName(), connectors);
     }
 
     public WorkflowAnalyticsDto analytics(String username) {

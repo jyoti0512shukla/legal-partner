@@ -1,5 +1,6 @@
 package com.legalpartner.service;
 
+import com.legalpartner.event.DocumentIndexedEvent;
 import com.legalpartner.model.dto.DocumentDetail;
 import com.legalpartner.model.dto.DocumentStats;
 import com.legalpartner.model.entity.DocumentMetadata;
@@ -17,6 +18,7 @@ import dev.langchain4j.store.embedding.EmbeddingStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
@@ -37,6 +39,7 @@ public class DocumentService {
     private final EncryptionService encryptionService;
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
+    private final ApplicationEventPublisher eventPublisher;
 
     private final Tika tika = new Tika();
 
@@ -147,6 +150,7 @@ public class DocumentService {
             repository.save(doc);
 
             log.info("Document {} indexed: {} segments", doc.getFileName(), chunks.size());
+            eventPublisher.publishEvent(new DocumentIndexedEvent(doc.getId(), doc.getUploadedBy(), doc.getFileName()));
         } catch (Exception e) {
             log.error("Failed to process document {}: {}", doc.getFileName(), e.getMessage(), e);
             doc.setProcessingStatus(ProcessingStatus.FAILED);

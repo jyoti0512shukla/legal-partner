@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Workflow, Play, Clock, CheckCircle2, XCircle, Loader2, Plus, ChevronRight, BarChart3, Users, Trash2 } from 'lucide-react';
+import { Workflow, Play, Clock, CheckCircle2, XCircle, Loader2, Plus, ChevronRight, BarChart3, Users, Trash2, Zap } from 'lucide-react';
 import api from '../api/client';
 
 const STATUS_STYLES = {
@@ -112,7 +112,14 @@ function WorkflowCard({ def, onRun, onDelete, onPromote, canAdmin }) {
           <span className="text-xs text-text-muted">{def.steps?.length} steps</span>
         </div>
       </div>
-      <h3 className="font-semibold text-text-primary mb-1">{def.name}</h3>
+      <div className="flex items-center gap-1.5 mb-1">
+        <h3 className="font-semibold text-text-primary">{def.name}</h3>
+        {def.autoTrigger && (
+          <span className="flex items-center gap-0.5 text-[9px] bg-warning/10 text-warning border border-warning/20 px-1.5 py-0.5 rounded-full shrink-0" title="Auto-runs on document upload">
+            <Zap className="w-2.5 h-2.5" /> Auto
+          </span>
+        )}
+      </div>
       <p className="text-xs text-text-muted mb-3 flex-1">{def.description}</p>
       <div className="flex flex-wrap gap-1 mb-3">
         {def.steps?.map((s, i) => (
