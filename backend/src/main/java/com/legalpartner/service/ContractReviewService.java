@@ -1,16 +1,13 @@
 package com.legalpartner.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.dto.ClauseCheckResult;
 import com.legalpartner.model.dto.ContractReviewRequest;
 import com.legalpartner.model.dto.ContractReviewResult;
-import com.legalpartner.model.entity.ContractAnalysis;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.rag.DocumentFullTextRetriever;
 import com.legalpartner.rag.PromptTemplates;
 import com.legalpartner.rag.StructuredSchemas;
 import com.legalpartner.rag.VllmGuidedClient;
-import com.legalpartner.repository.ContractAnalysisRepository;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -30,8 +27,6 @@ public class ContractReviewService {
     private final DocumentMetadataRepository documentRepository;
     private final DocumentFullTextRetriever fullTextRetriever;
     private final VllmGuidedClient vllmClient;
-    private final ContractAnalysisRepository analysisRepository;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ContractReviewResult review(ContractReviewRequest request, String username) {
         DocumentMetadata doc = documentRepository.findById(request.documentId())
@@ -96,41 +91,11 @@ public class ContractReviewService {
 
         String overallRisk = computeOverallRisk(clauses);
 
-        ContractReviewResult result = new ContractReviewResult(
+        return new ContractReviewResult(
                 doc.getFileName(), overallRisk,
                 (int) present, (int) missing, (int) weak,
                 clauses, criticalMissing, recommendations
         );
-        saveAnalysis(request.documentId(), result, username);
-        return result;
-    }
-
-    public java.util.Optional<ContractReviewResult> getCachedReview(UUID documentId) {
-        return analysisRepository.findByDocumentIdAndAnalysisType(documentId, "CHECKLIST")
-                .map(a -> {
-                    try {
-                        return objectMapper.readValue(a.getResultJson(), ContractReviewResult.class);
-                    } catch (Exception e) {
-                        log.warn("Failed to deserialize cached checklist for doc {}: {}", documentId, e.getMessage());
-                        return null;
-                    }
-                });
-    }
-
-    private void saveAnalysis(UUID documentId, ContractReviewResult result, String username) {
-        try {
-            String json = objectMapper.writeValueAsString(result);
-            ContractAnalysis entity = analysisRepository
-                    .findByDocumentIdAndAnalysisType(documentId, "CHECKLIST")
-                    .orElse(ContractAnalysis.builder().documentId(documentId).analysisType("CHECKLIST").build());
-            entity.setResultJson(json);
-            entity.setAnalyzedAt(java.time.Instant.now());
-            entity.setAnalyzedBy(username);
-            analysisRepository.save(entity);
-            log.debug("Saved CHECKLIST analysis for doc {}", documentId);
-        } catch (Exception e) {
-            log.warn("Failed to save CHECKLIST analysis for doc {}: {}", documentId, e.getMessage());
-        }
     }
 
     // Human-readable names for the 12 canonical CLAUSE_IDs

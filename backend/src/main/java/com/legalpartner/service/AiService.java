@@ -3,11 +3,9 @@ package com.legalpartner.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.dto.*;
-import com.legalpartner.model.entity.ContractAnalysis;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.rag.*;
 import com.legalpartner.rag.DocumentFullTextRetriever;
-import com.legalpartner.repository.ContractAnalysisRepository;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.AiMessage;
@@ -43,7 +41,6 @@ public class AiService {
     private final ConversationStore conversationStore;
     private final DocumentFullTextRetriever fullTextRetriever;
     private final VllmGuidedClient vllmClient;
-    private final ContractAnalysisRepository analysisRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${legalpartner.rag.candidate-count:20}")
@@ -94,8 +91,7 @@ public class AiService {
             DocumentMetadataRepository documentRepository,
             ConversationStore conversationStore,
             DocumentFullTextRetriever fullTextRetriever,
-            VllmGuidedClient vllmClient,
-            ContractAnalysisRepository analysisRepository) {
+            VllmGuidedClient vllmClient) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
@@ -109,7 +105,6 @@ public class AiService {
         this.conversationStore = conversationStore;
         this.fullTextRetriever = fullTextRetriever;
         this.vllmClient = vllmClient;
-        this.analysisRepository = analysisRepository;
     }
 
     public QueryResult query(QueryRequest request, String username) {
@@ -297,10 +292,7 @@ public class AiService {
                 json.has("overall_risk") ? "overall_risk+categories" : (json.size() > 0 ? json.fieldNames().next() : "empty"));
 
         RiskAssessmentResult guidedResult = parseRiskJson(json);
-        if (!guidedResult.categories().isEmpty()) {
-            saveAnalysis(documentId, "RISK", guidedResult, username);
-            return guidedResult;
-        }
+        if (!guidedResult.categories().isEmpty()) return guidedResult;
 
         // guided_json returned empty — fall back to raw-completions CSV
         log.info("[prompt={}] guided_json returned no categories — falling back to CSV completions", PromptTemplates.PROMPT_VERSION);
@@ -310,16 +302,10 @@ public class AiService {
         log.info("[prompt={}] CSV fallback raw length={}, preview={}", PromptTemplates.PROMPT_VERSION,
                 rawText.length(), rawText.substring(0, Math.min(200, rawText.length())).replace('\n', ' '));
         RiskAssessmentResult csvResult = parseRiskCsv(rawText);
-        if (!csvResult.categories().isEmpty()) {
-            saveAnalysis(documentId, "RISK", csvResult, username);
-            return csvResult;
-        }
+        if (!csvResult.categories().isEmpty()) return csvResult;
 
         RiskAssessmentResult lineResult = parseRiskLines(rawText);
-        if (!lineResult.categories().isEmpty()) {
-            saveAnalysis(documentId, "RISK", lineResult, username);
-            return lineResult;
-        }
+        if (!lineResult.categories().isEmpty()) return lineResult;
 
         // Last resort: ask for prose analysis and run through proximity scanner
         log.info("[prompt={}] all structured formats failed — trying prose fallback", PromptTemplates.PROMPT_VERSION);
@@ -329,39 +315,7 @@ public class AiService {
         String prose = stripResponsePrefix(vllmClient.generateProse(PromptTemplates.RISK_SYSTEM, prosePrompt, 400));
         log.info("[prompt={}] prose fallback length={}, preview={}", PromptTemplates.PROMPT_VERSION,
                 prose.length(), prose.substring(0, Math.min(200, prose.length())).replace('\n', ' '));
-        RiskAssessmentResult proseResult = parseRiskLines(prose);
-        if (!proseResult.categories().isEmpty()) {
-            saveAnalysis(documentId, "RISK", proseResult, username);
-        }
-        return proseResult;
-    }
-
-    public Optional<RiskAssessmentResult> getCachedRiskAssessment(UUID documentId) {
-        return analysisRepository.findByDocumentIdAndAnalysisType(documentId, "RISK")
-                .map(a -> {
-                    try {
-                        return objectMapper.readValue(a.getResultJson(), RiskAssessmentResult.class);
-                    } catch (Exception e) {
-                        log.warn("Failed to deserialize cached risk assessment for doc {}: {}", documentId, e.getMessage());
-                        return null;
-                    }
-                });
-    }
-
-    private void saveAnalysis(UUID documentId, String type, Object result, String username) {
-        try {
-            String json = objectMapper.writeValueAsString(result);
-            ContractAnalysis entity = analysisRepository
-                    .findByDocumentIdAndAnalysisType(documentId, type)
-                    .orElse(ContractAnalysis.builder().documentId(documentId).analysisType(type).build());
-            entity.setResultJson(json);
-            entity.setAnalyzedAt(java.time.Instant.now());
-            entity.setAnalyzedBy(username);
-            analysisRepository.save(entity);
-            log.debug("Saved {} analysis for doc {}", type, documentId);
-        } catch (Exception e) {
-            log.warn("Failed to save {} analysis for doc {}: {}", type, documentId, e.getMessage());
-        }
+        return parseRiskLines(prose);
     }
 
     // Maps LABEL= keys to display names

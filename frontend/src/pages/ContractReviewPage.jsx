@@ -320,20 +320,10 @@ export default function ContractReviewPage() {
     api.get('/documents?size=100').then(r => setDocs(r.data.content || [])).catch(() => {});
   }, []);
 
-  // When doc changes: clear old results and load any cached analysis from DB
+  // Clear results when document changes
   useEffect(() => {
     setRiskResult(null); setRiskError(''); setRiskCached(false);
     setChecklistResult(null); setChecklistError(''); setChecklistCached(false);
-
-    if (!docId) return;
-
-    api.get(`/ai/risk-assessment/${docId}`)
-      .then(r => { if (r.status === 200) { setRiskResult(r.data); setRiskCached(true); } })
-      .catch(() => {});
-
-    api.get(`/review/${docId}`)
-      .then(r => { if (r.status === 200) { setChecklistResult(r.data); setChecklistCached(true); } })
-      .catch(() => {});
   }, [docId]);
 
   const handleRiskResult = (result) => { setRiskResult(result); setRiskCached(false); };

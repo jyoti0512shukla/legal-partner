@@ -7,13 +7,11 @@ import com.legalpartner.service.TemplateService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 @RestController
@@ -48,13 +46,6 @@ public class AiController {
     @PostMapping("/compare")
     public CompareResult compare(@Valid @RequestBody CompareRequest request, Authentication auth) {
         return aiService.compare(request, auth.getName());
-    }
-
-    @GetMapping("/risk-assessment/{docId}")
-    public ResponseEntity<RiskAssessmentResult> getCachedRiskAssessment(@PathVariable UUID docId) {
-        return aiService.getCachedRiskAssessment(docId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.noContent().build());
     }
 
     @PostMapping("/risk-assessment/{docId}")
