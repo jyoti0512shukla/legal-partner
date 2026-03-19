@@ -99,31 +99,26 @@ public final class PromptTemplates {
             """;
 
     public static final String RISK_SYSTEM = """
-            You are an Indian legal risk analyst. Rate contract risk for 8 labels.
-            Write exactly 8 lines. Each line: LABEL: RATING
-            RATING must be HIGH, MEDIUM, or LOW. Nothing else on each line.
-
-            HIGH = clause missing or one-sided. MEDIUM = present but weak. LOW = clear and balanced.
-
-            OVERALL: HIGH
-            LIABILITY: HIGH
-            INDEMNITY: MEDIUM
-            TERMINATION: LOW
-            IP_RIGHTS: HIGH
-            CONFIDENTIALITY: LOW
-            GOVERNING_LAW: LOW
-            FORCE_MAJEURE: MEDIUM
-
-            That was an example. Now rate the actual contract below.
-            Start your answer with OVERALL: and end with FORCE_MAJEURE:
-            Do not write "Response:" or any other prefix.
+            You are an Indian legal risk analyst.
+            HIGH = clause missing or dangerously one-sided.
+            MEDIUM = clause present but incomplete or improvable.
+            LOW = clause clear and balanced.
+            Fill in HIGH, MEDIUM, or LOW for each label. Only one word per line after the colon.
             """;
 
     public static final String RISK_USER = """
-            Contract: %s
-            
-            Excerpts:
-            %s
+            Contract excerpts:
+            %2$s
+
+            Complete each line with HIGH, MEDIUM, or LOW:
+            OVERALL:
+            LIABILITY:
+            INDEMNITY:
+            TERMINATION:
+            IP_RIGHTS:
+            CONFIDENTIALITY:
+            GOVERNING_LAW:
+            FORCE_MAJEURE:
             """;
 
     public static final String DRAFT_LIABILITY_SYSTEM = """
@@ -448,26 +443,10 @@ public final class PromptTemplates {
             """;
 
     public static final String CHECKLIST_SYSTEM = """
-            You are a senior Indian legal reviewer. Check 12 clauses and output exactly 12 lines.
-            Each line format: CLAUSE_ID: STATUS | RISK
-            STATUS = PRESENT, WEAK, or MISSING. RISK = HIGH, MEDIUM, or LOW.
-
-            LIABILITY_LIMIT: PRESENT | MEDIUM
-            INDEMNITY: WEAK | HIGH
-            TERMINATION_CONVENIENCE: MISSING | HIGH
-            TERMINATION_CAUSE: PRESENT | LOW
-            FORCE_MAJEURE: WEAK | MEDIUM
-            CONFIDENTIALITY: PRESENT | LOW
-            GOVERNING_LAW: PRESENT | LOW
-            DISPUTE_RESOLUTION: PRESENT | LOW
-            IP_OWNERSHIP: MISSING | HIGH
-            DATA_PROTECTION: MISSING | HIGH
-            PAYMENT_TERMS: PRESENT | LOW
-            ASSIGNMENT: PRESENT | LOW
-
-            That was an example. Now check the actual contract below.
-            Start your answer with LIABILITY_LIMIT: and write all 12 lines.
-            Do not write "Response:" or any other prefix. No extra text.
+            You are a senior Indian legal reviewer.
+            STATUS: PRESENT = clause clearly present, WEAK = present but incomplete, MISSING = not found.
+            RISK: HIGH = missing or dangerous, MEDIUM = present but improvable, LOW = clear and balanced.
+            Fill in STATUS and RISK for each clause. Only two words per line separated by a pipe.
             """;
 
     public static final String CHECKLIST_USER = """
@@ -476,6 +455,18 @@ public final class PromptTemplates {
             Contract excerpts:
             %s
 
-            Output the 12 lines now (starting with LIABILITY_LIMIT:):
+            Complete each line with STATUS | RISK:
+            LIABILITY_LIMIT:
+            INDEMNITY:
+            TERMINATION_CONVENIENCE:
+            TERMINATION_CAUSE:
+            FORCE_MAJEURE:
+            CONFIDENTIALITY:
+            GOVERNING_LAW:
+            DISPUTE_RESOLUTION:
+            IP_OWNERSHIP:
+            DATA_PROTECTION:
+            PAYMENT_TERMS:
+            ASSIGNMENT:
             """;
 }
