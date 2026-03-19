@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { LayoutDashboard, Brain, FileText, FileEdit, GitCompare, ClipboardList, ScrollText, LogOut, Scale, Settings, Briefcase, Key } from 'lucide-react';
+import { LayoutDashboard, Brain, FileText, FileEdit, GitCompare, ClipboardList, ScrollText, LogOut, Scale, Settings, Briefcase, Key, Workflow } from 'lucide-react';
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: '/compare', icon: GitCompare, label: 'Compare' },
   { to: '/review', icon: ClipboardList, label: 'Contract Review' },
   { to: '/extraction', icon: Key, label: 'Extraction' },
+  { to: '/workflows', icon: Workflow, label: 'Workflows' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 

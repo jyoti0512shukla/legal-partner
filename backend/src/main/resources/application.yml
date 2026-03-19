@@ -124,3 +124,5 @@ legalpartner:
     max-size: 100
     min-size: 20
     overlap: 15
+  workflows:
+    enabled: true
