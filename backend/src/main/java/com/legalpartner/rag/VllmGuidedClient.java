@@ -66,67 +66,54 @@ public class VllmGuidedClient {
 
         // ── Attempt 1: guided_json (vLLM >= 0.4 + outlines) ──────────────────
         try {
-            String content = callVllm(systemPrompt, userPrompt, jsonSchema, maxTokens, false);
+            String content = callVllm(systemPrompt, userPrompt, jsonSchema, maxTokens);
             JsonNode result = tryParse(content);
             if (result != null) {
                 log.debug("guided_json succeeded, response {} chars", content.length());
                 return result;
             }
-            log.warn("guided_json response was not JSON (len={}, preview={}). Trying kickstart.",
-                    content.length(), preview(content));
+            log.warn("guided_json response was not JSON — model likely ignored schema. Trying kickstart.");
+        } catch (LlmUnavailableException e) {
+            throw e;  // endpoint is down — no point retrying, surface immediately
         } catch (Exception e) {
-            log.warn("guided_json HTTP call failed: {}. Trying kickstart.", e.getMessage());
+            log.warn("guided_json call failed ({}). Trying kickstart.", e.getClass().getSimpleName());
         }
 
         // ── Attempt 2: kickstart — prime with `{` so first token is JSON ─────
-        // Append to system prompt: explicit JSON-only instruction
         String kickstartSystem = systemPrompt +
                 "\n\nCRITICAL: Respond ONLY with a valid JSON object. " +
                 "Do NOT include any explanation, preamble, or markdown. " +
                 "Output ONLY the raw JSON starting with {";
-        // Append `\n{` to user prompt — model's first generated token will be a key name
         String kickstartUser = userPrompt + "\n{";
 
         try {
-            String raw = callVllm(kickstartSystem, kickstartUser, null, maxTokens, false);
-            // The model continues from "{", so prepend it back
+            String raw = callVllm(kickstartSystem, kickstartUser, null, maxTokens);
             String withBrace = "{" + raw;
             JsonNode result = tryParse(withBrace);
-            if (result != null) {
-                log.info("kickstart fallback succeeded");
-                return result;
-            }
-            // Maybe the model ignored the kickstart and wrote the brace itself
+            if (result != null) { log.info("kickstart fallback succeeded"); return result; }
             result = tryParse(raw);
-            if (result != null) {
-                log.info("kickstart fallback succeeded (model included brace)");
-                return result;
-            }
-            // Try extracting any JSON object from the response
+            if (result != null) { log.info("kickstart fallback succeeded"); return result; }
             result = extractJson(withBrace);
-            if (result != null) {
-                log.info("kickstart fallback: extracted JSON from response");
-                return result;
-            }
-            log.warn("kickstart fallback response also not JSON, preview={}", preview(raw));
+            if (result != null) { log.info("kickstart: extracted embedded JSON"); return result; }
+            log.warn("kickstart response also not JSON — model output: {}", preview(raw));
+        } catch (LlmUnavailableException e) {
+            throw e;
         } catch (Exception e) {
-            log.warn("kickstart fallback failed: {}", e.getMessage());
+            log.warn("kickstart failed ({})", e.getClass().getSimpleName());
         }
 
         // ── Attempt 3: plain call + brute-force JSON extraction ───────────────
         try {
-            String raw = callVllm(kickstartSystem, userPrompt, null, maxTokens, false);
+            String raw = callVllm(kickstartSystem, userPrompt, null, maxTokens);
             JsonNode result = extractJson(raw);
-            if (result != null) {
-                log.info("plain extraction fallback succeeded");
-                return result;
-            }
+            if (result != null) { log.info("plain JSON extraction succeeded"); return result; }
+        } catch (LlmUnavailableException e) {
+            throw e;
         } catch (Exception e) {
-            log.warn("plain extraction fallback failed: {}", e.getMessage());
+            log.warn("plain extraction failed ({})", e.getClass().getSimpleName());
         }
 
-        // All three attempts failed — return an empty object so callers degrade gracefully
-        log.error("All structured generation attempts failed for prompt preview: {}", preview(userPrompt));
+        log.error("All structured generation attempts failed — returning empty result");
         return objectMapper.createObjectNode();
     }
 
@@ -134,7 +121,7 @@ public class VllmGuidedClient {
 
     private String callVllm(String system, String user,
                              Map<String, Object> guidedJson,
-                             int maxTokens, boolean logBody) throws Exception {
+                             int maxTokens) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", modelName);
         body.put("messages", List.of(
@@ -152,17 +139,39 @@ public class VllmGuidedClient {
         headers.setBearerAuth("no-op");
 
         String requestJson = objectMapper.writeValueAsString(body);
-        if (logBody) log.debug("vLLM request body: {}", requestJson);
 
-        ResponseEntity<String> response = restTemplate.exchange(
-                baseUrl + "/chat/completions",
-                HttpMethod.POST,
-                new HttpEntity<>(requestJson, headers),
-                String.class
-        );
+        ResponseEntity<String> response;
+        try {
+            response = restTemplate.exchange(
+                    baseUrl + "/chat/completions",
+                    HttpMethod.POST,
+                    new HttpEntity<>(requestJson, headers),
+                    String.class
+            );
+        } catch (org.springframework.web.client.ResourceAccessException e) {
+            // Connection refused / timeout — tunnel or server is down
+            throw new LlmUnavailableException("LLM endpoint unreachable at " + baseUrl +
+                    " — is the vLLM server running and ngrok tunnel active?", e);
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            String body2 = e.getResponseBodyAsString();
+            // HTML error page (ngrok offline, proxy error, etc.) — don't log the HTML
+            if (body2.contains("<!DOCTYPE") || body2.contains("<html")) {
+                throw new LlmUnavailableException(
+                        "LLM endpoint returned an error page (HTTP " + e.getStatusCode() +
+                        ") — ngrok tunnel may be offline. Restart ngrok on the GCP VM.", e);
+            }
+            throw e;  // real API error — let caller see it
+        }
 
         JsonNode root = objectMapper.readTree(response.getBody());
         return root.path("choices").path(0).path("message").path("content").asText();
+    }
+
+    /** Thrown when the LLM endpoint is unreachable — prevents pointless retries. */
+    public static class LlmUnavailableException extends RuntimeException {
+        public LlmUnavailableException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 
     /** Try to parse content as JSON. Returns null if it fails. */

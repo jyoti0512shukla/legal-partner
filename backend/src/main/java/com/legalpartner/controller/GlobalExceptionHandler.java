@@ -1,6 +1,7 @@
 package com.legalpartner.controller;
 
 import com.legalpartner.model.dto.ErrorResponse;
+import com.legalpartner.rag.VllmGuidedClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -60,6 +61,15 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleUnreadable(org.springframework.http.converter.HttpMessageNotReadableException e) {
         return new ErrorResponse("INVALID_REQUEST", "Malformed request body", Instant.now());
+    }
+
+    @ExceptionHandler(VllmGuidedClient.LlmUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleLlmUnavailable(VllmGuidedClient.LlmUnavailableException ex) {
+        log.warn("LLM endpoint unavailable: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ErrorResponse("LLM_UNAVAILABLE",
+                        "AI service is unreachable. Please ensure the vLLM server is running and the ngrok tunnel is active.",
+                        Instant.now()));
     }
 
     @ExceptionHandler(Exception.class)

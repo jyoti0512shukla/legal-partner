@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.dto.*;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.rag.*;
+import com.legalpartner.rag.DocumentFullTextRetriever;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.message.AiMessage;
@@ -16,10 +17,12 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -28,6 +31,7 @@ public class AiService {
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final ChatLanguageModel chatModel;
+    private final ChatLanguageModel jsonChatModel;
     private final QueryExpander queryExpander;
     private final ReRanker reRanker;
     private final CitationExtractor citationExtractor;
@@ -36,7 +40,6 @@ public class AiService {
     private final DocumentMetadataRepository documentRepository;
     private final ConversationStore conversationStore;
     private final DocumentFullTextRetriever fullTextRetriever;
-    private final VllmGuidedClient guidedClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${legalpartner.rag.candidate-count:20}")
@@ -78,6 +81,7 @@ public class AiService {
             EmbeddingModel embeddingModel,
             EmbeddingStore<TextSegment> embeddingStore,
             ChatLanguageModel openAiChatModel,
+            @Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
             QueryExpander queryExpander,
             ReRanker reRanker,
             CitationExtractor citationExtractor,
@@ -85,11 +89,11 @@ public class AiService {
             EncryptionService encryptionService,
             DocumentMetadataRepository documentRepository,
             ConversationStore conversationStore,
-            DocumentFullTextRetriever fullTextRetriever,
-            VllmGuidedClient guidedClient) {
+            DocumentFullTextRetriever fullTextRetriever) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
+        this.jsonChatModel = jsonChatModel;
         this.queryExpander = queryExpander;
         this.reRanker = reRanker;
         this.citationExtractor = citationExtractor;
@@ -98,7 +102,6 @@ public class AiService {
         this.documentRepository = documentRepository;
         this.conversationStore = conversationStore;
         this.fullTextRetriever = fullTextRetriever;
-        this.guidedClient = guidedClient;
     }
 
     public QueryResult query(QueryRequest request, String username) {
@@ -212,35 +215,62 @@ public class AiService {
         String prompt = String.format(PromptTemplates.COMPARE_USER,
                 doc1.getFileName(), context1, doc2.getFileName(), context2);
 
-        JsonNode json = guidedClient.generateStructured(
-                PromptTemplates.COMPARE_SYSTEM_GUIDED, prompt,
-                StructuredSchemas.COMPARE_SCHEMA, 1200);
+        AiMessage response = jsonChatModel.generate(
+                SystemMessage.from(PromptTemplates.COMPARE_SYSTEM),
+                UserMessage.from(prompt)
+        ).content();
 
-        List<ComparisonDimension> dimensions = new ArrayList<>();
-        for (JsonNode d : json.path("dimensions")) {
-            dimensions.add(new ComparisonDimension(
-                    d.path("name").asText("Unknown"),
-                    d.path("doc1_summary").asText(""),
-                    d.path("doc2_summary").asText(""),
-                    d.path("favorable").asText("neutral"),
-                    d.path("reasoning").asText("")
-            ));
-        }
+        List<ComparisonDimension> dimensions = parseCompareResponse(response.text());
 
         if (dimensions.isEmpty()) {
-            log.warn("Compare produced no dimensions from guided response");
+            log.warn("Compare produced no dimensions; raw length={}, preview={}",
+                    response.text().length(),
+                    response.text().substring(0, Math.min(200, response.text().length())).replace('\n', ' '));
             dimensions.add(new ComparisonDimension(
-                    "Analysis", "Could not generate comparison.",
+                    "Analysis", "Insufficient structured output from model.",
                     "Try comparing contracts with clearer clause structure.",
-                    "neutral", ""));
+                    "neutral", "Model returned unstructured response."));
         }
         return new CompareResult(dimensions);
+    }
+
+    private static final java.util.Set<String> COMPARE_DIMENSIONS = java.util.Set.of(
+            "liability", "indemnity", "termination", "confidentiality",
+            "governing law", "force majeure", "ip rights");
+
+    private List<ComparisonDimension> parseCompareResponse(String raw) {
+        if (raw == null) return List.of();
+        List<ComparisonDimension> results = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+
+        for (String line : raw.split("\\r?\\n")) {
+            line = line.trim();
+            if (line.isBlank()) continue;
+            String[] parts = line.split("\\|", -1);
+            if (parts.length < 4) continue;
+
+            String name = parts[0].trim();
+            // Validate it's one of our 7 known dimensions (case-insensitive)
+            if (!COMPARE_DIMENSIONS.contains(name.toLowerCase())) continue;
+            if (!seen.add(name.toLowerCase())) continue; // dedup
+
+            String doc1Summary  = parts[1].trim();
+            String doc2Summary  = parts.length > 2 ? parts[2].trim() : "";
+            String favorable    = parts.length > 3 ? parts[3].trim().toLowerCase() : "neutral";
+            if (!favorable.matches("doc1|doc2|neutral")) favorable = "neutral";
+            String reasoning    = parts.length > 4 ? parts[4].trim() : "";
+
+            results.add(new ComparisonDimension(name, doc1Summary, doc2Summary, favorable, reasoning));
+        }
+        return results;
     }
 
     public RiskAssessmentResult assessRisk(UUID documentId, String username) {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
 
+        // Full document context — not just top-K chunks. A missing clause (e.g. no
+        // force majeure) can only be detected by seeing the whole contract.
         String context = fullTextRetriever.retrieveFullText(documentId);
 
         if (context.isBlank()) {
@@ -251,60 +281,236 @@ public class AiService {
         }
 
         String prompt = String.format(PromptTemplates.RISK_USER, documentId, context);
+        // Use plain chatModel — smaller models generate pipe-delimited text far more reliably than nested JSON
+        AiMessage response = chatModel.generate(
+                SystemMessage.from(PromptTemplates.RISK_SYSTEM),
+                UserMessage.from(prompt)
+        ).content();
 
-        JsonNode json = guidedClient.generateStructured(
-                PromptTemplates.RISK_SYSTEM_GUIDED, prompt,
-                StructuredSchemas.RISK_SCHEMA, 800);
+        String rawText = response.text();
+        log.info("Risk assessment raw response length={}, preview={}",
+                rawText.length(), rawText.substring(0, Math.min(300, rawText.length())).replace('\n', ' '));
 
-        String overallRisk = json.path("overall_risk").asText("MEDIUM");
-        List<RiskCategory> categories = new ArrayList<>();
-        for (JsonNode cat : json.path("categories")) {
-            categories.add(new RiskCategory(
-                    cat.path("name").asText("Unknown"),
-                    cat.path("rating").asText("MEDIUM"),
-                    cat.path("justification").asText(""),
-                    cat.path("section_ref").asText("See contract")
-            ));
-        }
-
-        log.info("Risk assessment: overall={}, categories={}", overallRisk, categories.size());
-        return new RiskAssessmentResult(overallRisk, categories);
+        return parseRiskLines(rawText);
     }
 
     public ExtractionResult extractKeyTerms(UUID documentId, String username) {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
 
+        // Full document — party names, dates, values can appear anywhere in the contract
         String context = fullTextRetriever.retrieveFullText(documentId);
         if (context.isBlank()) {
             return new ExtractionResult(null, null, null, null, null, null, null, null, null);
         }
 
-        JsonNode json = guidedClient.generateStructured(
-                PromptTemplates.EXTRACTION_SYSTEM_GUIDED,
-                String.format(PromptTemplates.EXTRACTION_USER, context),
-                StructuredSchemas.EXTRACTION_SCHEMA, 400);
+        AiMessage response = chatModel.generate(
+                SystemMessage.from(PromptTemplates.EXTRACTION_SYSTEM),
+                UserMessage.from(String.format(PromptTemplates.EXTRACTION_USER, context))
+        ).content();
 
+        String rawText = response.text();
+        log.info("Extraction raw response length={}, preview={}",
+                rawText.length(), rawText.substring(0, Math.min(400, rawText.length())).replace('\n', ' '));
+        return parseExtractionLines(rawText);
+    }
+
+    private static final java.util.regex.Pattern EXTRACTION_LINE =
+            java.util.regex.Pattern.compile("^(PARTY_A|PARTY_B|EFFECTIVE_DATE|EXPIRY_DATE|CONTRACT_VALUE|LIABILITY_CAP|GOVERNING_LAW|NOTICE_PERIOD_DAYS|ARBITRATION_VENUE)\\s*:\\s*(.+)$",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private ExtractionResult parseExtractionLines(String raw) {
+        Map<String, String> fields = new HashMap<>();
+        for (String line : raw.split("\\r?\\n")) {
+            java.util.regex.Matcher m = EXTRACTION_LINE.matcher(line.trim());
+            if (!m.matches()) continue;
+            String value = m.group(2).trim();
+            if (!value.equalsIgnoreCase("null") && !value.isEmpty()) {
+                fields.put(m.group(1).toUpperCase(), value);
+            }
+        }
         return new ExtractionResult(
-                nullableField(json, "party_a"),
-                nullableField(json, "party_b"),
-                nullableField(json, "effective_date"),
-                nullableField(json, "expiry_date"),
-                nullableField(json, "contract_value"),
-                nullableField(json, "liability_cap"),
-                nullableField(json, "governing_law"),
-                nullableField(json, "notice_period_days"),
-                nullableField(json, "arbitration_venue")
+                fields.get("PARTY_A"),
+                fields.get("PARTY_B"),
+                fields.get("EFFECTIVE_DATE"),
+                fields.get("EXPIRY_DATE"),
+                fields.get("CONTRACT_VALUE"),
+                fields.get("LIABILITY_CAP"),
+                fields.get("GOVERNING_LAW"),
+                fields.get("NOTICE_PERIOD_DAYS"),
+                fields.get("ARBITRATION_VENUE")
         );
     }
 
-    private String nullableField(JsonNode node, String field) {
-        JsonNode n = node.path(field);
-        if (n.isNull() || n.isMissingNode()) return null;
-        String v = n.asText("").trim();
-        return v.isEmpty() || "null".equalsIgnoreCase(v) ? null : v;
+    // Maps prose label variants → canonical label used in parseRiskLines
+    private static final java.util.regex.Pattern RISK_TOKEN =
+            java.util.regex.Pattern.compile(
+                    // Canonical underscored labels
+                    "(OVERALL|LIABILITY|INDEMNITY|INDEMNIFICATION|TERMINATION" +
+                    "|IP_RIGHTS|IP RIGHTS|INTELLECTUAL PROPERTY" +
+                    "|CONFIDENTIALITY|CONFIDENTIAL" +
+                    "|GOVERNING_LAW|GOVERNING LAW" +
+                    "|FORCE_MAJEURE|FORCE MAJEURE)" +
+                    "(?:[^:\\n]{0,50})?:\\s*(HIGH|MEDIUM|LOW)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    // Optional pipe-delimited justification/ref after rating
+    private static final java.util.regex.Pattern PIPE_PARTS =
+            java.util.regex.Pattern.compile("[^|]*\\|\\s*(.+?)\\s*\\|\\s*(.+)$");
+
+    private RiskAssessmentResult parseRiskLines(String raw) {
+        String overallRisk = "MEDIUM";
+        List<RiskCategory> categories = new ArrayList<>();
+        // Seen labels (dedup — model sometimes repeats labels)
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+
+        // Flatten to single line for global scan, then also try per-line for pipe-format
+        String flat = raw.replace('\n', ' ').replace('\r', ' ');
+        java.util.regex.Matcher m = RISK_TOKEN.matcher(flat);
+
+        // Collect all (label, rating, startPos, endPos)
+        record Hit(String label, String rating, int end) {}
+        List<Hit> hits = new ArrayList<>();
+        while (m.find()) {
+            hits.add(new Hit(m.group(1).toUpperCase(), m.group(2).toUpperCase(), m.end()));
+        }
+
+        for (int i = 0; i < hits.size(); i++) {
+            Hit hit = hits.get(i);
+            // Normalise for dedup (e.g. INDEMNIFICATION == INDEMNITY)
+            String dedupKey = switch (hit.label().toUpperCase().replace(' ', '_')) {
+                case "INDEMNIFICATION" -> "INDEMNITY";
+                case "IP_RIGHTS", "INTELLECTUAL_PROPERTY" -> "IP_RIGHTS";
+                case "GOVERNING_LAW" -> "GOVERNING_LAW";
+                case "FORCE_MAJEURE" -> "FORCE_MAJEURE";
+                case "CONFIDENTIAL" -> "CONFIDENTIALITY";
+                default -> hit.label().toUpperCase().replace(' ', '_');
+            };
+            if (!seen.add(dedupKey)) continue; // skip duplicate labels
+
+            // Text between this hit's end and the next hit's start = possible justification
+            int nextStart = (i + 1 < hits.size())
+                    ? flat.lastIndexOf(hits.get(i + 1).label(), flat.length()) // rough
+                    : flat.length();
+            // Get the text after the rating up to ~120 chars or next label
+            String after = flat.substring(hit.end(), Math.min(hit.end() + 150, flat.length())).trim();
+
+            // Try to find pipe-separated parts in "after"
+            java.util.regex.Matcher pm = PIPE_PARTS.matcher(after);
+            String justification = "";
+            String ref = "";
+            if (pm.find()) {
+                justification = pm.group(1).trim();
+                ref = pm.group(2).trim();
+            } else {
+                // Clean up "after" — strip leading connector words and section refs
+                // e.g. "RATING HIGH MISSING: LOW" → take text before next label keyword
+                String clean = after.replaceAll("(?i)\\s*(OVERALL|LIABILITY|INDEMNITY|TERMINATION|IP_RIGHTS|CONFIDENTIALITY|GOVERNING_LAW|FORCE_MAJEURE).*", "").trim();
+                // Look for section reference pattern
+                java.util.regex.Matcher secMatcher = java.util.regex.Pattern
+                        .compile("(?i)(section|clause|article)\\s*[\\d.]+")
+                        .matcher(clean);
+                if (secMatcher.find()) {
+                    ref = secMatcher.group().trim();
+                    justification = clean.substring(0, secMatcher.start()).trim();
+                } else if (clean.length() > 3) {
+                    justification = clean;
+                }
+                if (ref.isBlank()) ref = "See contract";
+            }
+
+            // Normalise label variants to canonical form
+            String canonicalLabel = switch (hit.label().toUpperCase().replace(' ', '_')) {
+                case "INDEMNIFICATION"   -> "INDEMNITY";
+                case "IP_RIGHTS",
+                     "INTELLECTUAL_PROPERTY" -> "IP_RIGHTS";
+                case "GOVERNING_LAW"    -> "GOVERNING_LAW";
+                case "FORCE_MAJEURE"    -> "FORCE_MAJEURE";
+                case "CONFIDENTIAL"     -> "CONFIDENTIALITY";
+                default                 -> hit.label().toUpperCase().replace(' ', '_');
+            };
+
+            if ("OVERALL".equals(canonicalLabel)) {
+                overallRisk = hit.rating();
+            } else {
+                String name = switch (canonicalLabel) {
+                    case "IP_RIGHTS"      -> "IP Rights";
+                    case "GOVERNING_LAW"  -> "Governing Law";
+                    case "FORCE_MAJEURE"  -> "Force Majeure";
+                    case "INDEMNITY"      -> "Indemnity";
+                    case "CONFIDENTIALITY"-> "Confidentiality";
+                    case "TERMINATION"    -> "Termination";
+                    case "LIABILITY"      -> "Liability";
+                    default -> canonicalLabel.charAt(0) + canonicalLabel.substring(1).toLowerCase();
+                };
+                categories.add(new RiskCategory(name, hit.rating(),
+                        justification.isBlank() ? "See contract for details." : justification, ref));
+            }
+        }
+
+        // If we got < 3 categories, try a proximity fallback: scan sentences for
+        // category keyword + risk level within a ~250-char window.
+        if (categories.size() < 3) {
+            log.info("Risk token scan found {} categories — trying proximity fallback", categories.size());
+            proximityFallbackScan(flat, seen, categories);
+        }
+
+        if (categories.isEmpty()) {
+            log.warn("Risk assessment: could not parse any labels from response");
+        } else {
+            log.info("Risk assessment parsed: overall={}, categories={}", overallRisk, categories.size());
+        }
+
+        return new RiskAssessmentResult(overallRisk, categories);
     }
 
+    // Maps prose keywords → canonical category labels
+    private static final java.util.Map<String, String> PROXIMITY_KEYWORDS = java.util.Map.of(
+        "liabilit",       "LIABILITY",
+        "indemnit",       "INDEMNITY",
+        "terminat",       "TERMINATION",
+        "intellectual",   "IP_RIGHTS",
+        "ip rights",      "IP_RIGHTS",
+        "confidential",   "CONFIDENTIALITY",
+        "governing law",  "GOVERNING_LAW",
+        "force majeure",  "FORCE_MAJEURE"
+    );
+
+    private static final java.util.regex.Pattern PROX_RATING =
+            java.util.regex.Pattern.compile("\\b(HIGH|MEDIUM|LOW)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private void proximityFallbackScan(String flat, java.util.Set<String> seen, List<RiskCategory> categories) {
+        // Split into sentence-like segments (~250 chars around each period/newline)
+        String[] segments = flat.split("(?<=[.!?])\\s+|\\s{2,}");
+        for (String seg : segments) {
+            String lower = seg.toLowerCase();
+            for (var entry : PROXIMITY_KEYWORDS.entrySet()) {
+                String keyword = entry.getKey();
+                String canonical = entry.getValue();
+                if (!lower.contains(keyword)) continue;
+                if (!seen.add(canonical)) continue; // already have this label
+
+                java.util.regex.Matcher rm = PROX_RATING.matcher(seg);
+                if (!rm.find()) continue;
+                String rating = rm.group(1).toUpperCase();
+
+                // Extract trailing text as justification (strip the keyword lead-in)
+                int kwIdx = lower.indexOf(keyword);
+                String justification = seg.substring(Math.max(0, kwIdx)).trim();
+                if (justification.length() > 150) justification = justification.substring(0, 150).trim();
+
+                String name = switch (canonical) {
+                    case "IP_RIGHTS"      -> "IP Rights";
+                    case "GOVERNING_LAW"  -> "Governing Law";
+                    case "FORCE_MAJEURE"  -> "Force Majeure";
+                    default -> canonical.charAt(0) + canonical.substring(1).toLowerCase();
+                };
+                categories.add(new RiskCategory(name, rating,
+                        justification.isBlank() ? "See contract for details." : justification,
+                        "See contract"));
+            }
+        }
+    }
 
     public RefineClauseResponse refineClause(RefineClauseRequest request, String username) {
         String context = request.getDocumentContext() != null && !request.getDocumentContext().isBlank()
@@ -316,14 +522,56 @@ public class AiService {
 
         String prompt = String.format(PromptTemplates.REFINE_CLAUSE_USER,
                 context, request.getSelectedText(), instruction);
+        AiMessage response = jsonChatModel.generate(
+                SystemMessage.from(PromptTemplates.REFINE_CLAUSE_SYSTEM),
+                UserMessage.from(prompt)
+        ).content();
 
-        JsonNode json = guidedClient.generateStructured(
-                PromptTemplates.REFINE_CLAUSE_SYSTEM_GUIDED, prompt,
-                StructuredSchemas.REFINE_SCHEMA, 600);
+        return parseRefineResponse(response.text());
+    }
+
+    private static final java.util.regex.Pattern REFINE_IMPROVED =
+            java.util.regex.Pattern.compile("(?:^|\\n)IMPROVED:\\s*(.+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern REFINE_REASONING =
+            java.util.regex.Pattern.compile("(?:^|\\n)REASONING:\\s*(.+)", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    private RefineClauseResponse parseRefineResponse(String raw) {
+        if (raw == null) raw = "";
+        // Strip any CSS / HTML that leaked in (template styles sometimes injected)
+        String cleaned = raw.replaceAll("(?s)<style[^>]*>.*?</style>", "")
+                            .replaceAll("<[^>]+>", "")
+                            .trim();
+
+        java.util.regex.Matcher im = REFINE_IMPROVED.matcher(cleaned);
+        java.util.regex.Matcher rm = REFINE_REASONING.matcher(cleaned);
+
+        String improvedText = im.find() ? im.group(1).trim() : null;
+        String reasoning    = rm.find() ? rm.group(1).trim() : null;
+
+        // Fallback: try JSON "improved_text" field
+        if (improvedText == null) {
+            JsonNode parsed = responseValidator.parseAndValidate(cleaned);
+            if (parsed != null && parsed.has("improved_text")) {
+                improvedText = parsed.path("improved_text").asText(null);
+                reasoning    = parsed.has("reasoning") ? parsed.path("reasoning").asText(null) : null;
+            }
+        }
+
+        // Last resort: return whatever text was generated, stripped of obvious noise
+        if (improvedText == null || improvedText.isBlank()) {
+            // Remove lines that look like system prompt echo or CSS
+            String stripped = Arrays.stream(cleaned.split("\\n"))
+                    .filter(l -> !l.matches("(?i).*\\{.*\\}.*") && !l.isBlank())
+                    .collect(Collectors.joining(" "))
+                    .trim();
+            improvedText = stripped.isBlank() ? raw.trim() : stripped;
+            reasoning    = "Model returned unstructured response — text extracted as-is.";
+            log.warn("Refine clause: could not parse IMPROVED/REASONING labels from response length={}", raw.length());
+        }
 
         return RefineClauseResponse.builder()
-                .improvedText(json.path("improved_text").asText(""))
-                .reasoning(json.path("reasoning").asText(""))
+                .improvedText(improvedText)
+                .reasoning(reasoning)
                 .build();
     }
 
