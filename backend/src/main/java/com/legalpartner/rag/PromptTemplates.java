@@ -464,6 +464,54 @@ public final class PromptTemplates {
             RISK: HIGH = missing or dangerous, MEDIUM = present but improvable, LOW = clear and balanced.
             """;
 
+    // ── Executive Summary (Workflow step) ─────────────────────────────────────
+
+    public static final String SUMMARY_SYSTEM_GUIDED = """
+            You are a senior legal analyst preparing an executive contract brief for a partner-level audience.
+            You will receive AI-generated analysis results (risk assessment, clause checklist, key terms) and must
+            synthesise them into a concise, accurate executive summary.
+            Return ONLY valid JSON matching the given schema.
+            """;
+
+    /** %s = JSON-serialised prior step results */
+    public static final String SUMMARY_USER_GUIDED = """
+            The following analysis results were generated for this contract:
+
+            %s
+
+            Generate an executive summary JSON with:
+            - executive_summary: 2-3 sentence overview of the contract and its key risk profile
+            - overall_risk: HIGH, MEDIUM, or LOW (derive from the risk assessment if available)
+            - top_concerns: up to 5 specific risk concerns in plain English
+            - recommendations: up to 5 actionable items the reviewing lawyer should address
+            - red_flags: critical issues requiring immediate attention (empty array if none)
+            """;
+
+    // ── Redline Suggestions (Workflow step) ───────────────────────────────────
+
+    public static final String REDLINE_SYSTEM_GUIDED = """
+            You are a senior legal drafting expert. You will receive a list of weak or missing contract clauses
+            from a clause checklist analysis. For each identified issue, generate specific improved contractual
+            language that addresses the deficiency.
+            Return ONLY valid JSON matching the given schema.
+            """;
+
+    /** %s = formatted list of weak/missing clauses and their findings */
+    public static final String REDLINE_USER_GUIDED = """
+            The following clause issues were identified in the contract:
+
+            %s
+
+            For each issue, provide:
+            - clause_name: the name of the clause (e.g. "Limitation of Liability")
+            - issue: a one-sentence description of the problem
+            - suggested_language: specific improved clause text ready for insertion
+            - rationale: why this change protects the client
+
+            Focus only on MISSING and WEAK clauses. Produce commercially reasonable, balanced language
+            unless the context indicates party-specific drafting preferences.
+            """;
+
     // CSV format: STATUS-RISK per clause, comma-separated — avoids EOS after first newline.
     // Completions prefix is "LIABILITY_LIMIT=" so model continues: PRESENT-LOW,INDEMNITY=...
     public static final String CHECKLIST_USER = """

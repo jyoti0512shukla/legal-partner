@@ -1,20 +1,20 @@
 package com.legalpartner.controller;
 
 import com.legalpartner.config.WorkflowProperties;
-import com.legalpartner.model.dto.CreateWorkflowRequest;
-import com.legalpartner.model.dto.WorkflowDefinitionDto;
-import com.legalpartner.model.dto.WorkflowRunDto;
+import com.legalpartner.model.dto.*;
 import com.legalpartner.service.WorkflowService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -31,10 +31,12 @@ public class WorkflowController {
         }
     }
 
+    // ── Definitions ───────────────────────────────────────────────────────────
+
     @GetMapping("/definitions")
-    public List<WorkflowDefinitionDto> listDefinitions() {
+    public List<WorkflowDefinitionDto> listDefinitions(Authentication auth) {
         checkEnabled();
-        return workflowService.listDefinitions();
+        return workflowService.listDefinitions(auth.getName());
     }
 
     @PostMapping("/definitions")
@@ -53,6 +55,15 @@ public class WorkflowController {
         workflowService.deleteDefinition(id, auth.getName());
     }
 
+    @PatchMapping("/definitions/{id}/promote")
+    @PreAuthorize("hasAnyRole('PARTNER','ADMIN')")
+    public WorkflowDefinitionDto promoteToTeam(@PathVariable UUID id, Authentication auth) {
+        checkEnabled();
+        return workflowService.promoteToTeam(id, auth.getName());
+    }
+
+    // ── Runs ──────────────────────────────────────────────────────────────────
+
     @GetMapping("/runs")
     public List<WorkflowRunDto> listRuns(
             @RequestParam(defaultValue = "0") int page,
@@ -67,6 +78,21 @@ public class WorkflowController {
         return workflowService.getRun(id, auth.getName());
     }
 
+    @GetMapping("/runs/{id}/export")
+    public Map<String, Object> exportRun(@PathVariable UUID id, Authentication auth) {
+        checkEnabled();
+        return workflowService.exportRun(id, auth.getName());
+    }
+
+    @PatchMapping("/runs/{id}/matter")
+    public WorkflowRunDto associateMatter(
+            @PathVariable UUID id,
+            @RequestParam String matterRef,
+            Authentication auth) {
+        checkEnabled();
+        return workflowService.associateMatter(id, matterRef, auth.getName());
+    }
+
     @PostMapping(value = "/runs", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter executeWorkflow(
             @RequestParam UUID definitionId,
@@ -74,5 +100,13 @@ public class WorkflowController {
             Authentication auth) {
         checkEnabled();
         return workflowService.executeWorkflow(definitionId, documentId, auth.getName());
+    }
+
+    // ── Analytics ─────────────────────────────────────────────────────────────
+
+    @GetMapping("/analytics")
+    public WorkflowAnalyticsDto analytics(Authentication auth) {
+        checkEnabled();
+        return workflowService.analytics(auth.getName());
     }
 }

@@ -121,6 +121,57 @@ public final class StructuredSchemas {
             )
     );
 
+    // ── Executive Summary (Workflow) ──────────────────────────────────────────
+    //
+    // {
+    //   "executive_summary": "...",
+    //   "overall_risk": "HIGH|MEDIUM|LOW",
+    //   "top_concerns":    ["...", ...],
+    //   "recommendations": ["...", ...],
+    //   "red_flags":       ["...", ...]
+    // }
+
+    public static final Map<String, Object> SUMMARY_SCHEMA = Map.of(
+            "type", "object",
+            "required", List.of("executive_summary", "overall_risk", "top_concerns", "recommendations"),
+            "properties", Map.of(
+                    "executive_summary", strProp(),
+                    "overall_risk",      enumProp("HIGH", "MEDIUM", "LOW"),
+                    "top_concerns",      Map.of("type", "array", "maxItems", 5, "items", strProp()),
+                    "recommendations",   Map.of("type", "array", "maxItems", 5, "items", strProp()),
+                    "red_flags",         Map.of("type", "array", "maxItems", 5, "items", strProp())
+            )
+    );
+
+    // ── Redline Suggestions (Workflow) ────────────────────────────────────────
+    //
+    // {
+    //   "suggestions": [
+    //     { "clause_name": "...", "issue": "...", "suggested_language": "...", "rationale": "..." }
+    //   ]
+    // }
+
+    public static final Map<String, Object> REDLINE_SCHEMA = Map.of(
+            "type", "object",
+            "required", List.of("suggestions"),
+            "properties", Map.of(
+                    "suggestions", Map.of(
+                            "type", "array",
+                            "maxItems", 12,
+                            "items", Map.of(
+                                    "type", "object",
+                                    "required", List.of("clause_name", "issue", "suggested_language", "rationale"),
+                                    "properties", Map.of(
+                                            "clause_name",         strProp(),
+                                            "issue",               strProp(),
+                                            "suggested_language",  strProp(),
+                                            "rationale",           strProp()
+                                    )
+                            )
+                    )
+            )
+    );
+
     // ── Contract Review Checklist ─────────────────────────────────────────────
     //
     // Exactly 12 clauses with fixed clause_id enum. The enum constraint means

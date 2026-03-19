@@ -13,4 +13,9 @@ import lombok.NoArgsConstructor;
 public class WorkflowStepConfig {
     private WorkflowStepType type;
     private String label;
+    /** Optional: skip this step unless condition is met */
+    private WorkflowCondition condition;
+    /** Number of extra retry attempts on failure (0 = no retries) */
+    @Builder.Default
+    private int retryCount = 0;
 }

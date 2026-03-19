@@ -18,6 +18,7 @@ public class WorkflowDefinitionDto {
     private String name;
     private String description;
     private boolean predefined;
+    private boolean team;
     private List<WorkflowStepConfig> steps;
     private String createdBy;
     private Instant createdAt;

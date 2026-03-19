@@ -25,6 +25,7 @@ public class WorkflowRunDto {
     private int totalSteps;
     private Map<String, Object> results;
     private String errorMessage;
+    private String matterRef;
     private Instant startedAt;
     private Instant completedAt;
 }

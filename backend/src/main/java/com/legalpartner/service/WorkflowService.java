@@ -19,10 +19,11 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -46,27 +47,39 @@ public class WorkflowService implements ApplicationRunner {
         seedIfAbsent("Due Diligence",
                 "Full contract analysis: extract terms, assess risk, and audit clauses",
                 List.of(
-                        new WorkflowStepConfig(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms"),
-                        new WorkflowStepConfig(WorkflowStepType.RISK_ASSESSMENT, "Risk Assessment"),
-                        new WorkflowStepConfig(WorkflowStepType.CLAUSE_CHECKLIST, "Clause Checklist")
+                        new WorkflowStepConfig(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms", null, 0),
+                        new WorkflowStepConfig(WorkflowStepType.RISK_ASSESSMENT, "Risk Assessment", null, 0),
+                        new WorkflowStepConfig(WorkflowStepType.CLAUSE_CHECKLIST, "Clause Checklist", null, 0),
+                        new WorkflowStepConfig(WorkflowStepType.GENERATE_SUMMARY, "Executive Summary", null, 0)
                 ));
 
         seedIfAbsent("Contract Review",
-                "Rapid review: audit standard clauses and identify risks",
+                "Rapid review: audit standard clauses, assess risk, and generate redlines",
                 List.of(
-                        new WorkflowStepConfig(WorkflowStepType.CLAUSE_CHECKLIST, "Clause Checklist"),
-                        new WorkflowStepConfig(WorkflowStepType.RISK_ASSESSMENT, "Risk Assessment")
+                        new WorkflowStepConfig(WorkflowStepType.CLAUSE_CHECKLIST, "Clause Checklist", null, 0),
+                        new WorkflowStepConfig(WorkflowStepType.RISK_ASSESSMENT, "Risk Assessment", null, 0),
+                        new WorkflowStepConfig(WorkflowStepType.REDLINE_SUGGESTIONS, "Redline Suggestions", null, 0)
                 ));
 
         seedIfAbsent("Key Terms Only",
                 "Extract structured key terms and data points from the document",
                 List.of(
-                        new WorkflowStepConfig(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms")
+                        new WorkflowStepConfig(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms", null, 0)
+                ));
+
+        seedIfAbsent("High-Risk Deep Dive",
+                "Full analysis with conditional redlines — redlines generated only when risk is HIGH",
+                List.of(
+                        new WorkflowStepConfig(WorkflowStepType.RISK_ASSESSMENT, "Risk Assessment", null, 0),
+                        new WorkflowStepConfig(WorkflowStepType.CLAUSE_CHECKLIST, "Clause Checklist", null, 0),
+                        new WorkflowStepConfig(WorkflowStepType.REDLINE_SUGGESTIONS, "Redline Suggestions",
+                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "eq", "HIGH"), 0),
+                        new WorkflowStepConfig(WorkflowStepType.GENERATE_SUMMARY, "Executive Summary", null, 0)
                 ));
     }
 
     private void seedIfAbsent(String name, String description, List<WorkflowStepConfig> steps) {
-        if (definitionRepo.existsByNameAndCreatedBy(name, null)) return;
+        if (definitionRepo.existsByNameAndCreatedByIsNull(name)) return;
         try {
             WorkflowDefinition def = WorkflowDefinition.builder()
                     .name(name)
@@ -81,8 +94,8 @@ public class WorkflowService implements ApplicationRunner {
         }
     }
 
-    public List<WorkflowDefinitionDto> listDefinitions() {
-        return definitionRepo.findAllByOrderByCreatedAtAsc()
+    public List<WorkflowDefinitionDto> listDefinitions(String username) {
+        return definitionRepo.findVisibleToUser(username)
                 .stream()
                 .map(this::toDto)
                 .toList();
@@ -115,6 +128,16 @@ public class WorkflowService implements ApplicationRunner {
         definitionRepo.delete(def);
     }
 
+    public WorkflowDefinitionDto promoteToTeam(UUID id, String username) {
+        WorkflowDefinition def = definitionRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found"));
+        if (def.isPredefined()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Predefined workflows are already shared");
+        }
+        def.setTeam(!def.isTeam());  // toggle
+        return toDto(definitionRepo.save(def));
+    }
+
     public List<WorkflowRunDto> listRuns(String username, int page) {
         return runRepo.findByUsernameOrderByStartedAtDesc(username, PageRequest.of(page, 20))
                 .stream()
@@ -131,19 +154,47 @@ public class WorkflowService implements ApplicationRunner {
         return toRunDto(run);
     }
 
-    public org.springframework.web.servlet.mvc.method.annotation.SseEmitter executeWorkflow(
-            UUID definitionId, UUID documentId, String username) {
+    public Map<String, Object> exportRun(UUID id, String username) {
+        WorkflowRun run = runRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Run not found"));
+        if (!run.getUsername().equals(username)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your run");
+        }
+        Map<String, Object> export = new LinkedHashMap<>();
+        export.put("runId", run.getId().toString());
+        export.put("workflowName", run.getDefinition().getName());
+        export.put("documentId", run.getDocumentId().toString());
+        export.put("status", run.getStatus().name());
+        export.put("matterRef", run.getMatterRef());
+        export.put("startedAt", run.getStartedAt().toString());
+        export.put("completedAt", run.getCompletedAt() != null ? run.getCompletedAt().toString() : null);
+        if (run.getResults() != null) {
+            try {
+                export.put("results", objectMapper.readValue(run.getResults(), new TypeReference<Map<String, Object>>() {}));
+            } catch (Exception ignored) {}
+        }
+        return export;
+    }
 
+    public WorkflowRunDto associateMatter(UUID id, String matterRef, String username) {
+        WorkflowRun run = runRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Run not found"));
+        if (!run.getUsername().equals(username)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your run");
+        }
+        run.setMatterRef(matterRef);
+        return toRunDto(runRepo.save(run));
+    }
+
+    public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username) {
         WorkflowDefinition def = definitionRepo.findById(definitionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found"));
-
         List<WorkflowStepConfig> steps;
         try {
             steps = objectMapper.readValue(def.getSteps(), new TypeReference<>() {});
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Invalid workflow definition");
         }
-
         WorkflowRun run = WorkflowRun.builder()
                 .definition(def)
                 .documentId(documentId)
@@ -151,38 +202,80 @@ public class WorkflowService implements ApplicationRunner {
                 .status(WorkflowStatus.PENDING)
                 .build();
         WorkflowRun saved = runRepo.save(run);
-
         return executor.execute(saved, steps, def.getName());
+    }
+
+    public WorkflowAnalyticsDto analytics(String username) {
+        long total     = runRepo.count();
+        long completed = runRepo.countByUsernameAndStatus(username, WorkflowStatus.COMPLETED);
+        long failed    = runRepo.countByUsernameAndStatus(username, WorkflowStatus.FAILED);
+        long running   = runRepo.countByUsernameAndStatus(username, WorkflowStatus.RUNNING);
+        long userTotal = runRepo.countByUsernameAndStatus(username, WorkflowStatus.COMPLETED)
+                       + runRepo.countByUsernameAndStatus(username, WorkflowStatus.FAILED)
+                       + runRepo.countByUsernameAndStatus(username, WorkflowStatus.RUNNING)
+                       + runRepo.countByUsernameAndStatus(username, WorkflowStatus.PENDING);
+
+        Double avgMs = runRepo.findAvgDurationMs(username);
+
+        List<WorkflowAnalyticsDto.WorkflowUsageStat> byWorkflow = runRepo.findWorkflowUsageStats(username)
+                .stream()
+                .map(row -> new WorkflowAnalyticsDto.WorkflowUsageStat(
+                        String.valueOf(row[0]),
+                        ((Number) row[1]).longValue(),
+                        ((Number) row[2]).longValue()
+                ))
+                .toList();
+
+        Instant since = Instant.now().minus(7, ChronoUnit.DAYS);
+        List<WorkflowAnalyticsDto.DailyRunStat> byDay = runRepo.findDailyRunsSince(username, since)
+                .stream()
+                .map(row -> new WorkflowAnalyticsDto.DailyRunStat(
+                        String.valueOf(row[0]),
+                        ((Number) row[1]).longValue()
+                ))
+                .toList();
+
+        double completionRate = userTotal == 0 ? 0.0 : Math.round((double) completed / userTotal * 1000.0) / 10.0;
+
+        return WorkflowAnalyticsDto.builder()
+                .totalRuns(userTotal)
+                .completedRuns(completed)
+                .failedRuns(failed)
+                .runningRuns(running)
+                .completionRate(completionRate)
+                .avgDurationMs(avgMs != null ? avgMs.longValue() : 0L)
+                .byWorkflow(byWorkflow)
+                .byDay(byDay)
+                .build();
     }
 
     private WorkflowDefinitionDto toDto(WorkflowDefinition def) {
         List<WorkflowStepConfig> steps = List.of();
-        try {
-            steps = objectMapper.readValue(def.getSteps(), new TypeReference<>() {});
-        } catch (Exception ignored) {}
+        try { steps = objectMapper.readValue(def.getSteps(), new TypeReference<>() {}); } catch (Exception ignored) {}
         return WorkflowDefinitionDto.builder()
                 .id(def.getId())
                 .name(def.getName())
                 .description(def.getDescription())
                 .predefined(def.isPredefined())
+                .team(def.isTeam())
                 .steps(steps)
                 .createdBy(def.getCreatedBy())
                 .createdAt(def.getCreatedAt())
                 .build();
     }
 
-    @SuppressWarnings("unchecked")
     private WorkflowRunDto toRunDto(WorkflowRun run) {
         Map<String, Object> results = Map.of();
         try {
-            if (run.getResults() != null) {
-                results = objectMapper.readValue(run.getResults(), new TypeReference<>() {});
-            }
+            if (run.getResults() != null) results = objectMapper.readValue(run.getResults(), new TypeReference<>() {});
         } catch (Exception ignored) {}
 
         List<WorkflowStepConfig> steps = List.of();
+        try { steps = objectMapper.readValue(run.getDefinition().getSteps(), new TypeReference<>() {}); } catch (Exception ignored) {}
+
+        List<Integer> skipped = List.of();
         try {
-            steps = objectMapper.readValue(run.getDefinition().getSteps(), new TypeReference<>() {});
+            if (run.getSkippedSteps() != null) skipped = objectMapper.readValue(run.getSkippedSteps(), new TypeReference<>() {});
         } catch (Exception ignored) {}
 
         return WorkflowRunDto.builder()

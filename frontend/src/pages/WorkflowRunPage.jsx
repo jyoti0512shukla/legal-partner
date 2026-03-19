@@ -2,13 +2,17 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, Loader2, Clock, ChevronDown, ChevronUp,
-  ArrowLeft, ShieldAlert, Key, ClipboardList, Workflow
+  ArrowLeft, ShieldAlert, Key, ClipboardList, Workflow, FileText,
+  Sparkles, Download, Briefcase, SkipForward
 } from 'lucide-react';
+import api from '../api/client';
 
 const STEP_ICONS = {
   EXTRACT_KEY_TERMS: Key,
   RISK_ASSESSMENT: ShieldAlert,
   CLAUSE_CHECKLIST: ClipboardList,
+  GENERATE_SUMMARY: FileText,
+  REDLINE_SUGGESTIONS: Sparkles,
 };
 
 const RISK_COLOR = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
@@ -17,21 +21,20 @@ function StepCard({ step, status, result }) {
   const [open, setOpen] = useState(false);
   const Icon = STEP_ICONS[step.type] || Workflow;
 
-  const statusIcon = status === 'done'
-    ? <CheckCircle2 className="w-5 h-5 text-success" />
-    : status === 'running'
-    ? <Loader2 className="w-5 h-5 text-warning animate-spin" />
-    : status === 'error'
-    ? <XCircle className="w-5 h-5 text-danger" />
+  const borderColor = status === 'done' ? 'border-success'
+    : status === 'running' ? 'border-warning'
+    : status === 'error' ? 'border-danger'
+    : status === 'skipped' ? 'border-border'
+    : 'border-border';
+
+  const statusIcon = status === 'done' ? <CheckCircle2 className="w-5 h-5 text-success" />
+    : status === 'running' ? <Loader2 className="w-5 h-5 text-warning animate-spin" />
+    : status === 'error' ? <XCircle className="w-5 h-5 text-danger" />
+    : status === 'skipped' ? <SkipForward className="w-5 h-5 text-text-muted" />
     : <Clock className="w-5 h-5 text-text-muted" />;
 
   return (
-    <div className={`card border-l-4 ${
-      status === 'done' ? 'border-success' :
-      status === 'running' ? 'border-warning' :
-      status === 'error' ? 'border-danger' :
-      'border-border'
-    } !p-0 overflow-hidden`}>
+    <div className={`card border-l-4 ${borderColor} !p-0 overflow-hidden ${status === 'skipped' ? 'opacity-50' : ''}`}>
       <button
         onClick={() => result && setOpen(o => !o)}
         className="flex items-center gap-3 w-full px-4 py-3 text-left"
@@ -42,7 +45,10 @@ function StepCard({ step, status, result }) {
         </div>
         <div className="flex-1">
           <p className="text-sm font-medium text-text-primary">{step.label}</p>
-          <p className="text-xs text-text-muted">{step.type.replace(/_/g, ' ')}</p>
+          <p className="text-xs text-text-muted">
+            {step.type.replace(/_/g, ' ')}
+            {status === 'skipped' && ' — skipped (condition not met)'}
+          </p>
         </div>
         {statusIcon}
         {result && (open ? <ChevronUp className="w-4 h-4 text-text-muted ml-1 shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted ml-1 shrink-0" />)}
@@ -63,7 +69,8 @@ function ResultPreview({ type, result }) {
       ['Party A', result.partyA], ['Party B', result.partyB],
       ['Effective Date', result.effectiveDate], ['Expiry Date', result.expiryDate],
       ['Contract Value', result.contractValue], ['Liability Cap', result.liabilityCap],
-      ['Governing Law', result.governingLaw], ['Notice Period', result.noticePeriodDays ? `${result.noticePeriodDays} days` : null],
+      ['Governing Law', result.governingLaw],
+      ['Notice Period', result.noticePeriodDays ? `${result.noticePeriodDays} days` : null],
       ['Arbitration Venue', result.arbitrationVenue],
     ].filter(([, v]) => v);
     return (
@@ -86,7 +93,7 @@ function ResultPreview({ type, result }) {
           <span className={`badge-${RISK_COLOR[result.overallRisk] || 'medium'} font-bold`}>{result.overallRisk}</span>
         </div>
         <div className="space-y-1.5">
-          {result.categories?.slice(0, 4).map((cat, i) => (
+          {result.categories?.slice(0, 5).map((cat, i) => (
             <div key={i} className="flex items-start gap-2">
               <span className={`badge-${RISK_COLOR[cat.rating] || 'medium'} text-xs shrink-0 mt-0.5`}>{cat.rating}</span>
               <div>
@@ -95,8 +102,8 @@ function ResultPreview({ type, result }) {
               </div>
             </div>
           ))}
-          {result.categories?.length > 4 && (
-            <p className="text-xs text-text-muted">+{result.categories.length - 4} more categories</p>
+          {result.categories?.length > 5 && (
+            <p className="text-xs text-text-muted">+{result.categories.length - 5} more</p>
           )}
         </div>
       </div>
@@ -109,7 +116,7 @@ function ResultPreview({ type, result }) {
     const missing = result.clauses?.filter(c => c.status === 'MISSING').length || 0;
     return (
       <div>
-        <div className="flex gap-4 mb-3">
+        <div className="flex gap-4 mb-2">
           <span className="text-success text-sm font-medium">{present} Present</span>
           <span className="text-warning text-sm font-medium">{weak} Weak</span>
           <span className="text-danger text-sm font-medium">{missing} Missing</span>
@@ -125,7 +132,62 @@ function ResultPreview({ type, result }) {
     );
   }
 
-  return <pre className="text-xs text-text-muted overflow-auto">{JSON.stringify(result, null, 2)}</pre>;
+  if (type === 'GENERATE_SUMMARY') {
+    return (
+      <div className="space-y-3">
+        {result.executiveSummary && (
+          <p className="text-sm text-text-secondary">{result.executiveSummary}</p>
+        )}
+        {result.topConcerns?.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-text-muted mb-1">Top Concerns</p>
+            <ul className="space-y-0.5">
+              {result.topConcerns.map((c, i) => (
+                <li key={i} className="text-xs text-text-secondary flex gap-1.5">
+                  <span className="text-warning shrink-0">•</span>{c}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {result.redFlags?.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-danger mb-1">Red Flags</p>
+            <ul className="space-y-0.5">
+              {result.redFlags.map((f, i) => (
+                <li key={i} className="text-xs text-danger flex gap-1.5">
+                  <span className="shrink-0">⚠</span>{f}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (type === 'REDLINE_SUGGESTIONS') {
+    return (
+      <div className="space-y-3">
+        {result.suggestions?.length === 0 && (
+          <p className="text-xs text-text-muted">No weak or missing clauses to redline.</p>
+        )}
+        {result.suggestions?.map((s, i) => (
+          <div key={i} className="border border-border rounded-lg p-3">
+            <p className="text-xs font-semibold text-text-primary mb-1">{s.clauseName}</p>
+            <p className="text-xs text-danger mb-2">Issue: {s.issue}</p>
+            <div className="bg-success/5 border border-success/20 rounded p-2 mb-2">
+              <p className="text-xs text-text-muted mb-0.5 font-medium">Suggested Language:</p>
+              <p className="text-xs text-text-primary leading-relaxed">{s.suggestedLanguage}</p>
+            </div>
+            <p className="text-xs text-text-muted">{s.rationale}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <pre className="text-xs text-text-muted overflow-auto max-h-40">{JSON.stringify(result, null, 2)}</pre>;
 }
 
 export default function WorkflowRunPage() {
@@ -133,56 +195,55 @@ export default function WorkflowRunPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [workflowName, setWorkflowName] = useState('Running Workflow');
+  const [workflowName, setWorkflowName] = useState('Workflow');
+  const [runId, setRunId] = useState(id || null);
   const [steps, setSteps] = useState([]);
-  const [stepStatuses, setStepStatuses] = useState({});   // index -> 'pending'|'running'|'done'|'error'
-  const [stepResults, setStepResults] = useState({});     // stepType -> result
-  const [overallStatus, setOverallStatus] = useState('running'); // 'running'|'done'|'error'
+  const [stepStatuses, setStepStatuses] = useState({});
+  const [stepResults, setStepResults] = useState({});
+  const [overallStatus, setOverallStatus] = useState('running');
   const [error, setError] = useState('');
   const [logs, setLogs] = useState([]);
-  const esRef = useRef(null);
+  const [matterRef, setMatterRef] = useState('');
+  const [associating, setAssociating] = useState(false);
 
   const definitionId = searchParams.get('definitionId');
   const documentId = searchParams.get('documentId');
-  const runId = id; // if viewing an existing run
 
   const addLog = (msg) => setLogs(l => [...l, { ts: new Date().toLocaleTimeString(), msg }]);
 
   useEffect(() => {
-    if (runId) {
-      // Viewing existing run — fetch from API
-      fetch(`/api/v1/workflows/runs/${runId}`, { credentials: 'include' })
-        .then(r => r.json())
-        .then(run => {
-          setWorkflowName(run.workflowName);
-          setOverallStatus(
-            run.status === 'COMPLETED' ? 'done' :
-            run.status === 'FAILED' ? 'error' :
-            'running'
-          );
-          if (run.results) {
-            setStepResults(run.results);
-          }
-        });
+    if (id) {
+      // View existing run
+      api.get(`/workflows/runs/${id}`).then(r => {
+        const run = r.data;
+        setWorkflowName(run.workflowName);
+        setRunId(run.id);
+        setMatterRef(run.matterRef || '');
+        setOverallStatus(
+          run.status === 'COMPLETED' ? 'done' :
+          run.status === 'FAILED' ? 'error' : 'running'
+        );
+        if (run.results) setStepResults(run.results);
+      });
       return;
     }
 
     if (!definitionId || !documentId) return;
 
-    // Start SSE stream
-    const url = `/api/v1/workflows/runs?definitionId=${definitionId}&documentId=${documentId}`;
     const controller = new AbortController();
 
-    fetch(url, {
+    fetch(`/api/v1/workflows/runs?definitionId=${definitionId}&documentId=${documentId}`, {
       method: 'POST',
       credentials: 'include',
       headers: { Accept: 'text/event-stream' },
       signal: controller.signal,
     }).then(response => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) { setError(`HTTP ${response.status}`); setOverallStatus('error'); return; }
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let event = null;
 
       function read() {
         reader.read().then(({ done, value }) => {
@@ -191,70 +252,88 @@ export default function WorkflowRunPage() {
           const lines = buffer.split('\n');
           buffer = lines.pop();
 
-          let event = null;
           for (const line of lines) {
             if (line.startsWith('event:')) {
               event = line.slice(6).trim();
-            } else if (line.startsWith('data:')) {
-              const data = JSON.parse(line.slice(5).trim());
-              handleEvent(event, data);
+            } else if (line.startsWith('data:') && event) {
+              try {
+                const data = JSON.parse(line.slice(5).trim());
+                handleEvent(event, data);
+              } catch { /* ignore malformed */ }
+              event = null;
             }
           }
           read();
         }).catch(e => {
-          if (e.name !== 'AbortError') {
-            setError('Stream disconnected');
-            setOverallStatus('error');
-          }
+          if (e.name !== 'AbortError') { setError('Stream disconnected'); setOverallStatus('error'); }
         });
       }
       read();
     }).catch(e => {
-      if (e.name !== 'AbortError') {
-        setError(e.message);
-        setOverallStatus('error');
-      }
+      if (e.name !== 'AbortError') { setError(e.message); setOverallStatus('error'); }
     });
 
     return () => controller.abort();
-  }, [definitionId, documentId, runId]);
+  }, [definitionId, documentId, id]);
 
   function handleEvent(event, data) {
     if (event === 'workflow_start') {
       setWorkflowName(data.workflowName);
+      setRunId(data.runId);
       addLog(`Started: ${data.workflowName} (${data.totalSteps} steps)`);
     } else if (event === 'step_start') {
-      setSteps(prev => {
-        const next = [...prev];
-        next[data.stepIndex] = { type: data.stepType, label: data.label };
-        return next;
-      });
+      setSteps(prev => { const next = [...prev]; next[data.stepIndex] = { type: data.stepType, label: data.label }; return next; });
       setStepStatuses(prev => ({ ...prev, [data.stepIndex]: 'running' }));
       addLog(`Step ${data.stepIndex + 1}: ${data.label} — started`);
     } else if (event === 'step_complete') {
-      setSteps(prev => {
-        const next = [...prev];
-        next[data.stepIndex] = { type: data.stepType, label: data.label };
-        return next;
-      });
+      setSteps(prev => { const next = [...prev]; next[data.stepIndex] = { type: data.stepType, label: data.label }; return next; });
       setStepStatuses(prev => ({ ...prev, [data.stepIndex]: 'done' }));
       setStepResults(prev => ({ ...prev, [data.stepType]: data.result }));
       addLog(`Step ${data.stepIndex + 1}: ${data.label} — done`);
+    } else if (event === 'step_skipped') {
+      setSteps(prev => { const next = [...prev]; next[data.stepIndex] = { type: data.stepType, label: data.label }; return next; });
+      setStepStatuses(prev => ({ ...prev, [data.stepIndex]: 'skipped' }));
+      addLog(`Step ${data.stepIndex + 1}: ${data.label} — skipped (${data.reason})`);
     } else if (event === 'step_error') {
       setStepStatuses(prev => ({ ...prev, [data.stepIndex]: 'error' }));
       addLog(`Step ${data.stepIndex + 1} failed: ${data.error}`);
     } else if (event === 'workflow_complete') {
       setOverallStatus('done');
-      addLog('Workflow completed successfully');
+      addLog('Workflow completed');
     } else if (event === 'workflow_error') {
       setOverallStatus('error');
       setError(data.error);
-      addLog(`Workflow failed: ${data.error}`);
+      addLog(`Failed: ${data.error}`);
     }
   }
 
-  const progressPct = steps.length === 0 ? 0
-    : Math.round(Object.values(stepStatuses).filter(s => s === 'done').length / steps.length * 100);
+  const handleExport = () => {
+    if (!runId) return;
+    api.get(`/workflows/runs/${runId}/export`)
+      .then(r => {
+        const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `workflow-run-${runId}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => {});
+  };
+
+  const handleAssociateMatter = async () => {
+    if (!runId || !matterRef.trim()) return;
+    setAssociating(true);
+    try {
+      await api.patch(`/workflows/runs/${runId}/matter?matterRef=${encodeURIComponent(matterRef)}`);
+    } finally {
+      setAssociating(false);
+    }
+  };
+
+  const doneCount = Object.values(stepStatuses).filter(s => s === 'done').length;
+  const progressPct = steps.length === 0 ? 0 : Math.round(doneCount / steps.length * 100);
 
   return (
     <div>
@@ -262,7 +341,7 @@ export default function WorkflowRunPage() {
         <ArrowLeft className="w-4 h-4" /> Back to Workflows
       </button>
 
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">{workflowName}</h1>
           <p className="text-text-muted text-sm mt-0.5">
@@ -271,7 +350,12 @@ export default function WorkflowRunPage() {
             {overallStatus === 'error' && 'Failed'}
           </p>
         </div>
-        <div>
+        <div className="flex items-center gap-2">
+          {overallStatus === 'done' && runId && (
+            <button onClick={handleExport} className="btn-secondary flex items-center gap-1.5 text-xs">
+              <Download className="w-3.5 h-3.5" /> Export JSON
+            </button>
+          )}
           {overallStatus === 'running' && <Loader2 className="w-6 h-6 text-warning animate-spin" />}
           {overallStatus === 'done' && <CheckCircle2 className="w-6 h-6 text-success" />}
           {overallStatus === 'error' && <XCircle className="w-6 h-6 text-danger" />}
@@ -283,7 +367,7 @@ export default function WorkflowRunPage() {
         <div className="card mb-6">
           <div className="flex items-center justify-between text-xs text-text-muted mb-2">
             <span>Progress</span>
-            <span>{Object.values(stepStatuses).filter(s => s === 'done').length} / {steps.length} steps</span>
+            <span>{doneCount} / {steps.length} steps</span>
           </div>
           <div className="h-2 bg-surface-el rounded-full overflow-hidden">
             <div
@@ -300,12 +384,12 @@ export default function WorkflowRunPage() {
         </div>
       )}
 
-      {/* Step cards */}
+      {/* Steps */}
       <div className="space-y-3 mb-6">
         {steps.length === 0 && overallStatus === 'running' && (
           <div className="card text-center py-8">
             <Loader2 className="w-8 h-8 text-primary animate-spin mx-auto mb-2" />
-            <p className="text-text-muted text-sm">Initializing workflow…</p>
+            <p className="text-text-muted text-sm">Initializing…</p>
           </div>
         )}
         {steps.map((step, i) => (
@@ -317,6 +401,31 @@ export default function WorkflowRunPage() {
           />
         ))}
       </div>
+
+      {/* Matter association */}
+      {(overallStatus === 'done' || id) && (
+        <div className="card mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Briefcase className="w-4 h-4 text-text-muted" />
+            <h3 className="text-sm font-semibold">Link to Matter</h3>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={matterRef}
+              onChange={e => setMatterRef(e.target.value)}
+              placeholder="e.g. 2024-CORP-001"
+              className="input-field flex-1 text-sm"
+            />
+            <button
+              onClick={handleAssociateMatter}
+              disabled={associating || !matterRef.trim()}
+              className="btn-secondary text-sm whitespace-nowrap"
+            >
+              {associating ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Activity log */}
       {logs.length > 0 && (

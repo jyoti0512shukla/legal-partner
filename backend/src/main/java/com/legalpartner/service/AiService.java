@@ -923,4 +923,110 @@ public class AiService {
         double denom = Math.sqrt(normA) * Math.sqrt(normB);
         return denom < 1e-10 ? 0.0 : dot / denom;
     }
+
+    // ── Workflow step: Executive Summary ──────────────────────────────────────
+
+    public ExecutiveSummaryResult generateWorkflowSummary(UUID documentId, Map<String, Object> priorResults, String username) {
+        documentRepository.findById(documentId)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+
+        String priorJson;
+        try {
+            priorJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(priorResults);
+        } catch (Exception e) {
+            priorJson = priorResults.toString();
+        }
+        // Limit to avoid exceeding context window
+        if (priorJson.length() > 6000) priorJson = priorJson.substring(0, 6000) + "\n[...truncated]";
+
+        String userPrompt = String.format(PromptTemplates.SUMMARY_USER_GUIDED, priorJson);
+        com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
+                PromptTemplates.SUMMARY_SYSTEM_GUIDED, userPrompt, StructuredSchemas.SUMMARY_SCHEMA, 800);
+
+        return parseSummaryJson(json);
+    }
+
+    private ExecutiveSummaryResult parseSummaryJson(com.fasterxml.jackson.databind.JsonNode root) {
+        if (root == null || root.isMissingNode()) {
+            return ExecutiveSummaryResult.builder()
+                    .executiveSummary("Summary could not be generated.")
+                    .overallRisk("MEDIUM")
+                    .topConcerns(List.of())
+                    .recommendations(List.of())
+                    .redFlags(List.of())
+                    .build();
+        }
+        List<String> topConcerns = new ArrayList<>();
+        List<String> recommendations = new ArrayList<>();
+        List<String> redFlags = new ArrayList<>();
+        root.path("top_concerns").forEach(n -> topConcerns.add(n.asText()));
+        root.path("recommendations").forEach(n -> recommendations.add(n.asText()));
+        root.path("red_flags").forEach(n -> redFlags.add(n.asText()));
+        return ExecutiveSummaryResult.builder()
+                .executiveSummary(root.path("executive_summary").asText(""))
+                .overallRisk(root.path("overall_risk").asText("MEDIUM"))
+                .topConcerns(topConcerns)
+                .recommendations(recommendations)
+                .redFlags(redFlags)
+                .build();
+    }
+
+    // ── Workflow step: Redline Suggestions ────────────────────────────────────
+
+    public RedlineSuggestionsResult generateRedlines(UUID documentId, Map<String, Object> priorResults, String username) {
+        documentRepository.findById(documentId)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+
+        // Build clause issues list from prior checklist results (if available)
+        String clauseIssues = buildClauseIssuesList(priorResults);
+        if (clauseIssues.isBlank()) {
+            return RedlineSuggestionsResult.builder().suggestions(List.of()).build();
+        }
+
+        String userPrompt = String.format(PromptTemplates.REDLINE_USER_GUIDED, clauseIssues);
+        com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
+                PromptTemplates.REDLINE_SYSTEM_GUIDED, userPrompt, StructuredSchemas.REDLINE_SCHEMA, 1200);
+
+        return parseRedlineJson(json);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String buildClauseIssuesList(Map<String, Object> priorResults) {
+        // Try to get clause checklist results
+        Object checklistRaw = priorResults.get("CLAUSE_CHECKLIST");
+        if (checklistRaw == null) return "";
+        try {
+            String json = objectMapper.writeValueAsString(checklistRaw);
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
+            StringBuilder sb = new StringBuilder();
+            node.path("clauses").forEach(clause -> {
+                String status = clause.path("status").asText("");
+                if ("WEAK".equals(status) || "MISSING".equals(status)) {
+                    sb.append("- ").append(clause.path("clauseName").asText(clause.path("clause_id").asText("Unknown")))
+                      .append(" [").append(status).append("]: ")
+                      .append(clause.path("assessment").asText(clause.path("finding").asText("")))
+                      .append("\n");
+                }
+            });
+            return sb.toString();
+        } catch (Exception e) {
+            log.warn("Failed to extract clause issues for redlines: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    private RedlineSuggestionsResult parseRedlineJson(com.fasterxml.jackson.databind.JsonNode root) {
+        List<RedlineSuggestionsResult.RedlineSuggestion> suggestions = new ArrayList<>();
+        if (root != null && root.has("suggestions")) {
+            root.path("suggestions").forEach(s -> suggestions.add(
+                    RedlineSuggestionsResult.RedlineSuggestion.builder()
+                            .clauseName(s.path("clause_name").asText(""))
+                            .issue(s.path("issue").asText(""))
+                            .suggestedLanguage(s.path("suggested_language").asText(""))
+                            .rationale(s.path("rationale").asText(""))
+                            .build()
+            ));
+        }
+        return RedlineSuggestionsResult.builder().suggestions(suggestions).build();
+    }
 }

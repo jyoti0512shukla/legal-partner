@@ -28,6 +28,10 @@ public class WorkflowDefinition {
     @Builder.Default
     private boolean predefined = false;
 
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean team = false;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb", nullable = false)
     private String steps;   // JSON array of step configs
