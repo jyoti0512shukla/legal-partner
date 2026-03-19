@@ -53,7 +53,8 @@ public class ContractReviewService {
         List<ClauseCheckResult> clauses = parseChecklistResponse(cleaned);
 
         if (clauses.isEmpty()) {
-            log.warn("Checklist review returned no structured clauses for doc {}", doc.getFileName());
+            log.warn("[prompt={}] Checklist review returned no structured clauses for doc {}",
+                    PromptTemplates.PROMPT_VERSION, doc.getFileName());
             return new ContractReviewResult(doc.getFileName(), "UNKNOWN", 0, 0, 0,
                     List.of(), List.of(), List.of("Model returned unstructured response. Try again."));
         }

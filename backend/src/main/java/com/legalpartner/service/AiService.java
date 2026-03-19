@@ -288,7 +288,8 @@ public class AiService {
         ).content();
 
         String rawText = stripResponsePrefix(response.text());
-        log.info("Risk assessment raw response length={}, preview={}",
+        log.info("[prompt={}] Risk assessment raw response length={}, preview={}",
+                PromptTemplates.PROMPT_VERSION,
                 rawText.length(), rawText.substring(0, Math.min(300, rawText.length())).replace('\n', ' '));
 
         return parseRiskLines(rawText);
