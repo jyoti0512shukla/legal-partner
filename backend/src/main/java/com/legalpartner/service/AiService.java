@@ -217,7 +217,8 @@ public class AiService {
         String prompt = String.format(PromptTemplates.COMPARE_USER,
                 doc1.getFileName(), context1, doc2.getFileName(), context2);
 
-        AiMessage response = jsonChatModel.generate(
+        // Use plain chatModel — compare prompt expects pipe-delimited text, not JSON
+        AiMessage response = chatModel.generate(
                 UserMessage.from(PromptTemplates.COMPARE_SYSTEM + "\n\n" + prompt)
         ).content();
 
