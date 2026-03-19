@@ -86,7 +86,7 @@ public class DocumentService {
             byte[] fileBytes, String fileName, String contentType,
             String jurisdiction, Integer year, boolean confidential,
             String documentType, String practiceArea, String clientName, String matterId,
-            String username
+            String industry, String username
     ) {
         DocumentMetadata doc = DocumentMetadata.builder()
                 .fileName(fileName)
@@ -98,6 +98,7 @@ public class DocumentService {
                 .practiceArea(practiceArea != null ? PracticeArea.valueOf(practiceArea) : PracticeArea.OTHER)
                 .clientName(clientName)
                 .matterId(matterId)
+                .industry(industry != null && !industry.isBlank() ? industry.toUpperCase() : null)
                 .uploadedBy(username)
                 .fileSizeBytes((long) fileBytes.length)
                 .processingStatus(ProcessingStatus.PENDING)

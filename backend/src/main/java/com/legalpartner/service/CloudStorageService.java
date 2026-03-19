@@ -107,7 +107,7 @@ public class CloudStorageService {
                 bytes, fileName, contentType,
                 jurisdiction, year, confidential,
                 documentType, practiceArea, clientName, matterId,
-                username
+                null, username
         );
     }
 

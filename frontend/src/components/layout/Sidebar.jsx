@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { LayoutDashboard, Brain, FileText, FileEdit, GitCompare, ClipboardList, ScrollText, LogOut, Scale, Settings, Briefcase, Key, Workflow, BookOpen } from 'lucide-react';
+import { LayoutDashboard, Brain, FileText, FileEdit, GitCompare, ClipboardList, ScrollText, LogOut, Scale, Settings, Briefcase, Key, Workflow, BookOpen, DatabaseZap } from 'lucide-react';
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -62,6 +62,21 @@ export default function Sidebar() {
             {label}
           </NavLink>
         ))}
+        {isPartnerOrAdmin && (
+          <NavLink
+            to="/edgar-import"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-primary/10 text-primary border-l-[3px] border-primary -ml-[3px]'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-el'
+              }`
+            }
+          >
+            <DatabaseZap className="w-5 h-5" />
+            Seed Corpus
+          </NavLink>
+        )}
         {isPartnerOrAdmin && (
           <NavLink
             to="/audit"
