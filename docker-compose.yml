@@ -71,6 +71,9 @@ services:
       LEGALPARTNER_CHAT_API_MODEL: ${LEGALPARTNER_CHAT_API_MODEL:-mistralai/Mistral-7B-Instruct-v0.2}
       JASYPT_ENCRYPTOR_PASSWORD: ${ENCRYPTION_KEY:-demo-encryption-key-change-in-prod}
       LEGALPARTNER_CLOUD_FRONTEND_URL: ${LEGALPARTNER_CLOUD_FRONTEND_URL:-http://*:3000}
+      # Drop and rebuild DB automatically when a migration script is edited during development
+      FLYWAY_CLEAN_ON_VALIDATION_ERROR: "true"
+      FLYWAY_CLEAN_DISABLED: "false"
     depends_on:
       postgres:
         condition: service_healthy
