@@ -119,44 +119,40 @@ public class VllmGuidedClient {
     }
 
     /**
-     * Generate plain text with an optional assistant prefix to prime the response.
-     * Adding assistantPrefix forces the model to continue from that starting text
-     * rather than deciding how to begin — the most reliable approach for fill-in-the-blank tasks.
+     * Generate plain text using the /v1/completions (raw text) endpoint.
      *
-     * @param assistantPrefix  partial text that the model will continue (e.g. "OVERALL:")
-     *                         pass null to let the model start from scratch
+     * The Mistral chat template is applied manually:
+     *   <s>[INST] {system}\n\n{user} [/INST] {responsePrefix}
+     *
+     * The model then continues from responsePrefix in pure text-completion mode —
+     * no chat-API confusion, no training-data leakage from partial assistant messages.
+     *
+     * @param responsePrefix  text the model will continue from (e.g. "OVERALL:")
      */
     public String generateText(String systemPrompt, String userPrompt,
-                                String assistantPrefix, int maxTokens) {
+                                String responsePrefix, int maxTokens) {
         if (baseUrl.isBlank()) {
             throw new IllegalStateException("legalpartner.chat-api-url not configured");
         }
+        // Mistral instruct template: <s>[INST] {instruction} [/INST]
+        // Prepend system content inside the [INST] block (Mistral has no separate <<SYS>> tag).
+        String prompt = "<s>[INST] " + systemPrompt.trim() + "\n\n" + userPrompt.trim()
+                + " [/INST] " + (responsePrefix != null ? responsePrefix : "");
+
         try {
-            String content = callVllmWithPrefix(systemPrompt, userPrompt, assistantPrefix, maxTokens);
-            // The API returns only the continuation — prepend the prefix so callers
-            // see the full response (e.g. "OVERALL:\nHIGH\nLIABILITY:\nHIGH\n...")
-            return (assistantPrefix != null ? assistantPrefix : "") + content;
+            return responsePrefix + callCompletions(prompt, maxTokens);
         } catch (LlmUnavailableException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("generateText failed: {}", e.getMessage());
+            log.warn("generateText (completions) failed: {}", e.getMessage());
             return "";
         }
     }
 
-    // ── Internal helpers ──────────────────────────────────────────────────────
-
-    private String callVllmWithPrefix(String system, String user,
-                                       String assistantPrefix, int maxTokens) throws Exception {
+    private String callCompletions(String prompt, int maxTokens) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", modelName);
-        List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", system));
-        messages.add(Map.of("role", "user", "content", user));
-        if (assistantPrefix != null && !assistantPrefix.isBlank()) {
-            messages.add(Map.of("role", "assistant", "content", assistantPrefix));
-        }
-        body.put("messages", messages);
+        body.put("prompt", prompt);
         body.put("max_tokens", maxTokens);
         body.put("temperature", 0.0);
 
@@ -167,7 +163,7 @@ public class VllmGuidedClient {
         ResponseEntity<String> response;
         try {
             response = restTemplate.exchange(
-                    baseUrl + "/chat/completions",
+                    baseUrl + "/completions",
                     HttpMethod.POST,
                     new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
                     String.class
@@ -186,8 +182,10 @@ public class VllmGuidedClient {
         }
 
         JsonNode root = objectMapper.readTree(response.getBody());
-        return root.path("choices").path(0).path("message").path("content").asText();
+        return root.path("choices").path(0).path("text").asText();  // completions uses "text" not "message.content"
     }
+
+    // ── Internal helpers ──────────────────────────────────────────────────────
 
     private String callVllm(String system, String user,
                              Map<String, Object> guidedJson,
