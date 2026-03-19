@@ -125,7 +125,14 @@ public class EdgarImportService {
             String accession = id.substring(0, colon);
             String fileName  = id.substring(colon + 1);
 
-            String docUrl = buildDocumentUrl(accession, fileName);
+            // ciks[0] is the filer's CIK — files live under this CIK in EDGAR's S3.
+            // The accession number prefix is the SUBMITTER's CIK (filing agent), which is different.
+            String cikStr = src.path("ciks").path(0).asText("");
+            if (cikStr.isBlank()) continue;
+            long filerCik = Long.parseLong(cikStr.replaceAll("^0+", "").isEmpty() ? "0" : cikStr.replaceAll("^0+", ""));
+            if (filerCik == 0) continue;
+
+            String docUrl = buildDocumentUrl(filerCik, accession, fileName);
             if (docUrl == null) continue;
 
             results.add(new EdgarSearchResult(id, entityName, fileDate, fileType, docUrl, fileName));
@@ -217,34 +224,13 @@ public class EdgarImportService {
     }
 
     /**
-     * Constructs the direct EDGAR document URL.
-     * Accession format: "0001234567-23-000001"
-     * CIK = first segment parsed as long (strips leading zeros)
-     * URL: https://www.sec.gov/Archives/edgar/data/{cik}/{accessionNoDashes}/{fileName}
+     * Constructs the direct EDGAR document URL using the filer's CIK.
+     * EDGAR stores files under the filer's CIK, NOT the accession number prefix
+     * (which is the filing agent/submitter CIK and differs for agent-filed docs).
+     * URL: https://www.sec.gov/Archives/edgar/data/{filerCik}/{accessionNoDashes}/{fileName}
      */
-    private static String buildDocumentUrl(String accession, String fileName) {
-        try {
-            String[] parts = accession.split("-");
-            if (parts.length != 3) return null;
-            long cik = Long.parseLong(parts[0]);
-            String accessionNoDashes = accession.replace("-", "");
-            return EDGAR_BASE + "/Archives/edgar/data/" + cik + "/" + accessionNoDashes + "/" + fileName;
-        } catch (NumberFormatException e) {
-            log.warn("Cannot parse CIK from accession: {}", accession);
-            return null;
-        }
-    }
-
-    /** Builds the filing index page URL when we only have the accession number. */
-    private static String buildFilingIndexUrl(String accession) {
-        try {
-            String[] parts = accession.split("-");
-            if (parts.length != 3) return null;
-            long cik = Long.parseLong(parts[0]);
-            String accessionNoDashes = accession.replace("-", "");
-            return EDGAR_BASE + "/Archives/edgar/data/" + cik + "/" + accessionNoDashes + "/";
-        } catch (NumberFormatException e) {
-            return null;
-        }
+    private static String buildDocumentUrl(long filerCik, String accession, String fileName) {
+        String accessionNoDashes = accession.replace("-", "");
+        return EDGAR_BASE + "/Archives/edgar/data/" + filerCik + "/" + accessionNoDashes + "/" + fileName;
     }
 }
