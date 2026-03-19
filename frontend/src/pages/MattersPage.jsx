@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, Plus, X, FileText, ChevronRight, Brain } from 'lucide-react';
+import { Briefcase, Plus, X, FileText, ChevronRight, Brain, Workflow, CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 
@@ -72,6 +72,49 @@ function CreateMatterModal({ onClose, onCreated }) {
         </form>
       </div>
     </div>
+  );
+}
+
+const RUN_ICON = { COMPLETED: CheckCircle2, FAILED: XCircle, RUNNING: Loader2, PENDING: Clock, CANCELLED: Clock };
+const RUN_COLOR = { COMPLETED: 'text-success', FAILED: 'text-danger', RUNNING: 'text-warning', PENDING: 'text-text-muted', CANCELLED: 'text-text-muted' };
+
+function MatterWorkflowRuns({ matterRef }) {
+  const [runs, setRuns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get(`/workflows/runs?matterRef=${encodeURIComponent(matterRef)}`)
+      .then(r => setRuns(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [matterRef]);
+
+  if (loading) return <p className="text-xs text-text-muted py-2">Loading workflow runs...</p>;
+  if (runs.length === 0) return <p className="text-xs text-text-muted py-2">No workflow runs linked to this matter yet.</p>;
+
+  return (
+    <ul className="divide-y divide-border/50 mt-2">
+      {runs.map(run => {
+        const Icon = RUN_ICON[run.status] || Clock;
+        return (
+          <li key={run.id} className="flex items-center gap-2 py-2">
+            <Workflow className="w-3.5 h-3.5 text-text-muted shrink-0" />
+            <span className="text-sm text-text-secondary flex-1 truncate">{run.workflowName}</span>
+            <span className={`flex items-center gap-1 text-xs font-medium ${RUN_COLOR[run.status] || ''}`}>
+              <Icon className={`w-3.5 h-3.5 ${run.status === 'RUNNING' ? 'animate-spin' : ''}`} />
+              {run.status}
+            </span>
+            <button
+              onClick={() => navigate(`/workflows/run/${run.id}`)}
+              className="text-xs text-primary hover:underline flex items-center gap-0.5 shrink-0"
+            >
+              View <ChevronRight className="w-3 h-3" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -190,8 +233,16 @@ export default function MattersPage() {
               {expanded === m.id && (
                 <div className="mt-4 pt-4 border-t border-border">
                   {m.description && <p className="text-sm text-text-secondary mb-3">{m.description}</p>}
-                  <p className="text-xs font-medium text-text-muted mb-1">Documents</p>
-                  <MatterDocuments matterId={m.id} />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <p className="text-xs font-medium text-text-muted mb-1">Documents</p>
+                      <MatterDocuments matterId={m.id} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-text-muted mb-1">Workflow Runs</p>
+                      <MatterWorkflowRuns matterRef={m.matterRef} />
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

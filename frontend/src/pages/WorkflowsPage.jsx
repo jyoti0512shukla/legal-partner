@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Workflow, Play, Clock, CheckCircle2, XCircle, Loader2, Plus, ChevronRight, BarChart3, Users, Trash2, Zap } from 'lucide-react';
+import { Workflow, Play, Clock, CheckCircle2, XCircle, Loader2, Plus, ChevronRight, BarChart3, Users, Trash2, Zap, Search, X } from 'lucide-react';
 import api from '../api/client';
 
 const STATUS_STYLES = {
@@ -157,6 +157,8 @@ export default function WorkflowsPage() {
   const [preselectedDef, setPreselectedDef] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [matterFilter, setMatterFilter] = useState('');
+  const [runsLoading, setRunsLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -170,6 +172,19 @@ export default function WorkflowsPage() {
     }).catch(e => setError(e.response?.data?.message || 'Failed to load workflows'))
       .finally(() => setLoading(false));
   }, []);
+
+  const fetchRuns = useCallback((filter) => {
+    setRunsLoading(true);
+    const params = filter ? `?matterRef=${encodeURIComponent(filter)}` : '';
+    api.get(`/workflows/runs${params}`)
+      .then(r => setRuns(r.data))
+      .catch(() => {})
+      .finally(() => setRunsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (!loading) fetchRuns(matterFilter);
+  }, [matterFilter, loading, fetchRuns]);
 
   const handleStarted = async (defId, docId) => {
     setShowModal(false);
@@ -282,11 +297,31 @@ export default function WorkflowsPage() {
 
       {/* Recent runs */}
       <section>
-        <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Recent Runs</h2>
-        {runs.length === 0 ? (
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wide">Recent Runs</h2>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" />
+            <input
+              value={matterFilter}
+              onChange={e => setMatterFilter(e.target.value)}
+              placeholder="Filter by matter ref…"
+              className="input-field text-xs pl-8 pr-7 py-1.5 w-52"
+            />
+            {matterFilter && (
+              <button onClick={() => setMatterFilter('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+        {runsLoading ? (
+          <div className="card text-center py-10">
+            <Loader2 className="w-6 h-6 text-text-muted mx-auto animate-spin" />
+          </div>
+        ) : runs.length === 0 ? (
           <div className="card text-center py-10">
             <Workflow className="w-10 h-10 text-text-muted mx-auto mb-3" />
-            <p className="text-text-muted text-sm">No runs yet. Run a workflow to get started.</p>
+            <p className="text-text-muted text-sm">{matterFilter ? `No runs found for matter "${matterFilter}".` : 'No runs yet. Run a workflow to get started.'}</p>
           </div>
         ) : (
           <div className="card !p-0 overflow-hidden">

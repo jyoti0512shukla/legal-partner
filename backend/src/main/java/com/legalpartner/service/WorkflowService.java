@@ -142,11 +142,11 @@ public class WorkflowService implements ApplicationRunner {
         return toDto(definitionRepo.save(def));
     }
 
-    public List<WorkflowRunDto> listRuns(String username, int page) {
-        return runRepo.findByUsernameOrderByStartedAtDesc(username, PageRequest.of(page, 20))
-                .stream()
-                .map(this::toRunDto)
-                .toList();
+    public List<WorkflowRunDto> listRuns(String username, int page, String matterRef) {
+        Page<WorkflowRun> result = (matterRef != null && !matterRef.isBlank())
+                ? runRepo.findByUsernameAndMatterRefIgnoreCaseOrderByStartedAtDesc(username, matterRef.trim(), PageRequest.of(page, 20))
+                : runRepo.findByUsernameOrderByStartedAtDesc(username, PageRequest.of(page, 20));
+        return result.stream().map(this::toRunDto).toList();
     }
 
     public WorkflowRunDto getRun(UUID id, String username) {

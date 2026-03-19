@@ -67,9 +67,10 @@ public class WorkflowController {
     @GetMapping("/runs")
     public List<WorkflowRunDto> listRuns(
             @RequestParam(defaultValue = "0") int page,
+            @RequestParam(required = false) String matterRef,
             Authentication auth) {
         checkEnabled();
-        return workflowService.listRuns(auth.getName(), page);
+        return workflowService.listRuns(auth.getName(), page, matterRef);
     }
 
     @GetMapping("/runs/{id}")

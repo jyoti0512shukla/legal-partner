@@ -16,6 +16,8 @@ public interface WorkflowRunRepository extends JpaRepository<WorkflowRun, UUID> 
 
     Page<WorkflowRun> findByUsernameOrderByStartedAtDesc(String username, Pageable pageable);
 
+    Page<WorkflowRun> findByUsernameAndMatterRefIgnoreCaseOrderByStartedAtDesc(String username, String matterRef, Pageable pageable);
+
     long countByUsernameAndStatus(String username, WorkflowStatus status);
 
     @Query(value = """
