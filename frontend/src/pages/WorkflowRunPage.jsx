@@ -205,6 +205,8 @@ export default function WorkflowRunPage() {
   const [logs, setLogs] = useState([]);
   const [matterRef, setMatterRef] = useState('');
   const [associating, setAssociating] = useState(false);
+  const [matterSaved, setMatterSaved] = useState(false);
+  const [matterError, setMatterError] = useState('');
 
   const definitionId = searchParams.get('definitionId');
   const documentId = searchParams.get('documentId');
@@ -346,9 +348,13 @@ export default function WorkflowRunPage() {
 
   const handleAssociateMatter = async () => {
     if (!runId || !matterRef.trim()) return;
-    setAssociating(true);
+    setAssociating(true); setMatterSaved(false); setMatterError('');
     try {
       await api.patch(`/workflows/runs/${runId}/matter?matterRef=${encodeURIComponent(matterRef)}`);
+      setMatterSaved(true);
+      setTimeout(() => setMatterSaved(false), 3000);
+    } catch (e) {
+      setMatterError(e.response?.data?.message || 'Failed to save matter reference');
     } finally {
       setAssociating(false);
     }
@@ -434,7 +440,7 @@ export default function WorkflowRunPage() {
           <div className="flex gap-2">
             <input
               value={matterRef}
-              onChange={e => setMatterRef(e.target.value)}
+              onChange={e => { setMatterRef(e.target.value); setMatterSaved(false); setMatterError(''); }}
               placeholder="e.g. 2024-CORP-001"
               className="input-field flex-1 text-sm"
             />
@@ -443,9 +449,10 @@ export default function WorkflowRunPage() {
               disabled={associating || !matterRef.trim()}
               className="btn-secondary text-sm whitespace-nowrap"
             >
-              {associating ? 'Saving…' : 'Save'}
+              {associating ? 'Saving…' : matterSaved ? 'Saved ✓' : 'Save'}
             </button>
           </div>
+          {matterError && <p className="text-danger text-xs mt-1">{matterError}</p>}
         </div>
       )}
 
