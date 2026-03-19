@@ -24,11 +24,11 @@ public class WorkflowDefinition {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(nullable = false)
+    @Column(name = "is_predefined", nullable = false)
     @Builder.Default
     private boolean predefined = false;
 
-    @Column(nullable = false)
+    @Column(name = "is_team", nullable = false)
     @Builder.Default
     private boolean team = false;
 
