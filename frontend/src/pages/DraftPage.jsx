@@ -30,6 +30,7 @@ export default function DraftPage() {
   const [error, setError] = useState('');
   const [generatingStatus, setGeneratingStatus] = useState(null); // {label, index, total}
   const [refining, setRefining] = useState(false);
+  const [refiningAt, setRefiningAt] = useState(null); // {x, y} — position of in-progress floating bar
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
   const [selectionInfo, setSelectionInfo] = useState(null);
   const [pendingRefinement, setPendingRefinement] = useState(null);
@@ -190,8 +191,17 @@ export default function DraftPage() {
     if (!selectionInfo) return;
     const { text, x, y } = selectionInfo;
     setSelectionInfo(null);
+    setRefiningAt({ x, y });
     setRefining(true);
     setError('');
+
+    // Highlight the selected text in the draft while the LLM works
+    const markedHtml = `<mark data-ai="refining">${text}</mark>`;
+    setDraft(prev => ({
+      ...prev,
+      draftHtml: prev.draftHtml.replace(text, markedHtml),
+    }));
+
     try {
       const docContext = stripHtml(draft.draftHtml).slice(0, 4000);
       const res = await api.post('/ai/refine-clause', {
@@ -201,29 +211,52 @@ export default function DraftPage() {
       });
       const improved = res.data?.improvedText || res.data?.improved_text;
       if (improved) {
-        setPendingRefinement({ originalText: text, improvedText: improved, reasoning: res.data?.reasoning, x, y });
+        setPendingRefinement({ originalText: text, markedHtml, improvedText: improved, reasoning: res.data?.reasoning, x, y });
       }
     } catch (e) {
+      // Remove the highlight if the call failed
+      setDraft(prev => ({
+        ...prev,
+        draftHtml: prev.draftHtml.replace(markedHtml, text),
+      }));
       setError(e.response?.data?.message || e.message || 'Refine failed');
     } finally {
       setRefining(false);
+      setRefiningAt(null);
     }
   };
 
   const handleAcceptRefinement = () => {
     if (!pendingRefinement) return;
+    const { markedHtml, improvedText, reasoning } = pendingRefinement;
+    const acceptedMark = `<mark data-ai="accepted">${improvedText}</mark>`;
     setDraft(prev => ({
       ...prev,
-      draftHtml: prev.draftHtml.replace(pendingRefinement.originalText, pendingRefinement.improvedText),
+      draftHtml: prev.draftHtml.replace(markedHtml, acceptedMark),
       suggestions: [
         ...(prev.suggestions || []),
-        { clauseRef: 'Refined selection', suggestion: pendingRefinement.improvedText, reasoning: pendingRefinement.reasoning },
+        { clauseRef: 'Refined selection', suggestion: improvedText, reasoning },
       ],
     }));
+    // Strip the accepted highlight after 3 seconds
+    setTimeout(() => {
+      setDraft(prev => ({
+        ...prev,
+        draftHtml: prev.draftHtml.replace(acceptedMark, improvedText),
+      }));
+    }, 3000);
     setPendingRefinement(null);
   };
 
-  const handleRejectRefinement = () => setPendingRefinement(null);
+  const handleRejectRefinement = () => {
+    if (pendingRefinement) {
+      setDraft(prev => ({
+        ...prev,
+        draftHtml: prev.draftHtml.replace(pendingRefinement.markedHtml, pendingRefinement.originalText),
+      }));
+    }
+    setPendingRefinement(null);
+  };
 
   const handleSaveToSystem = async () => {
     if (!draft?.draftHtml) return;
@@ -411,11 +444,7 @@ export default function DraftPage() {
           {draft && (
             <>
               <div className="card flex items-center justify-between flex-wrap gap-3">
-                <span className="text-text-secondary text-sm">
-                  {refining
-                    ? <span className="flex items-center gap-2"><Loader className="w-4 h-4 animate-spin" /> Improving selection...</span>
-                    : 'Select text in the preview to improve it inline'}
-                </span>
+                <span className="text-text-secondary text-sm">Select text in the preview to improve it inline</span>
                 <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={handleSaveToSystem}
@@ -517,6 +546,31 @@ export default function DraftPage() {
         </div>
       </div>
 
+      {/* Mark animations for refining/accepted highlights */}
+      <style>{`
+        @keyframes ai-refining-pulse {
+          0%, 100% { background: rgba(99,102,241,0.15); }
+          50% { background: rgba(99,102,241,0.38); }
+        }
+        mark[data-ai="refining"] {
+          background: rgba(99,102,241,0.2);
+          border-radius: 3px;
+          padding: 0 3px;
+          animation: ai-refining-pulse 1.4s ease-in-out infinite;
+          color: inherit;
+        }
+        mark[data-ai="accepted"] {
+          background: rgba(34,197,94,0.28);
+          border-radius: 3px;
+          padding: 0 3px;
+          color: inherit;
+        }
+        @keyframes indeterminate {
+          0%   { transform: translateX(-100%); }
+          100% { transform: translateX(250%); }
+        }
+      `}</style>
+
       {/* Floating improve button — appears at selection */}
       {selectionInfo && !refining && (
         <div
@@ -531,6 +585,27 @@ export default function DraftPage() {
             <Sparkles className="w-3.5 h-3.5" />
             Improve with AI
           </button>
+        </div>
+      )}
+
+      {/* Floating progress bar — shown at the same position while the LLM is working */}
+      {refiningAt && (
+        <div
+          className="fixed z-50 -translate-x-1/2"
+          style={{ left: refiningAt.x, top: refiningAt.y }}
+        >
+          <div className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl bg-surface border border-primary/30 shadow-xl">
+            <span className="text-[10px] text-text-muted font-medium flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-primary" />
+              Improving…
+            </span>
+            <div className="w-28 h-1 bg-surface-el rounded-full overflow-hidden relative">
+              <div
+                className="absolute top-0 left-0 h-full w-2/5 bg-primary rounded-full"
+                style={{ animation: 'indeterminate 1.2s ease-in-out infinite' }}
+              />
+            </div>
+          </div>
         </div>
       )}
 
