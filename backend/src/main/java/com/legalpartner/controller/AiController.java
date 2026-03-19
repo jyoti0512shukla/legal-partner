@@ -1,5 +1,6 @@
 package com.legalpartner.controller;
 
+import com.legalpartner.config.LegalSystemConfig;
 import com.legalpartner.model.dto.*;
 import com.legalpartner.service.AiService;
 import com.legalpartner.service.DraftService;
@@ -22,10 +23,21 @@ public class AiController {
     private final AiService aiService;
     private final DraftService draftService;
     private final TemplateService templateService;
+    private final LegalSystemConfig legalSystemConfig;
 
     @GetMapping("/templates")
     public List<TemplateInfo> listTemplates() {
         return templateService.listTemplates();
+    }
+
+    @GetMapping("/legal-system")
+    public java.util.Map<String, String> legalSystem() {
+        return java.util.Map.of(
+            "system", legalSystemConfig.getLegalSystem(),
+            "country", legalSystemConfig.country(),
+            "contractAct", legalSystemConfig.contractAct(),
+            "arbitrationAct", legalSystemConfig.arbitrationAct()
+        );
     }
 
     @PostMapping("/draft")

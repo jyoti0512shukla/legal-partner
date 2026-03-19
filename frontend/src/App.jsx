@@ -18,6 +18,7 @@ import WorkflowsPage from './pages/WorkflowsPage';
 import WorkflowRunPage from './pages/WorkflowRunPage';
 import WorkflowBuilderPage from './pages/WorkflowBuilderPage';
 import WorkflowAnalyticsPage from './pages/WorkflowAnalyticsPage';
+import ClauseLibraryPage from './pages/ClauseLibraryPage';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/workflows/run/:id" element={<WorkflowRunPage />} />
         <Route path="/workflows/builder" element={<WorkflowBuilderPage />} />
         <Route path="/workflows/analytics" element={<WorkflowAnalyticsPage />} />
+        <Route path="/clause-library" element={<ClauseLibraryPage />} />
         {isPartnerOrAdmin && <Route path="/audit" element={<AuditLogPage />} />}
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />

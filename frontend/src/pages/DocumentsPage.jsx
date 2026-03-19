@@ -20,7 +20,7 @@ export default function DocumentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [showCloudImport, setShowCloudImport] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
-  const [meta, setMeta] = useState({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '' });
+  const [meta, setMeta] = useState({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '', industry: '' });
 
   const fetchDocs = () => api.get('/documents?size=50&sort=uploadDate,desc').then(r => setDocs(r.data.content || [])).catch(() => {});
   useEffect(() => {
@@ -50,7 +50,7 @@ export default function DocumentsPage() {
     try {
       await api.post('/documents/upload', fd, { headers: { 'Content-Type': undefined } });
       setShowForm(false); setSelectedFile(null);
-      setMeta({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '' });
+      setMeta({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '', industry: '' });
       fetchDocs();
     } catch (e) {
       const msg = e.response?.data?.message || e.response?.data?.error || e.message || 'Upload failed';
@@ -103,6 +103,10 @@ export default function DocumentsPage() {
             <select value={meta.jurisdiction} onChange={e => setMeta({ ...meta, jurisdiction: e.target.value })} className="input-field text-sm">
               <option value="">Jurisdiction</option>
               {['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan', 'Supreme Court'].map(j => <option key={j} value={j}>{j}</option>)}
+            </select>
+            <select value={meta.industry} onChange={e => setMeta({ ...meta, industry: e.target.value })} className="input-field text-sm">
+              <option value="">Industry (optional)</option>
+              {['GENERAL', 'IT_SERVICES', 'FINTECH', 'PHARMA', 'MANUFACTURING'].map(i => <option key={i} value={i}>{i.replace('_', ' ')}</option>)}
             </select>
             <input type="number" placeholder="Year" value={meta.year} onChange={e => setMeta({ ...meta, year: e.target.value })} className="input-field text-sm" />
             <label className="flex items-center gap-2 text-sm text-text-secondary col-span-2">

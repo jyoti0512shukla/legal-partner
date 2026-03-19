@@ -1,6 +1,8 @@
 package com.legalpartner.rag;
 
 import com.legalpartner.model.dto.DraftRequest;
+import com.legalpartner.model.entity.ClauseLibraryEntry;
+import com.legalpartner.service.ClauseLibraryService;
 import com.legalpartner.service.EncryptionService;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Component;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
 
 /**
  * Industry best-practice context retrieval for contract drafting.
@@ -37,6 +40,7 @@ public class DraftContextRetriever {
     private final QueryExpander queryExpander;
     private final ReRanker reRanker;
     private final EncryptionService encryptionService;
+    private final ClauseLibraryService clauseLibraryService;
 
     @Value("${legalpartner.draft.retrieval.candidate-count:30}")
     private int candidateCount;
@@ -114,17 +118,37 @@ public class DraftContextRetriever {
 
     /**
      * Retrieve and structure context for drafting a specific clause type.
+     * Library (golden) clauses are injected first, followed by vector-search results.
      */
     public DraftContext retrieveForClause(String clauseType, DraftRequest request) {
         String normalizedType = clauseType != null ? clauseType.toUpperCase() : "LIABILITY";
         List<String> queries = CLAUSE_QUERIES.getOrDefault(normalizedType, DEFAULT_QUERIES);
 
+        // Phase 1: inject firm clause library entries (golden first, then others)
+        String contractType = mapTemplateToDocumentType(request.getTemplateId());
+        List<ClauseLibraryEntry> libraryEntries = clauseLibraryService.findForDraft(
+                normalizedType, contractType,
+                request.getIndustry(), request.getPracticeArea() != null ? request.getPracticeArea() : null);
+        String libraryContext = buildLibraryContext(libraryEntries);
+
+        // Phase 2: vector search from firm's indexed documents
         List<EmbeddingMatch<TextSegment>> allCandidates = multiQueryRetrieve(queries);
         List<EmbeddingMatch<TextSegment>> filtered = filterByMetadata(allCandidates, request, normalizedType);
         List<EmbeddingMatch<TextSegment>> diversified = applyDocumentDiversity(filtered);
         List<EmbeddingMatch<TextSegment>> ranked = reRanker.rerank(diversified, queries.get(0), topK);
-        String structuredContext = buildStructuredContext(ranked, contextMaxChars);
-        return new DraftContext(structuredContext, ranked.size(), collectProvenance(ranked));
+
+        // Combine: library entries consume some of the context budget; remainder for vector results
+        int libraryChars = libraryContext.length();
+        int remainingChars = Math.max(contextMaxChars - libraryChars, 2000);
+        String vectorContext = buildStructuredContext(ranked, remainingChars);
+
+        String structuredContext = libraryContext + (vectorContext.isBlank() ? "" : "\n" + vectorContext);
+        List<String> provenance = collectProvenance(ranked);
+        if (!libraryEntries.isEmpty()) {
+            provenance = new ArrayList<>(provenance);
+            ((ArrayList<String>) provenance).add(0, "Firm Clause Library (" + libraryEntries.size() + " entries)");
+        }
+        return new DraftContext(structuredContext, ranked.size() + libraryEntries.size(), provenance);
     }
 
     private List<EmbeddingMatch<TextSegment>> multiQueryRetrieve(List<String> queries) {
@@ -157,8 +181,9 @@ public class DraftContextRetriever {
         String targetDocType = mapTemplateToDocumentType(request.getTemplateId());
         String targetJurisdiction = (request.getJurisdiction() == null || request.getJurisdiction().isBlank())
                 ? "India" : request.getJurisdiction();
+        String targetPracticeArea = request.getPracticeArea();
+        String targetIndustry = request.getIndustry();
 
-        // Determine acceptable clause types for this draft request
         Set<String> acceptableClauseTypes = getAcceptableClauseTypes(clauseType);
 
         List<EmbeddingMatch<TextSegment>> filtered = candidates.stream()
@@ -166,6 +191,8 @@ public class DraftContextRetriever {
                     String docType = m.embedded().metadata().getString("document_type");
                     String jurisdiction = m.embedded().metadata().getString("jurisdiction");
                     String chunkClauseType = m.embedded().metadata().getString("clause_type");
+                    String practiceArea = m.embedded().metadata().getString("practice_area");
+                    String industry = m.embedded().metadata().getString("industry");
 
                     boolean docTypeMatch = docType == null || targetDocType == null
                             || docType.equalsIgnoreCase(targetDocType)
@@ -175,8 +202,17 @@ public class DraftContextRetriever {
                             || jurisdiction.toLowerCase().contains("india");
                     boolean clauseMatch = chunkClauseType == null || chunkClauseType.isBlank()
                             || acceptableClauseTypes.contains(chunkClauseType.toUpperCase());
+                    // Practice area: soft match — prefer matching, but don't exclude nulls
+                    boolean practiceAreaMatch = practiceArea == null || practiceArea.isBlank()
+                            || targetPracticeArea == null || targetPracticeArea.isBlank()
+                            || practiceArea.equalsIgnoreCase(targetPracticeArea);
+                    // Industry: soft match — null on either side = wildcard
+                    boolean industryMatch = industry == null || industry.isBlank()
+                            || targetIndustry == null || targetIndustry.isBlank()
+                            || targetIndustry.equalsIgnoreCase("GENERAL")
+                            || industry.equalsIgnoreCase(targetIndustry);
 
-                    return docTypeMatch && jurisdictionMatch && clauseMatch;
+                    return docTypeMatch && jurisdictionMatch && clauseMatch && practiceAreaMatch && industryMatch;
                 })
                 .toList();
 
@@ -185,6 +221,27 @@ public class DraftContextRetriever {
             return candidates.stream().limit(candidateCount).toList();
         }
         return filtered;
+    }
+
+    /**
+     * Build a context block from firm clause library entries.
+     * Golden clauses are prefixed with [GOLDEN CLAUSE] to guide the LLM.
+     */
+    private String buildLibraryContext(List<ClauseLibraryEntry> entries) {
+        if (entries.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== FIRM CLAUSE LIBRARY (use these as primary precedent) ===\n\n");
+        for (int i = 0; i < entries.size(); i++) {
+            ClauseLibraryEntry e = entries.get(i);
+            String tag = e.isGolden() ? "[GOLDEN CLAUSE — Firm Approved]" : "[Firm Library Clause]";
+            String meta = Stream.of(e.getContractType(), e.getIndustry(), e.getPracticeArea(), e.getJurisdiction())
+                    .filter(Objects::nonNull).collect(Collectors.joining(", "));
+            sb.append(String.format("[Library Entry %d: %s | %s%s]\n",
+                    i + 1, e.getTitle(), tag, meta.isBlank() ? "" : " | " + meta));
+            sb.append(e.getContent()).append("\n\n");
+        }
+        sb.append("=== END FIRM CLAUSE LIBRARY ===\n");
+        return sb.toString();
     }
 
     private Set<String> getAcceptableClauseTypes(String clauseType) {

@@ -33,11 +33,12 @@ public class DocumentController {
             @RequestParam(required = false) String practiceArea,
             @RequestParam(required = false) String clientName,
             @RequestParam(required = false) String matterId,
+            @RequestParam(required = false) String industry,
             Authentication auth
     ) {
         return documentService.ingestDocument(
                 file, jurisdiction, year, confidential,
-                documentType, practiceArea, clientName, matterId,
+                documentType, practiceArea, clientName, matterId, industry,
                 auth.getName()
         );
     }

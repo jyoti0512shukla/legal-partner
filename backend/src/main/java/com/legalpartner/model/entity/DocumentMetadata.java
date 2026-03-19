@@ -34,6 +34,10 @@ public class DocumentMetadata {
     @Column(length = 50)
     private PracticeArea practiceArea;
 
+    /** Industry vertical for RAG filtering: FINTECH, PHARMA, IT_SERVICES, MANUFACTURING, GENERAL */
+    @Column(length = 50)
+    private String industry;
+
     @Column(length = 200)
     private String clientName;
 

@@ -1,5 +1,6 @@
 package com.legalpartner.service;
 
+import com.legalpartner.config.LegalSystemConfig;
 import com.legalpartner.model.dto.ClauseCheckResult;
 import com.legalpartner.model.dto.ContractReviewRequest;
 import com.legalpartner.model.dto.ContractReviewResult;
@@ -27,6 +28,7 @@ public class ContractReviewService {
     private final DocumentMetadataRepository documentRepository;
     private final DocumentFullTextRetriever fullTextRetriever;
     private final VllmGuidedClient vllmClient;
+    private final LegalSystemConfig legalSystemConfig;
 
     public ContractReviewResult review(ContractReviewRequest request, String username) {
         DocumentMetadata doc = documentRepository.findById(request.documentId())
@@ -44,7 +46,7 @@ public class ContractReviewService {
 
         // Primary: guided_json
         com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
-                PromptTemplates.CHECKLIST_SYSTEM_GUIDED, guidedPrompt, StructuredSchemas.CHECKLIST_SCHEMA, 1200);
+                legalSystemConfig.localize(PromptTemplates.CHECKLIST_SYSTEM_GUIDED), guidedPrompt, StructuredSchemas.CHECKLIST_SCHEMA, 1200);
 
         log.info("[prompt={}] checklist guided_json node: {}",
                 PromptTemplates.PROMPT_VERSION,
@@ -57,7 +59,7 @@ public class ContractReviewService {
             log.info("[prompt={}] guided_json returned no clauses — falling back to CSV completions", PromptTemplates.PROMPT_VERSION);
             String csvPrompt = String.format(PromptTemplates.CHECKLIST_USER, doc.getFileName(), context);
             String rawResponse = vllmClient.generateText(
-                    PromptTemplates.CHECKLIST_SYSTEM, csvPrompt, "LIABILITY_LIMIT=", 400);
+                    legalSystemConfig.localize(PromptTemplates.CHECKLIST_SYSTEM), csvPrompt, "LIABILITY_LIMIT=", 400);
             String cleaned = rawResponse;
             int instEnd = cleaned.lastIndexOf("[/INST]");
             if (instEnd >= 0) cleaned = cleaned.substring(instEnd + 7);

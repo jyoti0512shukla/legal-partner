@@ -2,6 +2,7 @@ package com.legalpartner.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.legalpartner.config.LegalSystemConfig;
 import com.legalpartner.model.dto.*;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.rag.*;
@@ -41,6 +42,7 @@ public class AiService {
     private final ConversationStore conversationStore;
     private final DocumentFullTextRetriever fullTextRetriever;
     private final VllmGuidedClient vllmClient;
+    private final LegalSystemConfig legalSystemConfig;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${legalpartner.rag.candidate-count:20}")
@@ -91,7 +93,8 @@ public class AiService {
             DocumentMetadataRepository documentRepository,
             ConversationStore conversationStore,
             DocumentFullTextRetriever fullTextRetriever,
-            VllmGuidedClient vllmClient) {
+            VllmGuidedClient vllmClient,
+            LegalSystemConfig legalSystemConfig) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
@@ -105,6 +108,7 @@ public class AiService {
         this.conversationStore = conversationStore;
         this.fullTextRetriever = fullTextRetriever;
         this.vllmClient = vllmClient;
+        this.legalSystemConfig = legalSystemConfig;
     }
 
     public QueryResult query(QueryRequest request, String username) {
@@ -158,7 +162,7 @@ public class AiService {
 
         // Step 7: Generate — merge system into user (Mistral/SaulLM rejects separate system role)
         AiMessage response = chatModel.generate(
-                UserMessage.from(PromptTemplates.QUERY_SYSTEM + "\n\n" + prompt)
+                UserMessage.from(legalSystemConfig.localize(PromptTemplates.QUERY_SYSTEM) + "\n\n" + prompt)
         ).content();
 
         String rawAnswer = response.text();
@@ -219,7 +223,7 @@ public class AiService {
 
         // Use plain chatModel — compare prompt expects pipe-delimited text, not JSON
         AiMessage response = chatModel.generate(
-                UserMessage.from(PromptTemplates.COMPARE_SYSTEM + "\n\n" + prompt)
+                UserMessage.from(legalSystemConfig.localize(PromptTemplates.COMPARE_SYSTEM) + "\n\n" + prompt)
         ).content();
 
         List<ComparisonDimension> dimensions = parseCompareResponse(response.text());
@@ -286,7 +290,7 @@ public class AiService {
 
         // Primary: guided_json — vLLM+Outlines physically constrains tokens to schema.
         com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
-                PromptTemplates.RISK_SYSTEM_GUIDED, guidedPrompt, StructuredSchemas.RISK_SCHEMA, 800);
+                legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM_GUIDED), guidedPrompt, StructuredSchemas.RISK_SCHEMA, 800);
 
         log.info("[prompt={}] guided_json node: {}",
                 PromptTemplates.PROMPT_VERSION,
@@ -299,7 +303,7 @@ public class AiService {
         log.info("[prompt={}] guided_json returned no categories — falling back to CSV completions", PromptTemplates.PROMPT_VERSION);
         String csvPrompt = String.format(PromptTemplates.RISK_USER, documentId, context);
         String rawText = stripResponsePrefix(
-                vllmClient.generateText(PromptTemplates.RISK_SYSTEM, csvPrompt, "OVERALL=", 150));
+                vllmClient.generateText(legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM), csvPrompt, "OVERALL=", 150));
         log.info("[prompt={}] CSV fallback raw length={}, preview={}", PromptTemplates.PROMPT_VERSION,
                 rawText.length(), rawText.substring(0, Math.min(200, rawText.length())).replace('\n', ' '));
         RiskAssessmentResult csvResult = parseRiskCsv(rawText);
@@ -313,7 +317,7 @@ public class AiService {
         String prosePrompt = "Analyze the risk in this contract. For each of these categories — " +
                 "Liability, Indemnity, Termination, IP Rights, Confidentiality, Governing Law, Force Majeure — " +
                 "state whether the risk is HIGH, MEDIUM, or LOW and briefly explain why.\n\nContract:\n" + context;
-        String prose = stripResponsePrefix(vllmClient.generateProse(PromptTemplates.RISK_SYSTEM, prosePrompt, 400));
+        String prose = stripResponsePrefix(vllmClient.generateProse(legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM), prosePrompt, 400));
         log.info("[prompt={}] prose fallback length={}, preview={}", PromptTemplates.PROMPT_VERSION,
                 prose.length(), prose.substring(0, Math.min(200, prose.length())).replace('\n', ' '));
         return parseRiskLines(prose);
@@ -391,7 +395,7 @@ public class AiService {
         }
 
         AiMessage response = chatModel.generate(
-                UserMessage.from(PromptTemplates.EXTRACTION_SYSTEM + "\n\n" + String.format(PromptTemplates.EXTRACTION_USER, context))
+                UserMessage.from(legalSystemConfig.localize(PromptTemplates.EXTRACTION_SYSTEM) + "\n\n" + String.format(PromptTemplates.EXTRACTION_USER, context))
         ).content();
 
         String rawText = stripResponsePrefix(response.text());
@@ -643,7 +647,7 @@ public class AiService {
         String prompt = String.format(PromptTemplates.REFINE_CLAUSE_USER,
                 context, request.getSelectedText(), instruction);
         AiMessage response = jsonChatModel.generate(
-                UserMessage.from(PromptTemplates.REFINE_CLAUSE_SYSTEM + "\n\n" + prompt)
+                UserMessage.from(legalSystemConfig.localize(PromptTemplates.REFINE_CLAUSE_SYSTEM) + "\n\n" + prompt)
         ).content();
 
         return parseRefineResponse(response.text());
@@ -720,7 +724,7 @@ public class AiService {
                 request.sectionRef() != null && !request.sectionRef().isBlank() ? request.sectionRef() : "Not found");
 
         AiMessage response = chatModel.generate(
-                UserMessage.from(PromptTemplates.RISK_DRILLDOWN_SYSTEM + "\n\n" + prompt)
+                UserMessage.from(legalSystemConfig.localize(PromptTemplates.RISK_DRILLDOWN_SYSTEM) + "\n\n" + prompt)
         ).content();
 
         return parseDrilldownResponse(request.categoryName(), request.rating(), response.text());
@@ -929,7 +933,7 @@ public class AiService {
         }
         try {
             AiMessage summary = chatModel.generate(
-                    UserMessage.from(PromptTemplates.SUMMARY_SYSTEM + "\n\n" + String.format(PromptTemplates.SUMMARY_USER, content))
+                    UserMessage.from(legalSystemConfig.localize(PromptTemplates.SUMMARY_SYSTEM) + "\n\n" + String.format(PromptTemplates.SUMMARY_USER, content))
             ).content();
             return summary.text().trim();
         } catch (Exception e) {
@@ -996,7 +1000,7 @@ public class AiService {
 
         String userPrompt = String.format(PromptTemplates.SUMMARY_USER_GUIDED, priorJson);
         com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
-                PromptTemplates.SUMMARY_SYSTEM_GUIDED, userPrompt, StructuredSchemas.SUMMARY_SCHEMA, 800);
+                legalSystemConfig.localize(PromptTemplates.SUMMARY_SYSTEM_GUIDED), userPrompt, StructuredSchemas.SUMMARY_SCHEMA, 800);
 
         return parseSummaryJson(json);
     }
@@ -1040,7 +1044,7 @@ public class AiService {
 
         String userPrompt = String.format(PromptTemplates.REDLINE_USER_GUIDED, clauseIssues);
         com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
-                PromptTemplates.REDLINE_SYSTEM_GUIDED, userPrompt, StructuredSchemas.REDLINE_SCHEMA, 1200);
+                legalSystemConfig.localize(PromptTemplates.REDLINE_SYSTEM_GUIDED), userPrompt, StructuredSchemas.REDLINE_SCHEMA, 1200);
 
         return parseRedlineJson(json);
     }

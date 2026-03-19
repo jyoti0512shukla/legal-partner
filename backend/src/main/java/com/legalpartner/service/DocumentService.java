@@ -46,7 +46,7 @@ public class DocumentService {
     public DocumentMetadata ingestDocument(
             MultipartFile file, String jurisdiction, Integer year,
             boolean confidential, String documentType, String practiceArea,
-            String clientName, String matterId, String username
+            String clientName, String matterId, String industry, String username
     ) {
         DocumentMetadata doc = DocumentMetadata.builder()
                 .fileName(file.getOriginalFilename())
@@ -58,6 +58,7 @@ public class DocumentService {
                 .practiceArea(practiceArea != null ? PracticeArea.valueOf(practiceArea) : PracticeArea.OTHER)
                 .clientName(clientName)
                 .matterId(matterId)
+                .industry(industry != null && !industry.isBlank() ? industry.toUpperCase() : null)
                 .uploadedBy(username)
                 .fileSizeBytes(file.getSize())
                 .processingStatus(ProcessingStatus.PENDING)
@@ -125,6 +126,7 @@ public class DocumentService {
             if (doc.getYear() != null) docMeta.put("year", doc.getYear().toString());
             if (doc.getDocumentType() != null) docMeta.put("document_type", doc.getDocumentType().name());
             if (doc.getPracticeArea() != null) docMeta.put("practice_area", doc.getPracticeArea().name());
+            if (doc.getIndustry() != null) docMeta.put("industry", doc.getIndustry());
             if (doc.getClientName() != null) docMeta.put("client_name", doc.getClientName());
 
             List<LegalChunk> chunks = chunker.chunk(text, docMeta);
