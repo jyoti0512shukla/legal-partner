@@ -127,7 +127,9 @@ export default function DraftPage() {
           if (!json) continue;
           let event;
           try { event = JSON.parse(json); } catch { continue; }
-          if (event.type === 'start') {
+          if (event.type === 'planning') {
+            setGeneratingStatus({ label: 'Planning sections…', index: 0, total: 0 });
+          } else if (event.type === 'start') {
             setGeneratingStatus({ label: 'Preparing…', index: 0, total: event.totalClauses });
             setDraft({ draftHtml: event.partialHtml, suggestions: [] });
           } else if (event.type === 'clause_start') {

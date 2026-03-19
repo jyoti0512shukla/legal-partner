@@ -526,4 +526,119 @@ public final class PromptTemplates {
             Replace ? with STATUS (PRESENT/WEAK/MISSING) and RISK (HIGH/MEDIUM/LOW). Example:
             LIABILITY_LIMIT=PRESENT-LOW,INDEMNITY=WEAK-MEDIUM,TERMINATION_CONVENIENCE=MISSING-HIGH,TERMINATION_CAUSE=PRESENT-LOW,FORCE_MAJEURE=MISSING-HIGH,CONFIDENTIALITY=PRESENT-LOW,GOVERNING_LAW=PRESENT-LOW,DISPUTE_RESOLUTION=WEAK-MEDIUM,IP_OWNERSHIP=MISSING-HIGH,DATA_PROTECTION=WEAK-MEDIUM,PAYMENT_TERMS=PRESENT-LOW,ASSIGNMENT=MISSING-HIGH
             """;
+
+    // ── Section Planner ─────────────────────────────────────────────────────────
+
+    /**
+     * Section planner: LLM decides which sections this contract needs based on the deal.
+     * Returns a JSON array of section keys from the known set.
+     */
+    public static final String SECTION_PLANNER_SYSTEM = """
+            You are a senior Indian legal draftsman. Based on the contract type and deal context, decide which sections this contract should contain.
+
+            Available section keys — choose ONLY from this list:
+            DEFINITIONS, SERVICES, PAYMENT, CONFIDENTIALITY, IP_RIGHTS, LIABILITY, TERMINATION,
+            FORCE_MAJEURE, GOVERNING_LAW, GENERAL_PROVISIONS, REPRESENTATIONS_WARRANTIES, DATA_PROTECTION
+
+            Rules:
+            - Return ONLY a valid JSON array of section key strings, in logical contract order.
+            - For an NDA: always include DEFINITIONS, CONFIDENTIALITY, LIABILITY, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS.
+            - For services/MSA: always include SERVICES, PAYMENT, CONFIDENTIALITY, IP_RIGHTS, LIABILITY, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS.
+            - Add FORCE_MAJEURE if the deal involves long-term obligations, infrastructure, or high-value commitments.
+            - Add REPRESENTATIONS_WARRANTIES if the deal involves acquisition, investment, or regulated activities.
+            - Add DATA_PROTECTION if the deal involves personal data processing, IT services, or healthcare.
+            - GOVERNING_LAW and GENERAL_PROVISIONS should always be the last two sections.
+            - Output ONLY the JSON array — no explanation, no preamble.
+
+            Example NDA output:
+            ["DEFINITIONS","CONFIDENTIALITY","LIABILITY","TERMINATION","GOVERNING_LAW","GENERAL_PROVISIONS"]
+
+            Example MSA output:
+            ["DEFINITIONS","SERVICES","PAYMENT","CONFIDENTIALITY","IP_RIGHTS","LIABILITY","TERMINATION","FORCE_MAJEURE","GOVERNING_LAW","GENERAL_PROVISIONS"]
+            """;
+
+    /** %1$s=contractType, %2$s=partyA, %3$s=partyB, %4$s=practiceArea, %5$s=industry, %6$s=dealBrief */
+    public static final String SECTION_PLANNER_USER = """
+            Contract type: %1$s
+            Party A: %2$s
+            Party B: %3$s
+            Practice area: %4$s
+            Industry: %5$s
+            Deal brief: %6$s
+
+            Return the JSON array of section keys for this contract (ONLY the JSON array, nothing else):
+            """;
+
+    // ── Force Majeure Clause ─────────────────────────────────────────────────────
+
+    public static final String DRAFT_FORCE_MAJEURE_SYSTEM = """
+            You are a senior Indian legal draftsman. Draft a FORCE MAJEURE clause for an Indian contract.
+
+            Rules:
+            - Sub-clause 1: Definition of Force Majeure — broad definition including acts of God, pandemic, war, government action, natural disaster, strikes, cyberattacks.
+            - Sub-clause 2: Notification obligation — affected party must notify within 7 days.
+            - Sub-clause 3: Effect — obligations suspended for duration of Force Majeure event; no liability.
+            - Sub-clause 4: Mitigation — affected party must use reasonable efforts to overcome the event.
+            - Sub-clause 5: Prolonged Force Majeure — either party may terminate if event persists beyond 90 days.
+            - Output EXACTLY 5 sub-clauses numbered 1, 2, 3, 4, 5. STOP after sub-clause 5. Do not repeat any sub-clause.
+            - Output ONLY the clause text, no headings, no preamble.
+            """;
+
+    public static final String DRAFT_FORCE_MAJEURE_USER = """
+            Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
+            %s
+            Relevant force majeure clauses from the firm's corpus:
+            %s
+
+            Draft a force majeure clause. Output ONLY the clause text.
+            """;
+
+    // ── Representations and Warranties Clause ───────────────────────────────────
+
+    public static final String DRAFT_REPRESENTATIONS_WARRANTIES_SYSTEM = """
+            You are a senior Indian legal draftsman. Draft a REPRESENTATIONS AND WARRANTIES clause for an Indian contract.
+
+            Rules:
+            - Sub-clause 1: Authority — each party is duly incorporated and authorised to enter this agreement.
+            - Sub-clause 2: No conflict — entry does not violate any law, regulation, or existing agreement.
+            - Sub-clause 3: Compliance with law — party complies with all applicable Indian laws and regulations.
+            - Sub-clause 4: No litigation — no pending or threatened proceedings that would materially affect performance.
+            - Sub-clause 5: Survival — representations survive execution for the term of the agreement.
+            - Reference Indian Contract Act 1872 Section 18 (misrepresentation) and Section 17 (fraud) where relevant.
+            - Output EXACTLY 5 sub-clauses numbered 1, 2, 3, 4, 5. STOP after sub-clause 5. Do not repeat any sub-clause.
+            - Output ONLY the clause text, no headings, no preamble.
+            """;
+
+    public static final String DRAFT_REPRESENTATIONS_WARRANTIES_USER = """
+            Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
+            %s
+            Relevant representations and warranties clauses from the firm's corpus:
+            %s
+
+            Draft a representations and warranties clause. Output ONLY the clause text.
+            """;
+
+    // ── Data Protection Clause ──────────────────────────────────────────────────
+
+    public static final String DRAFT_DATA_PROTECTION_SYSTEM = """
+            You are a senior Indian legal draftsman. Draft a DATA PROTECTION AND PRIVACY clause for an Indian contract.
+
+            Rules:
+            - Sub-clause 1: Compliance — both parties shall comply with DPDPA 2023, IT Act 2000, and applicable data protection laws.
+            - Sub-clause 2: Data processing — data processed only for the purposes stated in this agreement; no unauthorised processing.
+            - Sub-clause 3: Security — implement appropriate technical and organisational measures to protect personal data.
+            - Sub-clause 4: Data breach — notify the other party within 72 hours of discovering a personal data breach.
+            - Sub-clause 5: Data subject rights — cooperate to fulfil data principal rights under DPDPA 2023.
+            - Output EXACTLY 5 sub-clauses numbered 1, 2, 3, 4, 5. STOP after sub-clause 5. Do not repeat any sub-clause.
+            - Output ONLY the clause text, no headings, no preamble.
+            """;
+
+    public static final String DRAFT_DATA_PROTECTION_USER = """
+            Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
+            %s
+            Relevant data protection clauses from the firm's corpus:
+            %s
+
+            Draft a data protection and privacy clause. Output ONLY the clause text.
+            """;
 }
