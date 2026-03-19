@@ -213,17 +213,39 @@ export default function WorkflowRunPage() {
 
   useEffect(() => {
     if (id) {
-      // View existing run
-      api.get(`/workflows/runs/${id}`).then(r => {
+      // View existing run — fetch run + definition to reconstruct step list
+      api.get(`/workflows/runs/${id}`).then(async r => {
         const run = r.data;
         setWorkflowName(run.workflowName);
         setRunId(run.id);
         setMatterRef(run.matterRef || '');
-        setOverallStatus(
-          run.status === 'COMPLETED' ? 'done' :
-          run.status === 'FAILED' ? 'error' : 'running'
-        );
-        if (run.results) setStepResults(run.results);
+
+        const status = run.status === 'COMPLETED' ? 'done'
+          : run.status === 'FAILED' ? 'error' : 'running';
+        setOverallStatus(status);
+
+        // Reconstruct step list from definition
+        try {
+          const defRes = await api.get(`/workflows/definitions`);
+          const def = defRes.data.find(d => d.id === run.workflowDefinitionId);
+          if (def?.steps) {
+            setSteps(def.steps);
+            // Mark all steps up to currentStep as completed, rest as pending
+            const statuses = {};
+            def.steps.forEach((_, i) => {
+              if (status === 'done') statuses[i] = 'completed';
+              else if (i < run.currentStep) statuses[i] = 'completed';
+              else if (i === run.currentStep && status === 'running') statuses[i] = 'running';
+              else statuses[i] = 'pending';
+            });
+            setStepStatuses(statuses);
+          }
+        } catch { /* definition fetch failed, steps won't show */ }
+
+        // Map results keyed by step type to keyed by step index
+        if (run.results) {
+          setStepResults(run.results);
+        }
       });
       return;
     }
