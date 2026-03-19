@@ -74,13 +74,12 @@ public class EdgarImportService {
     // ── Search ────────────────────────────────────────────────────────────────
 
     public List<EdgarSearchResult> search(String query, int maxResults) throws Exception {
-        // EDGAR EFTS only supports: q, forms, dateRange, startdt, enddt, entity, _source (top-level)
-        // Do NOT use Elasticsearch-style hits.* params — they cause 500 on EDGAR's side
+        // EDGAR EFTS supported params: q, forms, dateRange, startdt, enddt, entity
+        // Do NOT use Elasticsearch-style params (_source, hits.*) — they break the response
         String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
         String url = EFTS_URL + "?q=" + encodedQuery
                 + "&forms=EX-10"
-                + "&dateRange=custom&startdt=2019-01-01&enddt=2024-12-31"
-                + "&_source=entity_name,file_date,form_type,period_of_report";
+                + "&dateRange=custom&startdt=2019-01-01&enddt=2024-12-31";
 
         log.info("EDGAR search: {}", url);
 
@@ -96,8 +95,15 @@ public class EdgarImportService {
             throw new RuntimeException("EDGAR search failed: " + response.getStatusCode());
         }
 
-        JsonNode root = objectMapper.readTree(response.getBody());
-        JsonNode hits = root.path("hits").path("hits");
+        String body = response.getBody();
+        // Log first 500 chars of response to debug structure
+        log.info("EDGAR raw response (first 500): {}", body.substring(0, Math.min(500, body.length())));
+
+        JsonNode root = objectMapper.readTree(body);
+        // EDGAR EFTS returns ES-style: { "hits": { "total": {...}, "hits": [...] } }
+        JsonNode hitsNode = root.path("hits");
+        JsonNode hits = hitsNode.isArray() ? hitsNode : hitsNode.path("hits");
+        log.info("EDGAR total hits: {}, array size: {}", hitsNode.path("total").path("value"), hits.size());
 
         List<EdgarSearchResult> results = new ArrayList<>();
         for (JsonNode hit : hits) {
