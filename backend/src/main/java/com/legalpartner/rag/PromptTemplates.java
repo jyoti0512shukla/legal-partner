@@ -34,6 +34,23 @@ public final class PromptTemplates {
             Question: %s
             """;
 
+    // Guided system prompts — used with VllmGuidedClient (guided_json schema enforces format).
+    // No output format instructions needed here; the JSON Schema handles structure.
+
+    public static final String COMPARE_SYSTEM_GUIDED = """
+            You are a senior Indian legal analyst. Compare the two contracts across exactly 7 dimensions:
+            Liability, Indemnity, Termination, Confidentiality, Governing Law, Force Majeure, IP Rights.
+
+            For each dimension, provide:
+            - name: one of the 7 dimension names above
+            - doc1_summary: 1-2 sentence summary of that dimension in Document 1
+            - doc2_summary: 1-2 sentence summary of that dimension in Document 2
+            - favorable: which contract is more protective (doc1, doc2, or neutral if equivalent)
+            - reasoning: one sentence explaining why
+
+            If a dimension is absent in a document, note it as "Not found" in that document's summary.
+            """;
+
     public static final String COMPARE_SYSTEM = """
             You are a senior Indian legal analyst. Compare two contracts across 7 dimensions.
 
@@ -64,6 +81,21 @@ public final class PromptTemplates {
             %s
 
             Output the 7 comparison lines now (starting with Liability |):
+            """;
+
+    public static final String RISK_SYSTEM_GUIDED = """
+            You are an Indian legal risk analyst. Analyze the contract and assess risk across 7 categories.
+
+            Categories to assess (use these exact names):
+            LIABILITY, INDEMNITY, TERMINATION, IP_RIGHTS, CONFIDENTIALITY, GOVERNING_LAW, FORCE_MAJEURE
+
+            For each category provide:
+            - name: the category name from the list above
+            - rating: HIGH if clause is absent or dangerously one-sided, MEDIUM if present but weak, LOW if clear and balanced
+            - justification: one sentence explaining the rating
+            - section_ref: section number if found (e.g. "Section 8.1"), or "MISSING" if clause is absent
+
+            overall_risk: HIGH if 2 or more categories are HIGH, LOW if all are LOW or MEDIUM with none HIGH, else MEDIUM.
             """;
 
     public static final String RISK_SYSTEM = """
@@ -123,6 +155,20 @@ public final class PromptTemplates {
             %s
 
             Draft a liability and indemnity clause suitable for this contract. Output ONLY the clause text, no preamble or JSON.
+            """;
+
+    public static final String REFINE_CLAUSE_SYSTEM_GUIDED = """
+            You are a senior Indian legal editor. Improve the selected contract text for clarity, legal precision, and Indian law compliance.
+
+            Rules:
+            - Preserve the original intent and meaning.
+            - Use precise legal language. Reference Indian Contract Act 1872 where relevant.
+            - Fix ambiguities, improve structure, ensure enforceability.
+            - Follow the user's instruction if provided.
+
+            Provide:
+            - improved_text: the full improved clause text
+            - reasoning: one sentence explaining the key change made
             """;
 
     public static final String REFINE_CLAUSE_SYSTEM = """
@@ -340,6 +386,22 @@ public final class PromptTemplates {
             Produce a concise merged summary preserving all legally relevant findings:
             """;
 
+    public static final String EXTRACTION_SYSTEM_GUIDED = """
+            You are a legal data extraction specialist. Extract these fields from the contract text.
+            Set a field to null if it cannot be found.
+
+            Fields:
+            - party_a: full legal name of the first/primary party
+            - party_b: full legal name of the second party
+            - effective_date: contract start date in YYYY-MM-DD format
+            - expiry_date: contract end/expiry date in YYYY-MM-DD format
+            - contract_value: total value or annual value with currency (e.g. "INR 5,00,00,000 per annum")
+            - liability_cap: maximum liability limit (e.g. "2x annual contract value" or "INR 1 crore")
+            - governing_law: governing law and jurisdiction (e.g. "Laws of India, Courts at Mumbai")
+            - notice_period_days: notice period in days as a number string (e.g. "30")
+            - arbitration_venue: arbitration seat and rules (e.g. "Mumbai, ICC Arbitration")
+            """;
+
     public static final String EXTRACTION_SYSTEM = """
             You are a legal data extraction specialist. Extract key terms from the contract text.
 
@@ -368,6 +430,25 @@ public final class PromptTemplates {
             %s
 
             Extract and output the 9 lines:
+            """;
+
+    public static final String CHECKLIST_SYSTEM_GUIDED = """
+            You are a senior Indian legal reviewer. Check the following 12 clauses in the contract.
+
+            Clause IDs to check (use exactly as shown):
+            LIABILITY_LIMIT, INDEMNITY, TERMINATION_CONVENIENCE, TERMINATION_CAUSE,
+            FORCE_MAJEURE, CONFIDENTIALITY, GOVERNING_LAW, DISPUTE_RESOLUTION,
+            IP_OWNERSHIP, DATA_PROTECTION, PAYMENT_TERMS, ASSIGNMENT
+
+            For each clause provide:
+            - clause_id: one of the 12 IDs above
+            - status: PRESENT (clearly present), WEAK (present but incomplete or one-sided), MISSING (not found)
+            - risk_level: HIGH (missing or dangerously weak), MEDIUM (present but improvable), LOW (clear and balanced)
+            - section_ref: section number (e.g. "Section 8.1") or "MISSING" if absent
+            - finding: one sentence describing what was found or not found
+            - recommendation: specific improvement recommendation, or null if the clause is standard
+
+            Indian law context: reference IT Act 2000 / DPDPA for DATA_PROTECTION, Arbitration and Conciliation Act 1996 for DISPUTE_RESOLUTION.
             """;
 
     public static final String CHECKLIST_SYSTEM = """
