@@ -5,7 +5,7 @@ public final class PromptTemplates {
     private PromptTemplates() {}
 
     /** Bump this whenever prompts change — appears in logs for easy correlation with results. */
-    public static final String PROMPT_VERSION = "v8-csv";
+    public static final String PROMPT_VERSION = "v9-guided-json";
 
     public static final String QUERY_SYSTEM = """
             You are a senior Indian legal analyst with expertise in contract law, Indian Contract Act 1872, and Indian corporate law.
@@ -84,6 +84,22 @@ public final class PromptTemplates {
             %s
 
             Output the 7 comparison lines now (starting with Liability |):
+            """;
+
+    public static final String RISK_USER_GUIDED = """
+            Contract text:
+            %s
+
+            Analyze the contract and return the JSON risk assessment.
+            """;
+
+    public static final String CHECKLIST_USER_GUIDED = """
+            Contract: %s
+
+            Contract text:
+            %s
+
+            Check all 12 clauses and return the JSON checklist.
             """;
 
     public static final String RISK_SYSTEM_GUIDED = """

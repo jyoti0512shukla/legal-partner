@@ -283,19 +283,28 @@ public class AiService {
             )));
         }
 
-        String prompt = String.format(PromptTemplates.RISK_USER, documentId, context);
-        // CSV format: model outputs one comma-separated line starting from "OVERALL="
-        // No newlines = no EOS trigger between labels.
-        String rawText = stripResponsePrefix(
-                vllmClient.generateText(PromptTemplates.RISK_SYSTEM, prompt, "OVERALL=", 150));
-        log.info("[prompt={}] Risk assessment raw response length={}, preview={}",
-                PromptTemplates.PROMPT_VERSION,
-                rawText.length(), rawText.substring(0, Math.min(300, rawText.length())).replace('\n', ' '));
+        String guidedPrompt = String.format(PromptTemplates.RISK_USER_GUIDED, context);
 
-        // Try CSV parser first (v8 format), fall back to line-by-line
+        // Primary: guided_json — vLLM+Outlines physically constrains tokens to schema.
+        com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
+                PromptTemplates.RISK_SYSTEM_GUIDED, guidedPrompt, StructuredSchemas.RISK_SCHEMA, 800);
+
+        log.info("[prompt={}] guided_json node: {}",
+                PromptTemplates.PROMPT_VERSION,
+                json.has("overall_risk") ? "overall_risk+categories" : (json.size() > 0 ? json.fieldNames().next() : "empty"));
+
+        RiskAssessmentResult guidedResult = parseRiskJson(json);
+        if (!guidedResult.categories().isEmpty()) return guidedResult;
+
+        // guided_json returned empty — fall back to raw-completions CSV
+        log.info("[prompt={}] guided_json returned no categories — falling back to CSV completions", PromptTemplates.PROMPT_VERSION);
+        String csvPrompt = String.format(PromptTemplates.RISK_USER, documentId, context);
+        String rawText = stripResponsePrefix(
+                vllmClient.generateText(PromptTemplates.RISK_SYSTEM, csvPrompt, "OVERALL=", 150));
+        log.info("[prompt={}] CSV fallback raw length={}, preview={}", PromptTemplates.PROMPT_VERSION,
+                rawText.length(), rawText.substring(0, Math.min(200, rawText.length())).replace('\n', ' '));
         RiskAssessmentResult csvResult = parseRiskCsv(rawText);
         if (!csvResult.categories().isEmpty()) return csvResult;
-        log.info("CSV risk parser found 0 categories — falling back to line parser");
         return parseRiskLines(rawText);
     }
 
@@ -310,6 +319,25 @@ public class AiService {
             "GOVERNING_LAW",   "Governing Law",
             "FORCE_MAJEURE",   "Force Majeure"
     );
+
+    /** Parse guided_json response: {"overall_risk":"HIGH","categories":[{"name":"...","rating":"HIGH",...}]} */
+    private RiskAssessmentResult parseRiskJson(com.fasterxml.jackson.databind.JsonNode root) {
+        if (root == null || root.isMissingNode() || !root.has("overall_risk")) {
+            return new RiskAssessmentResult("MEDIUM", List.of());
+        }
+        String overallRisk = root.path("overall_risk").asText("MEDIUM");
+        List<RiskCategory> categories = new ArrayList<>();
+        for (com.fasterxml.jackson.databind.JsonNode cat : root.path("categories")) {
+            categories.add(new RiskCategory(
+                    cat.path("name").asText("Unknown"),
+                    cat.path("rating").asText("MEDIUM"),
+                    cat.path("justification").asText(""),
+                    cat.path("section_ref").asText("See contract")
+            ));
+        }
+        log.info("[prompt={}] guided_json parsed: overall={}, categories={}", PromptTemplates.PROMPT_VERSION, overallRisk, categories.size());
+        return new RiskAssessmentResult(overallRisk, categories);
+    }
 
     /** Parse CSV format: OVERALL=HIGH,LIABILITY=MEDIUM,... */
     private RiskAssessmentResult parseRiskCsv(String raw) {

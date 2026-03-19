@@ -6,6 +6,7 @@ import com.legalpartner.model.dto.ContractReviewResult;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.rag.DocumentFullTextRetriever;
 import com.legalpartner.rag.PromptTemplates;
+import com.legalpartner.rag.StructuredSchemas;
 import com.legalpartner.rag.VllmGuidedClient;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import dev.langchain4j.data.message.SystemMessage;
@@ -39,23 +40,30 @@ public class ContractReviewService {
                     List.of(), List.of("Document not yet indexed"), List.of("Wait for INDEXED status"));
         }
 
-        String prompt = String.format(PromptTemplates.CHECKLIST_USER, doc.getFileName(), context);
+        String guidedPrompt = String.format(PromptTemplates.CHECKLIST_USER_GUIDED, doc.getFileName(), context);
 
-        // CSV format: model outputs one comma-separated line starting from "LIABILITY_LIMIT="
-        String rawResponse = vllmClient.generateText(
-                PromptTemplates.CHECKLIST_SYSTEM, prompt, "LIABILITY_LIMIT=", 400);
+        // Primary: guided_json
+        com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
+                PromptTemplates.CHECKLIST_SYSTEM_GUIDED, guidedPrompt, StructuredSchemas.CHECKLIST_SCHEMA, 1200);
 
-        // Strip "Response:" prefix and [/INST] echoes that AALAP adds
-        String cleaned = rawResponse;
-        int instEnd = cleaned.lastIndexOf("[/INST]");
-        if (instEnd >= 0) cleaned = cleaned.substring(instEnd + 7);
-        cleaned = cleaned.replaceAll("(?i)^\\s*Response\\s*:\\s*", "").trim();
+        log.info("[prompt={}] checklist guided_json node: {}",
+                PromptTemplates.PROMPT_VERSION,
+                json.has("clauses") ? "clauses[" + json.path("clauses").size() + "]" : (json.size() > 0 ? json.fieldNames().next() : "empty"));
 
-        // Try CSV parser first (v8 format), fall back to pipe-delimited
-        List<ClauseCheckResult> clauses = parseChecklistCsv(cleaned);
+        List<ClauseCheckResult> clauses = parseChecklistJson(json);
+
         if (clauses.isEmpty()) {
-            log.info("[prompt={}] CSV checklist parser found 0 clauses — trying pipe parser", PromptTemplates.PROMPT_VERSION);
-            clauses = parseChecklistResponse(cleaned);
+            // Fall back to CSV completions
+            log.info("[prompt={}] guided_json returned no clauses — falling back to CSV completions", PromptTemplates.PROMPT_VERSION);
+            String csvPrompt = String.format(PromptTemplates.CHECKLIST_USER, doc.getFileName(), context);
+            String rawResponse = vllmClient.generateText(
+                    PromptTemplates.CHECKLIST_SYSTEM, csvPrompt, "LIABILITY_LIMIT=", 400);
+            String cleaned = rawResponse;
+            int instEnd = cleaned.lastIndexOf("[/INST]");
+            if (instEnd >= 0) cleaned = cleaned.substring(instEnd + 7);
+            cleaned = cleaned.replaceAll("(?i)^\\s*Response\\s*:\\s*", "").trim();
+            clauses = parseChecklistCsv(cleaned);
+            if (clauses.isEmpty()) clauses = parseChecklistResponse(cleaned);
         }
 
         if (clauses.isEmpty()) {
@@ -151,6 +159,29 @@ public class ContractReviewService {
             log.warn("Checklist parser: no lines matched. Raw length={}, preview={}",
                     raw.length(), raw.substring(0, Math.min(300, raw.length())).replace('\n', ' '));
         }
+        return results;
+    }
+
+    /** Parse guided_json response: {"clauses":[{"clause_id":"LIABILITY_LIMIT","status":"PRESENT",...}]} */
+    private List<ClauseCheckResult> parseChecklistJson(com.fasterxml.jackson.databind.JsonNode root) {
+        if (root == null || root.isMissingNode() || !root.has("clauses")) return List.of();
+        List<ClauseCheckResult> results = new ArrayList<>();
+        for (com.fasterxml.jackson.databind.JsonNode clause : root.path("clauses")) {
+            String clauseId = clause.path("clause_id").asText();
+            if (!CLAUSE_ID_NAMES.containsKey(clauseId)) continue;
+            String rec = clause.path("recommendation").isNull() ? null : clause.path("recommendation").asText(null);
+            if (rec != null && rec.isBlank()) rec = null;
+            results.add(new ClauseCheckResult(
+                    CLAUSE_ID_NAMES.get(clauseId),
+                    clause.path("status").asText("MISSING"),
+                    null,
+                    clause.path("section_ref").asText("MISSING"),
+                    clause.path("risk_level").asText("MEDIUM"),
+                    clause.path("finding").asText(""),
+                    rec
+            ));
+        }
+        log.info("[prompt={}] guided_json checklist parsed: {} clauses", PromptTemplates.PROMPT_VERSION, results.size());
         return results;
     }
 
