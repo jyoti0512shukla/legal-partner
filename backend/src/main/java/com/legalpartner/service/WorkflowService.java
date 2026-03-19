@@ -103,11 +103,15 @@ public class WorkflowService implements ApplicationRunner {
 
     public WorkflowDefinitionDto createDefinition(CreateWorkflowRequest req, String username) {
         try {
+            List<WorkflowConnector> connectors = req.getConnectors() != null ? req.getConnectors() : List.of();
             WorkflowDefinition def = WorkflowDefinition.builder()
                     .name(req.getName())
                     .description(req.getDescription())
                     .predefined(false)
+                    .team(req.isTeam())
+                    .autoTrigger(req.isAutoTrigger())
                     .steps(objectMapper.writeValueAsString(req.getSteps()))
+                    .connectors(objectMapper.writeValueAsString(connectors))
                     .createdBy(username)
                     .build();
             return toDto(definitionRepo.save(def));
@@ -257,13 +261,19 @@ public class WorkflowService implements ApplicationRunner {
     private WorkflowDefinitionDto toDto(WorkflowDefinition def) {
         List<WorkflowStepConfig> steps = List.of();
         try { steps = objectMapper.readValue(def.getSteps(), new TypeReference<>() {}); } catch (Exception ignored) {}
+        List<WorkflowConnector> connectors = List.of();
+        try {
+            if (def.getConnectors() != null) connectors = objectMapper.readValue(def.getConnectors(), new TypeReference<>() {});
+        } catch (Exception ignored) {}
         return WorkflowDefinitionDto.builder()
                 .id(def.getId())
                 .name(def.getName())
                 .description(def.getDescription())
                 .predefined(def.isPredefined())
                 .team(def.isTeam())
+                .autoTrigger(def.isAutoTrigger())
                 .steps(steps)
+                .connectors(connectors)
                 .createdBy(def.getCreatedBy())
                 .createdAt(def.getCreatedAt())
                 .build();
@@ -294,6 +304,7 @@ public class WorkflowService implements ApplicationRunner {
                 .totalSteps(steps.size())
                 .results(results)
                 .errorMessage(run.getErrorMessage())
+                .matterRef(run.getMatterRef())
                 .startedAt(run.getStartedAt())
                 .completedAt(run.getCompletedAt())
                 .build();

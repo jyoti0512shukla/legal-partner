@@ -4,9 +4,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.config.MailProperties;
 import com.legalpartner.model.dto.WorkflowConnector;
 import com.legalpartner.model.entity.WorkflowRun;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
+import org.springframework.lang.Nullable;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
@@ -18,15 +19,24 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ConnectorService {
 
+    @Nullable
     private final JavaMailSender mailSender;
     private final MailProperties mailProps;
     private final ObjectMapper objectMapper;
 
     private final RestTemplate restTemplate = new RestTemplate();
+
+    @Autowired
+    public ConnectorService(@Nullable JavaMailSender mailSender,
+                            MailProperties mailProps,
+                            ObjectMapper objectMapper) {
+        this.mailSender = mailSender;
+        this.mailProps = mailProps;
+        this.objectMapper = objectMapper;
+    }
 
     @Async
     public void fireAll(WorkflowRun run, List<WorkflowConnector> connectors,
@@ -85,7 +95,7 @@ public class ConnectorService {
 
     private void fireEmail(WorkflowConnector connector, WorkflowRun run,
                            Map<String, Object> results, String workflowName) throws Exception {
-        if (!mailProps.isEnabled()) {
+        if (!mailProps.isEnabled() || mailSender == null) {
             log.info("Mail not enabled — skipping email connector for run {}", run.getId());
             return;
         }
@@ -122,10 +132,11 @@ public class ConnectorService {
 
         StringBuilder steps = new StringBuilder();
         results.forEach((stepType, result) -> {
-            String label = stepType.replace("_", " ").toLowerCase();
-            label = Character.toUpperCase(label.charAt(0)) + label.substring(1);
+            String label = stepType.replace("_", " ").toLowerCase().trim();
+            if (!label.isEmpty()) label = Character.toUpperCase(label.charAt(0)) + label.substring(1);
             steps.append("<li style='margin-bottom:6px'>").append(label).append(" — completed</li>");
         });
+        if (steps.isEmpty()) steps.append("<li>No steps recorded</li>");
 
         String deepLink = mailProps.getAppUrl() + "/workflows/run/" + run.getId();
 
