@@ -1,9 +1,38 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldAlert, ChevronRight, Loader2 } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
 const RISK_COLORS = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
+
+function DrilldownPanel({ data }) {
+  return (
+    <div className="space-y-3 mt-3">
+      <div>
+        <p className="text-[10px] font-semibold text-danger uppercase tracking-wide mb-1">What's at risk</p>
+        <p className="text-xs text-text-secondary leading-relaxed">{data.detailedRisk}</p>
+      </div>
+      {data.businessImpact && (
+        <div>
+          <p className="text-[10px] font-semibold text-warning uppercase tracking-wide mb-1">Business impact</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{data.businessImpact}</p>
+        </div>
+      )}
+      {data.howToFix && (
+        <div>
+          <p className="text-[10px] font-semibold text-success uppercase tracking-wide mb-1">How to fix</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{data.howToFix}</p>
+        </div>
+      )}
+      {data.suggestedLanguage && (
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-1">Suggested language</p>
+          <p className="text-xs font-mono leading-relaxed bg-surface-el rounded-lg p-2.5 border border-border text-text-secondary whitespace-pre-wrap">{data.suggestedLanguage}</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function RiskAssessmentPage() {
   const [docs, setDocs] = useState([]);
@@ -11,6 +40,8 @@ export default function RiskAssessmentPage() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // keyed by category name: { loading, data, error }
+  const [drilldowns, setDrilldowns] = useState({});
 
   useEffect(() => {
     api.get('/documents?size=100').then(r => setDocs(r.data.content || [])).catch(() => {});
@@ -18,13 +49,28 @@ export default function RiskAssessmentPage() {
 
   const handleAssess = async () => {
     if (!docId) return;
-    setLoading(true); setError(''); setResult(null);
+    setLoading(true); setError(''); setResult(null); setDrilldowns({});
     try {
       const res = await api.post(`/ai/risk-assessment/${docId}`);
       setResult(res.data);
     } catch (e) {
       setError(e.response?.data?.message || 'Assessment failed');
     } finally { setLoading(false); }
+  };
+
+  const handleDrilldown = async (cat) => {
+    setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: true, data: null, error: null } }));
+    try {
+      const res = await api.post(`/ai/risk-drilldown/${docId}`, {
+        categoryName: cat.name,
+        rating: cat.rating,
+        justification: cat.justification,
+        sectionRef: cat.clauseReference,
+      });
+      setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: false, data: res.data, error: null } }));
+    } catch (e) {
+      setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: false, data: null, error: e.response?.data?.message || 'Analysis failed' } }));
+    }
   };
 
   const riskColor = (rating) => RISK_COLORS[rating] || 'text-muted';
@@ -66,18 +112,45 @@ export default function RiskAssessmentPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {result.categories?.map((cat, i) => (
-              <div key={i} className={`card border-t-4 border-${riskColor(cat.rating)}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-semibold text-text-primary">{cat.name}</h3>
-                  <span className={`badge-${cat.rating.toLowerCase()}`}>{cat.rating}</span>
+            {result.categories?.map((cat, i) => {
+              const dd = drilldowns[cat.name];
+              const canDrilldown = cat.rating === 'HIGH' || cat.rating === 'MEDIUM';
+              return (
+                <div key={i} className={`card border-t-4 border-${riskColor(cat.rating)}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-semibold text-text-primary">{cat.name}</h3>
+                    <span className={`badge-${cat.rating.toLowerCase()}`}>{cat.rating}</span>
+                  </div>
+                  <p className="text-sm text-text-secondary mb-2">{cat.justification}</p>
+                  {cat.clauseReference && (
+                    <p className="font-mono text-xs text-primary mb-2">{cat.clauseReference}</p>
+                  )}
+
+                  {canDrilldown && (
+                    <div className="border-t border-border/60 pt-3 mt-1">
+                      {!dd ? (
+                        <button
+                          onClick={() => handleDrilldown(cat)}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                          Analyse risk &amp; get fix
+                        </button>
+                      ) : dd.loading ? (
+                        <div className="flex items-center gap-2 text-xs text-text-muted py-1">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Analysing…
+                        </div>
+                      ) : dd.error ? (
+                        <p className="text-xs text-danger">{dd.error}</p>
+                      ) : (
+                        <DrilldownPanel data={dd.data} />
+                      )}
+                    </div>
+                  )}
                 </div>
-                <p className="text-sm text-text-secondary mb-2">{cat.justification}</p>
-                {cat.clauseReference && (
-                  <p className="font-mono text-xs text-primary">{cat.clauseReference}</p>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}

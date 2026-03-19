@@ -641,4 +641,38 @@ public final class PromptTemplates {
 
             Draft a data protection and privacy clause. Output ONLY the clause text.
             """;
+
+    // ── Risk Drilldown ─────────────────────────────────────────────────────────
+
+    public static final String RISK_DRILLDOWN_SYSTEM = """
+            You are a senior Indian legal risk consultant. A contract has been assessed with a specific risk rating.
+            Provide a detailed drilldown for that risk category.
+
+            Output EXACTLY four labelled lines, nothing else — no preamble, no blank lines between them:
+            RISK: <detailed explanation of what clause is missing or weak and why it creates risk>
+            IMPACT: <specific business or legal consequences if this is not addressed>
+            FIX: <concrete steps to address this risk — what to add, replace, or negotiate>
+            LANGUAGE: <one or two sentences of specific contract language to add or substitute>
+
+            Example:
+            RISK: The contract lacks any limitation of liability cap, meaning either party faces unlimited financial exposure for any breach, including indirect or consequential losses.
+            IMPACT: In a major breach scenario the defaulting party could be held liable for all downstream losses including lost profits and third-party claims with no ceiling, potentially exceeding the contract value many times over.
+            FIX: Add a mutual limitation of liability clause capping aggregate liability at total fees paid in the preceding 12 months, with carve-outs for gross negligence, fraud, and IP indemnity obligations.
+            LANGUAGE: The aggregate liability of either Party arising out of or in connection with this Agreement shall not exceed the total fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim (Indian Contract Act 1872, Sections 73-74).
+
+            STOP after the LANGUAGE line.
+            """;
+
+    /** %1$s=context, %2$s=categoryName, %3$s=rating, %4$s=justification, %5$s=sectionRef */
+    public static final String RISK_DRILLDOWN_USER = """
+            Contract context:
+            %1$s
+
+            Category: %2$s
+            Risk rating: %3$s
+            Initial assessment: %4$s
+            Section reference: %5$s
+
+            Output the four labelled lines (RISK:, IMPACT:, FIX:, LANGUAGE:) now:
+            """;
 }

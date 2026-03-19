@@ -654,6 +654,15 @@ public class AiService {
     private static final java.util.regex.Pattern REFINE_REASONING =
             java.util.regex.Pattern.compile("(?:^|\\n)REASONING:\\s*(.+)", java.util.regex.Pattern.CASE_INSENSITIVE);
 
+    private static final java.util.regex.Pattern DRILLDOWN_RISK =
+            java.util.regex.Pattern.compile("(?:^|\\n)RISK:\\s*(.+?)(?=\\nIMPACT:|\\nFIX:|\\nLANGUAGE:|$)", java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern DRILLDOWN_IMPACT =
+            java.util.regex.Pattern.compile("(?:^|\\n)IMPACT:\\s*(.+?)(?=\\nFIX:|\\nLANGUAGE:|$)", java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern DRILLDOWN_FIX =
+            java.util.regex.Pattern.compile("(?:^|\\n)FIX:\\s*(.+?)(?=\\nLANGUAGE:|$)", java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern DRILLDOWN_LANGUAGE =
+            java.util.regex.Pattern.compile("(?:^|\\n)LANGUAGE:\\s*(.+)", java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.CASE_INSENSITIVE);
+
     private RefineClauseResponse parseRefineResponse(String raw) {
         if (raw == null) raw = "";
         // Strip any CSS / HTML that leaked in (template styles sometimes injected)
@@ -692,6 +701,51 @@ public class AiService {
                 .improvedText(improvedText)
                 .reasoning(reasoning)
                 .build();
+    }
+
+    public RiskDrilldownResult riskDrilldown(UUID documentId, RiskDrilldownRequest request, String username) {
+        String context = fullTextRetriever.retrieveFullText(documentId);
+        if (context.isBlank()) {
+            return new RiskDrilldownResult(request.categoryName(), request.rating(),
+                    "Document has not been indexed yet.", null, null, null);
+        }
+        // Cap context — drilldown is focused, doesn't need the full document
+        if (context.length() > 5000) context = context.substring(0, 5000);
+
+        String prompt = String.format(PromptTemplates.RISK_DRILLDOWN_USER,
+                context,
+                request.categoryName(),
+                request.rating(),
+                request.justification() != null ? request.justification() : "No initial justification.",
+                request.sectionRef() != null && !request.sectionRef().isBlank() ? request.sectionRef() : "Not found");
+
+        AiMessage response = chatModel.generate(
+                UserMessage.from(PromptTemplates.RISK_DRILLDOWN_SYSTEM + "\n\n" + prompt)
+        ).content();
+
+        return parseDrilldownResponse(request.categoryName(), request.rating(), response.text());
+    }
+
+    private RiskDrilldownResult parseDrilldownResponse(String categoryName, String rating, String raw) {
+        if (raw == null) raw = "";
+        String cleaned = raw.replaceAll("(?s)<style[^>]*>.*?</style>", "").replaceAll("<[^>]+>", "").trim();
+
+        java.util.regex.Matcher rm = DRILLDOWN_RISK.matcher(cleaned);
+        java.util.regex.Matcher im = DRILLDOWN_IMPACT.matcher(cleaned);
+        java.util.regex.Matcher fm = DRILLDOWN_FIX.matcher(cleaned);
+        java.util.regex.Matcher lm = DRILLDOWN_LANGUAGE.matcher(cleaned);
+
+        String detailedRisk     = rm.find() ? rm.group(1).trim() : null;
+        String businessImpact   = im.find() ? im.group(1).trim() : null;
+        String howToFix         = fm.find() ? fm.group(1).trim() : null;
+        String suggestedLanguage = lm.find() ? lm.group(1).trim() : null;
+
+        if (detailedRisk == null || detailedRisk.isBlank()) {
+            log.warn("Risk drilldown: could not parse structured response for {}", categoryName);
+            detailedRisk = cleaned.isBlank() ? "Analysis unavailable." : cleaned;
+        }
+
+        return new RiskDrilldownResult(categoryName, rating, detailedRisk, businessImpact, howToFix, suggestedLanguage);
     }
 
     // ── Context assembly ───────────────────────────────────────────────────────

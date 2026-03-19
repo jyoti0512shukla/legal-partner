@@ -53,6 +53,14 @@ public class AiController {
         return aiService.assessRisk(docId, auth.getName());
     }
 
+    @PostMapping("/risk-drilldown/{docId}")
+    public RiskDrilldownResult riskDrilldown(
+            @PathVariable UUID docId,
+            @RequestBody RiskDrilldownRequest request,
+            Authentication auth) {
+        return aiService.riskDrilldown(docId, request, auth.getName());
+    }
+
     @PostMapping("/extract/{docId}")
     public ExtractionResult extract(@PathVariable UUID docId, Authentication auth) {
         return aiService.extractKeyTerms(docId, auth.getName());
