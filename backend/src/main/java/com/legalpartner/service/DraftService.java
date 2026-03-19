@@ -2,6 +2,7 @@ package com.legalpartner.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.legalpartner.config.LegalSystemConfig;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.dto.DraftResponse;
 import com.legalpartner.model.dto.DraftResponse.ClauseSuggestion;
@@ -35,35 +36,48 @@ public class DraftService {
     private final DraftContextRetriever draftContextRetriever;
     private final ChatLanguageModel chatModel;
     private final Semaphore draftSemaphore;
+    private final LegalSystemConfig legalSystemConfig;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
                         DraftContextRetriever draftContextRetriever,
                         ChatLanguageModel chatModel,
+                        LegalSystemConfig legalSystemConfig,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
         this.chatModel = chatModel;
+        this.legalSystemConfig = legalSystemConfig;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
 
-    private record ClauseSpec(String title, String systemPrompt, String userPromptTemplate) {}
+    private record ClauseSpec(String title, String systemPrompt, String userPromptTemplate, int expectedSubclauses) {}
 
     private static final Map<String, ClauseSpec> CLAUSE_SPECS = new LinkedHashMap<>();
     static {
-        CLAUSE_SPECS.put("DEFINITIONS",               new ClauseSpec("Definitions",                    PromptTemplates.DRAFT_DEFINITIONS_SYSTEM,               PromptTemplates.DRAFT_DEFINITIONS_USER));
-        CLAUSE_SPECS.put("SERVICES",                  new ClauseSpec("Services",                       PromptTemplates.DRAFT_SERVICES_SYSTEM,                  PromptTemplates.DRAFT_SERVICES_USER));
-        CLAUSE_SPECS.put("PAYMENT",                   new ClauseSpec("Fees and Payment",               PromptTemplates.DRAFT_PAYMENT_SYSTEM,                   PromptTemplates.DRAFT_PAYMENT_USER));
-        CLAUSE_SPECS.put("CONFIDENTIALITY",           new ClauseSpec("Confidentiality",                PromptTemplates.DRAFT_CONFIDENTIALITY_SYSTEM,           PromptTemplates.DRAFT_CONFIDENTIALITY_USER));
-        CLAUSE_SPECS.put("IP_RIGHTS",                 new ClauseSpec("Intellectual Property Rights",   PromptTemplates.DRAFT_IP_RIGHTS_SYSTEM,                 PromptTemplates.DRAFT_IP_RIGHTS_USER));
-        CLAUSE_SPECS.put("LIABILITY",                 new ClauseSpec("Liability and Indemnity",        PromptTemplates.DRAFT_LIABILITY_SYSTEM,                 PromptTemplates.DRAFT_LIABILITY_USER));
-        CLAUSE_SPECS.put("TERMINATION",               new ClauseSpec("Termination",                    PromptTemplates.DRAFT_TERMINATION_SYSTEM,               PromptTemplates.DRAFT_TERMINATION_USER));
-        CLAUSE_SPECS.put("FORCE_MAJEURE",             new ClauseSpec("Force Majeure",                  PromptTemplates.DRAFT_FORCE_MAJEURE_SYSTEM,             PromptTemplates.DRAFT_FORCE_MAJEURE_USER));
-        CLAUSE_SPECS.put("REPRESENTATIONS_WARRANTIES",new ClauseSpec("Representations and Warranties", PromptTemplates.DRAFT_REPRESENTATIONS_WARRANTIES_SYSTEM, PromptTemplates.DRAFT_REPRESENTATIONS_WARRANTIES_USER));
-        CLAUSE_SPECS.put("DATA_PROTECTION",           new ClauseSpec("Data Protection and Privacy",    PromptTemplates.DRAFT_DATA_PROTECTION_SYSTEM,           PromptTemplates.DRAFT_DATA_PROTECTION_USER));
-        CLAUSE_SPECS.put("GOVERNING_LAW",             new ClauseSpec("Governing Law and Dispute Resolution", PromptTemplates.DRAFT_GOVERNING_LAW_SYSTEM,       PromptTemplates.DRAFT_GOVERNING_LAW_USER));
-        CLAUSE_SPECS.put("GENERAL_PROVISIONS",        new ClauseSpec("General Provisions",             PromptTemplates.DRAFT_GENERAL_PROVISIONS_SYSTEM,        PromptTemplates.DRAFT_GENERAL_PROVISIONS_USER));
+        CLAUSE_SPECS.put("DEFINITIONS",               new ClauseSpec("Definitions",                    PromptTemplates.DRAFT_DEFINITIONS_SYSTEM,               PromptTemplates.DRAFT_DEFINITIONS_USER,               7));
+        CLAUSE_SPECS.put("SERVICES",                  new ClauseSpec("Services",                       PromptTemplates.DRAFT_SERVICES_SYSTEM,                  PromptTemplates.DRAFT_SERVICES_USER,                  0));
+        CLAUSE_SPECS.put("PAYMENT",                   new ClauseSpec("Fees and Payment",               PromptTemplates.DRAFT_PAYMENT_SYSTEM,                   PromptTemplates.DRAFT_PAYMENT_USER,                   0));
+        CLAUSE_SPECS.put("CONFIDENTIALITY",           new ClauseSpec("Confidentiality",                PromptTemplates.DRAFT_CONFIDENTIALITY_SYSTEM,           PromptTemplates.DRAFT_CONFIDENTIALITY_USER,           5));
+        CLAUSE_SPECS.put("IP_RIGHTS",                 new ClauseSpec("Intellectual Property Rights",   PromptTemplates.DRAFT_IP_RIGHTS_SYSTEM,                 PromptTemplates.DRAFT_IP_RIGHTS_USER,                 0));
+        CLAUSE_SPECS.put("LIABILITY",                 new ClauseSpec("Liability and Indemnity",        PromptTemplates.DRAFT_LIABILITY_SYSTEM,                 PromptTemplates.DRAFT_LIABILITY_USER,                 5));
+        CLAUSE_SPECS.put("TERMINATION",               new ClauseSpec("Termination",                    PromptTemplates.DRAFT_TERMINATION_SYSTEM,               PromptTemplates.DRAFT_TERMINATION_USER,               4));
+        CLAUSE_SPECS.put("FORCE_MAJEURE",             new ClauseSpec("Force Majeure",                  PromptTemplates.DRAFT_FORCE_MAJEURE_SYSTEM,             PromptTemplates.DRAFT_FORCE_MAJEURE_USER,             5));
+        CLAUSE_SPECS.put("REPRESENTATIONS_WARRANTIES",new ClauseSpec("Representations and Warranties", PromptTemplates.DRAFT_REPRESENTATIONS_WARRANTIES_SYSTEM, PromptTemplates.DRAFT_REPRESENTATIONS_WARRANTIES_USER, 5));
+        CLAUSE_SPECS.put("DATA_PROTECTION",           new ClauseSpec("Data Protection and Privacy",    PromptTemplates.DRAFT_DATA_PROTECTION_SYSTEM,           PromptTemplates.DRAFT_DATA_PROTECTION_USER,           5));
+        CLAUSE_SPECS.put("GOVERNING_LAW",             new ClauseSpec("Governing Law and Dispute Resolution", PromptTemplates.DRAFT_GOVERNING_LAW_SYSTEM,       PromptTemplates.DRAFT_GOVERNING_LAW_USER,             4));
+        CLAUSE_SPECS.put("GENERAL_PROVISIONS",        new ClauseSpec("General Provisions",             PromptTemplates.DRAFT_GENERAL_PROVISIONS_SYSTEM,        PromptTemplates.DRAFT_GENERAL_PROVISIONS_USER,        8));
     }
+
+    // ── QA: placeholder detection pattern ─────────────────────────────────────
+    private static final java.util.regex.Pattern QA_PLACEHOLDER_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "\\[(?!\\d)[^\\]]{2,60}\\]"          // [some placeholder text]
+                    + "|(\\(insert[^)]{0,50}\\))"         // (insert ...)
+                    + "|%[A-Z][A-Z_]{2,}%"                // %LEFTOVER_MARKER%
+                    + "|\\bTBC\\b|\\bTBD\\b",             // TBC / TBD
+                    java.util.regex.Pattern.CASE_INSENSITIVE
+            );
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
@@ -110,12 +124,16 @@ public class DraftService {
 
         Map<String, String> sectionValues = new LinkedHashMap<>();
         List<ClauseSuggestion> suggestions = new ArrayList<>();
+        Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
         for (String key : plannedSections) {
             ClauseSpec spec = CLAUSE_SPECS.get(key);
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
             String generated = generateClause(request, ctx, spec.systemPrompt(), spec.userPromptTemplate());
             sectionValues.put(key, generated);
+
+            List<String> qaWarnings = qaClause(key, generated, spec.expectedSubclauses());
+            if (!qaWarnings.isEmpty()) allQaWarnings.put(key, qaWarnings);
 
             String reasoning = "Generated using RAG from firm's corpus.";
             if (!ctx.sourceDocuments().isEmpty()) {
@@ -132,6 +150,7 @@ public class DraftService {
         return DraftResponse.builder()
                 .draftHtml(buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues))
                 .suggestions(suggestions)
+                .qaWarnings(allQaWarnings.isEmpty() ? null : allQaWarnings)
                 .build();
     }
 
@@ -158,6 +177,7 @@ public class DraftService {
                 "partialHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues)))));
 
         List<ClauseSuggestion> suggestions = new ArrayList<>();
+        Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
         // Phase 2: generate each planned section
         for (int i = 0; i < plannedSections.size(); i++) {
@@ -175,13 +195,19 @@ public class DraftService {
             String generated = generateClause(request, ctx, spec.systemPrompt(), spec.userPromptTemplate());
             sectionValues.put(key, generated);
 
-            emitter.send(SseEmitter.event().data(toJson(Map.of(
-                    "type", "clause_done",
-                    "clauseType", key,
-                    "label", spec.title(),
-                    "index", i + 1,
-                    "totalClauses", plannedSections.size(),
-                    "partialHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues)))));
+            // QA pass: check for placeholders and completeness
+            List<String> qaWarnings = qaClause(key, generated, spec.expectedSubclauses());
+            if (!qaWarnings.isEmpty()) allQaWarnings.put(key, qaWarnings);
+
+            Map<String, Object> clauseDonePayload = new LinkedHashMap<>();
+            clauseDonePayload.put("type", "clause_done");
+            clauseDonePayload.put("clauseType", key);
+            clauseDonePayload.put("label", spec.title());
+            clauseDonePayload.put("index", i + 1);
+            clauseDonePayload.put("totalClauses", plannedSections.size());
+            clauseDonePayload.put("qaWarnings", qaWarnings);
+            clauseDonePayload.put("partialHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
+            emitter.send(SseEmitter.event().data(toJson(clauseDonePayload)));
 
             String reasoning = "Generated using RAG from firm's corpus.";
             if (!ctx.sourceDocuments().isEmpty()) {
@@ -195,10 +221,12 @@ public class DraftService {
                     .build());
         }
 
-        emitter.send(SseEmitter.event().data(toJson(Map.of(
-                "type", "complete",
-                "draftHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues),
-                "suggestions", suggestions))));
+        Map<String, Object> completePayload = new LinkedHashMap<>();
+        completePayload.put("type", "complete");
+        completePayload.put("draftHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
+        completePayload.put("suggestions", suggestions);
+        completePayload.put("qaWarnings", allQaWarnings);
+        emitter.send(SseEmitter.event().data(toJson(completePayload)));
         emitter.complete();
     }
 
@@ -219,7 +247,7 @@ public class DraftService {
 
         try {
             AiMessage response = chatModel.generate(
-                    UserMessage.from(PromptTemplates.SECTION_PLANNER_SYSTEM + "\n\n" + prompt)
+                    UserMessage.from(legalSystemConfig.localize(PromptTemplates.SECTION_PLANNER_SYSTEM) + "\n\n" + prompt)
             ).content();
 
             String text = response.text().trim();
@@ -308,11 +336,49 @@ public class DraftService {
             log.info("Draft context: {} chunks from {} sources", ctx.chunkCount(), ctx.sourceDocuments().size());
         }
 
+        // Append content guardrails to every draft system prompt to prevent placeholder leakage
+        String localizedSystemPrompt = legalSystemConfig.localize(systemPrompt) + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
+
         AiMessage response = chatModel.generate(
-                UserMessage.from(systemPrompt + "\n\n" + prompt)
+                UserMessage.from(localizedSystemPrompt + "\n\n" + prompt)
         ).content();
 
         return sanitizeClauseText(response.text().trim());
+    }
+
+    /**
+     * Post-generation QA pass. Detects unfilled placeholders and incomplete sub-clause counts.
+     * Returns a list of human-readable warning strings (empty = clean).
+     */
+    private List<String> qaClause(String clauseKey, String htmlText, int expectedSubclauses) {
+        List<String> warnings = new ArrayList<>();
+
+        // Strip HTML tags for plain-text analysis
+        String plain = htmlText.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+
+        // 1. Placeholder detection
+        java.util.regex.Matcher m = QA_PLACEHOLDER_PATTERN.matcher(plain);
+        java.util.LinkedHashSet<String> found = new java.util.LinkedHashSet<>();
+        while (m.find()) found.add(m.group());
+        for (String ph : found) {
+            warnings.add("Unfilled placeholder: " + ph);
+            log.warn("QA [{}]: unfilled placeholder detected — {}", clauseKey, ph);
+        }
+
+        // 2. Sub-clause count check (only for clauses with a strict expected count)
+        if (expectedSubclauses > 0) {
+            int actual = 0;
+            int idx = 0;
+            String marker = "clause-sub";
+            while ((idx = htmlText.indexOf(marker, idx)) >= 0) { actual++; idx += marker.length(); }
+            if (actual < expectedSubclauses) {
+                String msg = "Incomplete: expected " + expectedSubclauses + " sub-clauses, found " + actual;
+                warnings.add(msg);
+                log.warn("QA [{}]: {}", clauseKey, msg);
+            }
+        }
+
+        return warnings;
     }
 
     private String buildDealContext(DraftRequest request) {

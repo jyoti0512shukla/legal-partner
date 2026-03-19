@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Map;
 
 @Data
 @Builder
@@ -15,6 +16,8 @@ public class DraftResponse {
 
     private String draftHtml;
     private List<ClauseSuggestion> suggestions;
+    /** clauseKey → list of QA warning strings. Populated when post-generation validation finds issues. */
+    private Map<String, List<String>> qaWarnings;
 
     @Data
     @Builder

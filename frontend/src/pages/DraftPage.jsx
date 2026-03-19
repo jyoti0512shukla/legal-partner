@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save, FolderOpen, Pencil } from 'lucide-react';
+import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save, FolderOpen, Pencil, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
@@ -20,6 +20,21 @@ function extractBodyContent(html) {
 
 const JURISDICTIONS = ['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan', 'Supreme Court', 'India'];
 
+const CLAUSE_SPECS_LABELS = {
+  DEFINITIONS: 'Definitions',
+  SERVICES: 'Services',
+  PAYMENT: 'Fees and Payment',
+  CONFIDENTIALITY: 'Confidentiality',
+  IP_RIGHTS: 'Intellectual Property Rights',
+  LIABILITY: 'Liability and Indemnity',
+  TERMINATION: 'Termination',
+  FORCE_MAJEURE: 'Force Majeure',
+  REPRESENTATIONS_WARRANTIES: 'Representations and Warranties',
+  DATA_PROTECTION: 'Data Protection and Privacy',
+  GOVERNING_LAW: 'Governing Law and Dispute Resolution',
+  GENERAL_PROVISIONS: 'General Provisions',
+};
+
 export default function DraftPage() {
   const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
@@ -34,6 +49,7 @@ export default function DraftPage() {
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
   const [selectionInfo, setSelectionInfo] = useState(null);
   const [pendingRefinement, setPendingRefinement] = useState(null);
+  const [qaWarnings, setQaWarnings] = useState({}); // clauseKey → string[]
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const previewRef = useRef(null);
@@ -102,6 +118,7 @@ export default function DraftPage() {
     setGeneratingStatus(null);
     setSelectionInfo(null);
     setPendingRefinement(null);
+    setQaWarnings({});
     try {
       const response = await fetch('/api/v1/ai/draft/stream', {
         method: 'POST',
@@ -138,8 +155,14 @@ export default function DraftPage() {
           } else if (event.type === 'clause_done') {
             setGeneratingStatus({ label: event.label, index: event.index, total: event.totalClauses, done: true });
             setDraft(prev => ({ ...(prev || {}), draftHtml: event.partialHtml }));
+            if (event.qaWarnings?.length > 0) {
+              setQaWarnings(prev => ({ ...prev, [event.clauseType]: event.qaWarnings }));
+            }
           } else if (event.type === 'complete') {
             setDraft({ draftHtml: event.draftHtml, suggestions: event.suggestions });
+            if (event.qaWarnings && Object.keys(event.qaWarnings).length > 0) {
+              setQaWarnings(event.qaWarnings);
+            }
             setLoading(false);
             setGeneratingStatus(null);
           } else if (event.type === 'error') {
@@ -476,6 +499,34 @@ export default function DraftPage() {
                   onClose={() => setShowSaveToCloud(false)}
                   onSaved={() => setShowSaveToCloud(false)}
                 />
+              )}
+
+              {Object.keys(qaWarnings).length > 0 && (
+                <div className="card border-l-4 border-warning bg-warning/5">
+                  <h4 className="font-semibold mb-3 flex items-center gap-2 text-warning">
+                    <AlertTriangle className="w-4 h-4" />
+                    QA Warnings — Review Required
+                  </h4>
+                  <p className="text-xs text-text-muted mb-3">
+                    The AI flagged potential issues in the clauses below. Review and fix before using this draft.
+                  </p>
+                  <div className="space-y-2">
+                    {Object.entries(qaWarnings).map(([clauseKey, warnings]) => (
+                      <div key={clauseKey} className="p-3 rounded-lg bg-warning/10 border border-warning/20">
+                        <p className="text-xs font-semibold text-warning mb-1">
+                          {CLAUSE_SPECS_LABELS[clauseKey] || clauseKey}
+                        </p>
+                        <ul className="space-y-0.5">
+                          {warnings.map((w, i) => (
+                            <li key={i} className="text-xs text-text-secondary flex items-start gap-1.5">
+                              <span className="text-warning mt-0.5">•</span> {w}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {draft.suggestions?.length > 0 && (
