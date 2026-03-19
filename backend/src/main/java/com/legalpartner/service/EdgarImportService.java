@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Year;
 import java.util.*;
 
@@ -72,17 +74,19 @@ public class EdgarImportService {
     // ── Search ────────────────────────────────────────────────────────────────
 
     public List<EdgarSearchResult> search(String query, int maxResults) throws Exception {
-        String url = EFTS_URL + "?q=" + encodeQuery(query)
+        // EDGAR EFTS only supports: q, forms, dateRange, startdt, enddt, entity, _source (top-level)
+        // Do NOT use Elasticsearch-style hits.* params — they cause 500 on EDGAR's side
+        String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
+        String url = EFTS_URL + "?q=" + encodedQuery
                 + "&forms=EX-10"
-                + "&dateRange=custom&startdt=2018-01-01&enddt=2024-12-31"
-                + "&hits.hits.total.relation=eq"
-                + "&hits.hits._source=entity_name,file_date,form_type"
-                + "&hits.hits.hits=" + Math.min(maxResults, 40);
+                + "&dateRange=custom&startdt=2019-01-01&enddt=2024-12-31"
+                + "&_source=entity_name,file_date,form_type,period_of_report";
 
         log.info("EDGAR search: {}", url);
 
         RestTemplate rt = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
+        // EDGAR requires a descriptive User-Agent with org name and contact email
         headers.set("User-Agent", USER_AGENT);
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
         ResponseEntity<String> response = rt.exchange(
@@ -97,17 +101,27 @@ public class EdgarImportService {
 
         List<EdgarSearchResult> results = new ArrayList<>();
         for (JsonNode hit : hits) {
+            if (results.size() >= maxResults) break;
+
             String id = hit.path("_id").asText();
             JsonNode src = hit.path("_source");
             String entityName = src.path("entity_name").asText("Unknown");
-            String fileDate   = src.path("file_date").asText("");
+            String fileDate   = src.path("file_date").asText(src.path("period_of_report").asText(""));
             String formType   = src.path("form_type").asText("");
 
-            // Parse _id: "0001234567-23-000001:exhibit10-1.htm"
+            // _id format: "0001234567-23-000001:exhibit10-1.htm"
+            // The colon separates accession number from the document filename within the filing
             int colon = id.lastIndexOf(':');
-            if (colon < 0) continue;
-            String accession = id.substring(0, colon);   // "0001234567-23-000001"
-            String fileName  = id.substring(colon + 1);  // "exhibit10-1.htm"
+            if (colon < 0) {
+                // Fallback: _id is just the accession number — try to build a filing index URL
+                String filingIndexUrl = buildFilingIndexUrl(id);
+                if (filingIndexUrl != null) {
+                    results.add(new EdgarSearchResult(id, entityName, fileDate, formType, filingIndexUrl, id + "-index.htm"));
+                }
+                continue;
+            }
+            String accession = id.substring(0, colon);
+            String fileName  = id.substring(colon + 1);
 
             String docUrl = buildDocumentUrl(accession, fileName);
             if (docUrl == null) continue;
@@ -201,14 +215,13 @@ public class EdgarImportService {
     }
 
     /**
-     * Constructs the direct EDGAR document URL from an accession number and filename.
+     * Constructs the direct EDGAR document URL.
      * Accession format: "0001234567-23-000001"
-     * CIK = first 10 digits parsed as int (removes leading zeros)
-     * URL = https://www.sec.gov/Archives/edgar/data/{cik}/{accession_no_dashes}/{filename}
+     * CIK = first segment parsed as long (strips leading zeros)
+     * URL: https://www.sec.gov/Archives/edgar/data/{cik}/{accessionNoDashes}/{fileName}
      */
     private static String buildDocumentUrl(String accession, String fileName) {
         try {
-            // Validate accession format
             String[] parts = accession.split("-");
             if (parts.length != 3) return null;
             long cik = Long.parseLong(parts[0]);
@@ -220,7 +233,16 @@ public class EdgarImportService {
         }
     }
 
-    private static String encodeQuery(String query) {
-        return query.replace(" ", "+").replace("\"", "%22").replace("'", "%27");
+    /** Builds the filing index page URL when we only have the accession number. */
+    private static String buildFilingIndexUrl(String accession) {
+        try {
+            String[] parts = accession.split("-");
+            if (parts.length != 3) return null;
+            long cik = Long.parseLong(parts[0]);
+            String accessionNoDashes = accession.replace("-", "");
+            return EDGAR_BASE + "/Archives/edgar/data/" + cik + "/" + accessionNoDashes + "/";
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }
