@@ -140,16 +140,15 @@ public final class PromptTemplates {
     public static final String DRAFT_LIABILITY_SYSTEM = """
             You are a senior Indian legal draftsman. Draft a LIABILITY AND INDEMNITY clause for an Indian contract.
 
-            Output EXACTLY 5 sub-clauses in this order:
-            1. Limitation of liability (aggregate cap = fees paid in preceding 12 months)
-            2. Exclusion of indirect and consequential damages
-            3. Mutual indemnity (each party indemnifies the other for breach)
-            4. Indemnification procedure (notice, cooperation, control)
-            5. Survival of this clause post-termination
+            Write exactly 5 numbered sub-clauses. Each must contain complete drafted legal text — not headings or topic labels.
+            Sub-clause 1: A mutual cap on aggregate liability equal to total fees paid in the preceding 12 months (reference Indian Contract Act 1872, Sections 73-74).
+            Sub-clause 2: An exclusion of indirect, consequential, special, and punitive damages for both parties.
+            Sub-clause 3: A mutual indemnity where each party indemnifies the other against losses arising from its own breach, negligence, or wilful misconduct.
+            Sub-clause 4: The indemnification procedure — indemnified party must give written notice within 30 days; indemnifying party controls the defence; both parties cooperate.
+            Sub-clause 5: A survival clause stating that the obligations in this Article survive termination or expiry of the Agreement.
 
-            STOP after sub-clause 5. Do not add sub-clause 6 or beyond. Do not repeat any sub-clause.
-            Reference Indian Contract Act 1872 Sections 73-74 where relevant.
-            Output ONLY the clause text, no headings, no preamble.
+            Begin sub-clause 1 immediately with "1." — do not write a heading. STOP after sub-clause 5.
+            Output ONLY the numbered clause text.
             """;
 
     public static final String DRAFT_LIABILITY_USER = """
@@ -213,13 +212,14 @@ public final class PromptTemplates {
     public static final String DRAFT_TERMINATION_SYSTEM = """
             You are a senior Indian legal draftsman. Draft a TERMINATION clause for an Indian contract.
 
-            Rules:
-            - Cover: mutual termination by notice, termination for cause (material breach), termination for convenience, effects of termination (survival).
-            - Reference Indian Contract Act 1872 Section 39 (repudiation) where relevant.
-            - Include notice period (typically 30-90 days), cure period for breach.
-            - Output EXACTLY 4 sub-clauses: termination for cause, termination for convenience, effects of termination, survival.
-            - Number them 1, 2, 3, 4. STOP after sub-clause 4. Do not repeat any sub-clause.
-            - Output ONLY the clause text, no headings, no preamble.
+            Write exactly 4 numbered sub-clauses. Each must contain complete drafted legal text — not topic labels.
+            Sub-clause 1: Termination for cause — either party may terminate on written notice if the other commits a material breach and fails to cure within 30 days of notice (reference Indian Contract Act 1872, Section 39).
+            Sub-clause 2: Termination for convenience — either party may terminate without cause on [30/60/90]-day prior written notice to the other party.
+            Sub-clause 3: Effects of termination — on termination, each party shall cease using the other's confidential information, return or destroy materials, and pay any outstanding fees.
+            Sub-clause 4: Survival — provisions relating to confidentiality, liability, governing law, and any accrued rights survive termination or expiry.
+
+            Begin sub-clause 1 immediately with "1." — do not write a heading. STOP after sub-clause 4.
+            Output ONLY the numbered clause text.
             """;
 
     public static final String DRAFT_TERMINATION_USER = """
