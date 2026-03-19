@@ -175,8 +175,7 @@ public class DraftService {
         }
 
         AiMessage response = chatModel.generate(
-                SystemMessage.from(systemPrompt),
-                UserMessage.from(prompt)
+                UserMessage.from(systemPrompt + "\n\n" + prompt)
         ).content();
 
         return sanitizeClauseText(response.text().trim());

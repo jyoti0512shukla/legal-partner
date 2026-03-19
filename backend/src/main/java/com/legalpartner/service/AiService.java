@@ -390,8 +390,7 @@ public class AiService {
         }
 
         AiMessage response = chatModel.generate(
-                SystemMessage.from(PromptTemplates.EXTRACTION_SYSTEM),
-                UserMessage.from(String.format(PromptTemplates.EXTRACTION_USER, context))
+                UserMessage.from(PromptTemplates.EXTRACTION_SYSTEM + "\n\n" + String.format(PromptTemplates.EXTRACTION_USER, context))
         ).content();
 
         String rawText = stripResponsePrefix(response.text());
@@ -643,8 +642,7 @@ public class AiService {
         String prompt = String.format(PromptTemplates.REFINE_CLAUSE_USER,
                 context, request.getSelectedText(), instruction);
         AiMessage response = jsonChatModel.generate(
-                SystemMessage.from(PromptTemplates.REFINE_CLAUSE_SYSTEM),
-                UserMessage.from(prompt)
+                UserMessage.from(PromptTemplates.REFINE_CLAUSE_SYSTEM + "\n\n" + prompt)
         ).content();
 
         return parseRefineResponse(response.text());
@@ -876,8 +874,7 @@ public class AiService {
         }
         try {
             AiMessage summary = chatModel.generate(
-                    SystemMessage.from(PromptTemplates.SUMMARY_SYSTEM),
-                    UserMessage.from(String.format(PromptTemplates.SUMMARY_USER, content))
+                    UserMessage.from(PromptTemplates.SUMMARY_SYSTEM + "\n\n" + String.format(PromptTemplates.SUMMARY_USER, content))
             ).content();
             return summary.text().trim();
         } catch (Exception e) {
