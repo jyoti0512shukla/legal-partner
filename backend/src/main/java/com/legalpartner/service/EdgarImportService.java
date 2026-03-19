@@ -36,7 +36,8 @@ public class EdgarImportService {
     private static final String EFTS_URL = "https://efts.sec.gov/LATEST/search-index";
     private static final String EDGAR_BASE = "https://www.sec.gov";
     // EDGAR requires a descriptive User-Agent with contact info
-    private static final String USER_AGENT = "LegalPartner Research Tool legal-partner-app/1.0";
+    // SEC requires email in User-Agent for all EDGAR document requests
+    private static final String USER_AGENT = "LegalPartner Research Tool legal-partner-app/1.0 (contact@legalpartner.app)";
     private static final int MAX_DOWNLOAD_BYTES = 500_000; // 500 KB per doc
 
     /** Predefined queries mapping a preset name to an EDGAR search phrase.
@@ -74,26 +75,18 @@ public class EdgarImportService {
 
     // ── Search ────────────────────────────────────────────────────────────────
 
-    // EX-10 material contracts are filed as EX-10.1, EX-10.2, etc. within 10-K/8-K filings.
-    // "forms=EX-10" matches ONLY the rare standalone EX-10 filing type → always 0 results.
-    // Use actual exhibit form types instead.
-    private static final String EXHIBIT_FORMS =
-            "EX-10.1,EX-10.2,EX-10.3,EX-10.4,EX-10.5,EX-10.6,EX-10.7,EX-10.8,EX-10.9,EX-10.10";
-
     public List<EdgarSearchResult> search(String query, int maxResults) throws Exception {
-        // EDGAR EFTS supported params: q, forms, dateRange, startdt, enddt, entity
-        // Do NOT use Elasticsearch-style params (_source, hits.*) — they break the response
+        // EDGAR EFTS: the "forms" parameter is broken for exhibit types (always returns 0).
+        // Search without forms filter; filter by file_type starting with "EX-10" in code.
+        // _source fields: display_names[], file_type, file_date, adsh
         String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-        String encodedForms = URLEncoder.encode(EXHIBIT_FORMS, StandardCharsets.UTF_8);
         String url = EFTS_URL + "?q=" + encodedQuery
-                + "&forms=" + encodedForms
                 + "&dateRange=custom&startdt=2019-01-01&enddt=2024-12-31";
 
         log.info("EDGAR search: {}", url);
 
         RestTemplate rt = new RestTemplate();
         HttpHeaders headers = new HttpHeaders();
-        // EDGAR requires a descriptive User-Agent with org name and contact email
         headers.set("User-Agent", USER_AGENT);
         headers.setAccept(List.of(MediaType.APPLICATION_JSON));
         ResponseEntity<String> response = rt.exchange(
@@ -103,15 +96,10 @@ public class EdgarImportService {
             throw new RuntimeException("EDGAR search failed: " + response.getStatusCode());
         }
 
-        String body = response.getBody();
-        // Log first 500 chars of response to debug structure
-        log.info("EDGAR raw response (first 500): {}", body.substring(0, Math.min(500, body.length())));
-
-        JsonNode root = objectMapper.readTree(body);
-        // EDGAR EFTS returns ES-style: { "hits": { "total": {...}, "hits": [...] } }
-        JsonNode hitsNode = root.path("hits");
-        JsonNode hits = hitsNode.isArray() ? hitsNode : hitsNode.path("hits");
-        log.info("EDGAR total hits: {}, array size: {}", hitsNode.path("total").path("value"), hits.size());
+        JsonNode root = objectMapper.readTree(response.getBody());
+        JsonNode hits = root.path("hits").path("hits");
+        log.info("EDGAR total: {}, page size: {}",
+                root.path("hits").path("total").path("value"), hits.size());
 
         List<EdgarSearchResult> results = new ArrayList<>();
         for (JsonNode hit : hits) {
@@ -119,28 +107,28 @@ public class EdgarImportService {
 
             String id = hit.path("_id").asText();
             JsonNode src = hit.path("_source");
-            String entityName = src.path("entity_name").asText("Unknown");
-            String fileDate   = src.path("file_date").asText(src.path("period_of_report").asText(""));
-            String formType   = src.path("form_type").asText("");
+
+            // Filter: only EX-10.x exhibit documents
+            String fileType = src.path("file_type").asText("");
+            if (!fileType.startsWith("EX-10")) continue;
+
+            // display_names[0] = "Acme Corp  (ACME)  (CIK 0001234567)" — strip ticker/CIK suffix
+            String rawName = src.path("display_names").path(0).asText("Unknown");
+            String entityName = rawName.contains("  (") ? rawName.substring(0, rawName.indexOf("  (")).trim() : rawName;
+
+            String fileDate = src.path("file_date").asText("");
 
             // _id format: "0001234567-23-000001:exhibit10-1.htm"
-            // The colon separates accession number from the document filename within the filing
             int colon = id.lastIndexOf(':');
-            if (colon < 0) {
-                // Fallback: _id is just the accession number — try to build a filing index URL
-                String filingIndexUrl = buildFilingIndexUrl(id);
-                if (filingIndexUrl != null) {
-                    results.add(new EdgarSearchResult(id, entityName, fileDate, formType, filingIndexUrl, id + "-index.htm"));
-                }
-                continue;
-            }
+            if (colon < 0) continue; // skip hits without a specific filename
+
             String accession = id.substring(0, colon);
             String fileName  = id.substring(colon + 1);
 
             String docUrl = buildDocumentUrl(accession, fileName);
             if (docUrl == null) continue;
 
-            results.add(new EdgarSearchResult(id, entityName, fileDate, formType, docUrl, fileName));
+            results.add(new EdgarSearchResult(id, entityName, fileDate, fileType, docUrl, fileName));
         }
         return results;
     }
