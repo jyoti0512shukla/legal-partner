@@ -42,7 +42,7 @@ public class SecurityConfig {
             @Value("${legalpartner.cloud.frontend-url:http://localhost:5173}") String frontendUrl) {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOriginPatterns(List.of(frontendUrl));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
