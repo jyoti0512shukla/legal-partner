@@ -50,6 +50,9 @@ management:
     web:
       exposure:
         include: health,info
+  health:
+    mail:
+      enabled: false   # mail is optional; don't let missing SMTP creds fail the health check
 
 jasypt:
   encryptor:
