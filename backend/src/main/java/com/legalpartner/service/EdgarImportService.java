@@ -39,19 +39,20 @@ public class EdgarImportService {
     private static final String USER_AGENT = "LegalPartner Research Tool legal-partner-app/1.0";
     private static final int MAX_DOWNLOAD_BYTES = 500_000; // 500 KB per doc
 
-    /** Predefined queries mapping a preset name to an EDGAR search phrase. */
+    /** Predefined queries mapping a preset name to an EDGAR search phrase.
+     *  Single-phrase queries work best — EDGAR EFTS phrase AND search is very strict. */
     public static final Map<String, String> PRESET_QUERIES = new LinkedHashMap<>();
     static {
-        PRESET_QUERIES.put("IT_SERVICES_MSA",  "\"master services agreement\" \"information technology\"");
-        PRESET_QUERIES.put("SAAS_AGREEMENT",   "\"master subscription agreement\" \"software as a service\"");
-        PRESET_QUERIES.put("NDA",              "\"mutual non-disclosure agreement\" \"confidential information\"");
-        PRESET_QUERIES.put("SOFTWARE_LICENSE", "\"software license agreement\" \"intellectual property\"");
-        PRESET_QUERIES.put("VENDOR_AGREEMENT", "\"vendor agreement\" \"services\" \"indemnification\"");
-        PRESET_QUERIES.put("FINTECH_MSA",      "\"master services agreement\" \"financial services\" \"payment\"");
-        PRESET_QUERIES.put("PHARMA_SERVICES",  "\"services agreement\" \"clinical\" OR \"pharmaceutical\"");
-        PRESET_QUERIES.put("MANUFACTURING",    "\"supply agreement\" \"manufacturing\" \"purchase orders\"");
-        PRESET_QUERIES.put("EMPLOYMENT",       "\"executive employment agreement\" \"severance\" \"non-compete\"");
-        PRESET_QUERIES.put("IP_LICENSE",       "\"intellectual property license\" \"royalty\" \"sublicense\"");
+        PRESET_QUERIES.put("IT_SERVICES_MSA",  "\"master services agreement\"");
+        PRESET_QUERIES.put("SAAS_AGREEMENT",   "\"master subscription agreement\"");
+        PRESET_QUERIES.put("NDA",              "\"non-disclosure agreement\"");
+        PRESET_QUERIES.put("SOFTWARE_LICENSE", "\"software license agreement\"");
+        PRESET_QUERIES.put("VENDOR_AGREEMENT", "\"vendor agreement\"");
+        PRESET_QUERIES.put("FINTECH_MSA",      "\"master services agreement\" \"financial services\"");
+        PRESET_QUERIES.put("PHARMA_SERVICES",  "\"clinical services agreement\"");
+        PRESET_QUERIES.put("MANUFACTURING",    "\"supply agreement\"");
+        PRESET_QUERIES.put("EMPLOYMENT",       "\"employment agreement\"");
+        PRESET_QUERIES.put("IP_LICENSE",       "\"license agreement\" \"royalty\"");
     }
 
     public record EdgarSearchResult(
@@ -73,12 +74,19 @@ public class EdgarImportService {
 
     // ── Search ────────────────────────────────────────────────────────────────
 
+    // EX-10 material contracts are filed as EX-10.1, EX-10.2, etc. within 10-K/8-K filings.
+    // "forms=EX-10" matches ONLY the rare standalone EX-10 filing type → always 0 results.
+    // Use actual exhibit form types instead.
+    private static final String EXHIBIT_FORMS =
+            "EX-10.1,EX-10.2,EX-10.3,EX-10.4,EX-10.5,EX-10.6,EX-10.7,EX-10.8,EX-10.9,EX-10.10";
+
     public List<EdgarSearchResult> search(String query, int maxResults) throws Exception {
         // EDGAR EFTS supported params: q, forms, dateRange, startdt, enddt, entity
         // Do NOT use Elasticsearch-style params (_source, hits.*) — they break the response
         String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
+        String encodedForms = URLEncoder.encode(EXHIBIT_FORMS, StandardCharsets.UTF_8);
         String url = EFTS_URL + "?q=" + encodedQuery
-                + "&forms=EX-10"
+                + "&forms=" + encodedForms
                 + "&dateRange=custom&startdt=2019-01-01&enddt=2024-12-31";
 
         log.info("EDGAR search: {}", url);
