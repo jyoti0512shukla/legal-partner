@@ -119,6 +119,23 @@ public class VllmGuidedClient {
     }
 
     /**
+     * Best-effort prose generation — used as fallback when guided_json is unavailable.
+     * Tries chat completions and returns raw text (no JSON parsing).
+     * Callers should run this through a prose/proximity parser.
+     */
+    public String generateProse(String systemPrompt, String userPrompt, int maxTokens) {
+        if (baseUrl.isBlank()) return "";
+        try {
+            return callVllm(systemPrompt, userPrompt, null, maxTokens);
+        } catch (LlmUnavailableException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("generateProse failed: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    /**
      * Generate plain text using the /v1/completions (raw text) endpoint.
      *
      * The Mistral chat template is applied manually:
@@ -190,11 +207,13 @@ public class VllmGuidedClient {
     private String callVllm(String system, String user,
                              Map<String, Object> guidedJson,
                              int maxTokens) throws Exception {
+        // Mistral/SaulLM chat templates do not support a separate "system" role —
+        // merging system content into the user message avoids the 400 "roles must alternate" error.
+        String fullUser = (system == null || system.isBlank()) ? user : system + "\n\n" + user;
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", modelName);
         body.put("messages", List.of(
-                Map.of("role", "system", "content", system),
-                Map.of("role", "user", "content", user)
+                Map.of("role", "user", "content", fullUser)
         ));
         body.put("max_tokens", maxTokens);
         body.put("temperature", 0.0);

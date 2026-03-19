@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert, ClipboardList, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { ShieldAlert, ClipboardList, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronUp, Clock } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
@@ -8,7 +8,6 @@ import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 const RISK_COLOR = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
 
 function RiskBadge({ level }) {
-  const c = RISK_COLOR[level] || 'text-muted';
   return <span className={`badge-${level?.toLowerCase() || 'medium'}`}>{level}</span>;
 }
 
@@ -41,11 +40,7 @@ function RiskGauge({ rating }) {
 
 /* ─── Tab 1: Risk Assessment ─────────────────────────────────────── */
 
-function RiskTab({ docId }) {
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
+function RiskTab({ docId, result, setResult, loading, setLoading, error, setError, cached }) {
   const run = async () => {
     setLoading(true); setError(''); setResult(null);
     try {
@@ -60,11 +55,18 @@ function RiskTab({ docId }) {
 
   return (
     <div>
-      <div className="flex justify-end mb-4">
-        <button onClick={run} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
-          {loading ? <Spinner /> : <ShieldAlert className="w-4 h-4" />}
-          {loading ? 'Analysing…' : 'Run Risk Assessment'}
-        </button>
+      <div className="flex items-center justify-between mb-4">
+        {cached && !loading && (
+          <p className="text-xs text-text-muted flex items-center gap-1">
+            <Clock className="w-3 h-3" /> Cached result — click to re-analyse
+          </p>
+        )}
+        <div className="ml-auto">
+          <button onClick={run} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
+            {loading ? <Spinner /> : <ShieldAlert className="w-4 h-4" />}
+            {loading ? 'Analysing…' : cached ? 'Re-analyse' : 'Run Risk Assessment'}
+          </button>
+        </div>
       </div>
 
       {error && <ErrorCard msg={error} />}
@@ -158,11 +160,7 @@ function ClauseRow({ clause }) {
   );
 }
 
-function ChecklistTab({ docId }) {
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
+function ChecklistTab({ docId, result, setResult, loading, setLoading, error, setError, cached }) {
   const run = async () => {
     setLoading(true); setError(''); setResult(null);
     try {
@@ -181,11 +179,18 @@ function ChecklistTab({ docId }) {
 
   return (
     <div>
-      <div className="flex justify-end mb-4">
-        <button onClick={run} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
-          {loading ? <Spinner /> : <ClipboardList className="w-4 h-4" />}
-          {loading ? 'Reviewing…' : 'Run Clause Checklist'}
-        </button>
+      <div className="flex items-center justify-between mb-4">
+        {cached && !loading && (
+          <p className="text-xs text-text-muted flex items-center gap-1">
+            <Clock className="w-3 h-3" /> Cached result — click to re-run
+          </p>
+        )}
+        <div className="ml-auto">
+          <button onClick={run} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
+            {loading ? <Spinner /> : <ClipboardList className="w-4 h-4" />}
+            {loading ? 'Reviewing…' : cached ? 'Re-run Checklist' : 'Run Clause Checklist'}
+          </button>
+        </div>
       </div>
 
       {error && <ErrorCard msg={error} />}
@@ -198,22 +203,22 @@ function ChecklistTab({ docId }) {
             <div className="flex-1">
               <div className="flex items-center justify-between text-xs text-text-muted mb-1.5">
                 <span>Clause Coverage</span>
-                <span>{result.presentCount} / {(result.presentCount || 0) + (result.missingCount || 0) + (result.weakCount || 0)} present</span>
+                <span>{result.clausesPresent ?? result.presentCount} / {((result.clausesPresent ?? result.presentCount) || 0) + ((result.clausesMissing ?? result.missingCount) || 0) + ((result.clausesWeak ?? result.weakCount) || 0)} present</span>
               </div>
               <div className="h-2 bg-surface-el rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary rounded-full transition-all duration-700"
                   style={{
-                    width: `${((result.presentCount || 0) /
-                      Math.max(1, (result.presentCount || 0) + (result.missingCount || 0) + (result.weakCount || 0))) * 100}%`
+                    width: `${((result.clausesPresent ?? result.presentCount) || 0) /
+                      Math.max(1, ((result.clausesPresent ?? result.presentCount) || 0) + ((result.clausesMissing ?? result.missingCount) || 0) + ((result.clausesWeak ?? result.weakCount) || 0)) * 100}%`
                   }}
                 />
               </div>
             </div>
             <div className="flex gap-4 text-xs shrink-0">
-              <span className="text-success font-medium">{result.presentCount} Present</span>
-              <span className="text-warning font-medium">{result.weakCount} Weak</span>
-              <span className="text-danger font-medium">{result.missingCount} Missing</span>
+              <span className="text-success font-medium">{result.clausesPresent ?? result.presentCount} Present</span>
+              <span className="text-warning font-medium">{result.clausesWeak ?? result.weakCount} Weak</span>
+              <span className="text-danger font-medium">{result.clausesMissing ?? result.missingCount} Missing</span>
             </div>
             <div className="shrink-0">
               <span className="text-xs text-text-muted mr-1">Overall:</span>
@@ -222,13 +227,13 @@ function ChecklistTab({ docId }) {
           </div>
 
           {/* Critical missing */}
-          {result.criticalMissing?.length > 0 && (
+          {(result.criticalMissingClauses ?? result.criticalMissing)?.length > 0 && (
             <div className="card border border-danger/30 bg-danger/5 mb-4">
               <p className="text-xs font-semibold text-danger mb-2 flex items-center gap-1.5">
                 <XCircle className="w-3.5 h-3.5" /> Critical clauses missing
               </p>
               <div className="flex flex-wrap gap-2">
-                {result.criticalMissing.map(c => (
+                {(result.criticalMissingClauses ?? result.criticalMissing).map(c => (
                   <span key={c} className="text-xs bg-danger/10 text-danger border border-danger/20 px-2 py-0.5 rounded-full">{c}</span>
                 ))}
               </div>
@@ -299,9 +304,40 @@ export default function ContractReviewPage() {
   const [docId, setDocId] = useState('');
   const [tab, setTab] = useState('risk');
 
+  // Risk tab state — lifted to parent so it survives tab switches
+  const [riskResult, setRiskResult] = useState(null);
+  const [riskLoading, setRiskLoading] = useState(false);
+  const [riskError, setRiskError] = useState('');
+  const [riskCached, setRiskCached] = useState(false);
+
+  // Checklist tab state — lifted to parent
+  const [checklistResult, setChecklistResult] = useState(null);
+  const [checklistLoading, setChecklistLoading] = useState(false);
+  const [checklistError, setChecklistError] = useState('');
+  const [checklistCached, setChecklistCached] = useState(false);
+
   useEffect(() => {
     api.get('/documents?size=100').then(r => setDocs(r.data.content || [])).catch(() => {});
   }, []);
+
+  // When doc changes: clear old results and load any cached analysis from DB
+  useEffect(() => {
+    setRiskResult(null); setRiskError(''); setRiskCached(false);
+    setChecklistResult(null); setChecklistError(''); setChecklistCached(false);
+
+    if (!docId) return;
+
+    api.get(`/ai/risk-assessment/${docId}`)
+      .then(r => { if (r.status === 200) { setRiskResult(r.data); setRiskCached(true); } })
+      .catch(() => {});
+
+    api.get(`/review/${docId}`)
+      .then(r => { if (r.status === 200) { setChecklistResult(r.data); setChecklistCached(true); } })
+      .catch(() => {});
+  }, [docId]);
+
+  const handleRiskResult = (result) => { setRiskResult(result); setRiskCached(false); };
+  const handleChecklistResult = (result) => { setChecklistResult(result); setChecklistCached(false); };
 
   return (
     <div>
@@ -334,13 +370,37 @@ export default function ContractReviewPage() {
           >
             <Icon className="w-4 h-4" />
             {label}
+            {id === 'risk' && riskResult && <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1" />}
+            {id === 'checklist' && checklistResult && <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1" />}
           </button>
         ))}
       </div>
 
-      {/* Tab content */}
-      {tab === 'risk' && <RiskTab docId={docId} />}
-      {tab === 'checklist' && <ChecklistTab docId={docId} />}
+      {/* Tab content — both always mounted to preserve state */}
+      <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
+        <RiskTab
+          docId={docId}
+          result={riskResult}
+          setResult={handleRiskResult}
+          loading={riskLoading}
+          setLoading={setRiskLoading}
+          error={riskError}
+          setError={setRiskError}
+          cached={riskCached}
+        />
+      </div>
+      <div style={{ display: tab === 'checklist' ? 'block' : 'none' }}>
+        <ChecklistTab
+          docId={docId}
+          result={checklistResult}
+          setResult={handleChecklistResult}
+          loading={checklistLoading}
+          setLoading={setChecklistLoading}
+          error={checklistError}
+          setError={setChecklistError}
+          cached={checklistCached}
+        />
+      </div>
     </div>
   );
 }
