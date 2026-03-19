@@ -103,14 +103,23 @@ public final class PromptTemplates {
             HIGH = clause missing or dangerously one-sided.
             MEDIUM = clause present but incomplete or improvable.
             LOW = clause clear and balanced.
-            Fill in HIGH, MEDIUM, or LOW for each label. Only one word per line after the colon.
             """;
 
     public static final String RISK_USER = """
+            Example output format:
+            OVERALL: HIGH
+            LIABILITY: HIGH
+            INDEMNITY: MEDIUM
+            TERMINATION: LOW
+            IP_RIGHTS: HIGH
+            CONFIDENTIALITY: MEDIUM
+            GOVERNING_LAW: LOW
+            FORCE_MAJEURE: HIGH
+
             Contract excerpts:
             %2$s
 
-            Complete each line with HIGH, MEDIUM, or LOW:
+            Fill in all 8 lines for the contract above:
             OVERALL:
             LIABILITY:
             INDEMNITY:
@@ -446,16 +455,20 @@ public final class PromptTemplates {
             You are a senior Indian legal reviewer.
             STATUS: PRESENT = clause clearly present, WEAK = present but incomplete, MISSING = not found.
             RISK: HIGH = missing or dangerous, MEDIUM = present but improvable, LOW = clear and balanced.
-            Fill in STATUS and RISK for each clause. Only two words per line separated by a pipe.
             """;
 
     public static final String CHECKLIST_USER = """
+            Example output format:
+            LIABILITY_LIMIT: PRESENT | LOW
+            INDEMNITY: WEAK | MEDIUM
+            FORCE_MAJEURE: MISSING | HIGH
+
             Contract: %s
 
             Contract excerpts:
             %s
 
-            Complete each line with STATUS | RISK:
+            Fill in all 12 lines for the contract above:
             LIABILITY_LIMIT:
             INDEMNITY:
             TERMINATION_CONVENIENCE:
