@@ -41,9 +41,9 @@ public class ContractReviewService {
 
         String prompt = String.format(PromptTemplates.CHECKLIST_USER, doc.getFileName(), context);
 
-        // Use assistant-prefix priming so model continues from "LIABILITY_LIMIT:" rather than echoing input
+        // CSV format: model outputs one comma-separated line starting from "LIABILITY_LIMIT="
         String rawResponse = vllmClient.generateText(
-                PromptTemplates.CHECKLIST_SYSTEM, prompt, "LIABILITY_LIMIT:", 400);
+                PromptTemplates.CHECKLIST_SYSTEM, prompt, "LIABILITY_LIMIT=", 400);
 
         // Strip "Response:" prefix and [/INST] echoes that AALAP adds
         String cleaned = rawResponse;
@@ -51,7 +51,12 @@ public class ContractReviewService {
         if (instEnd >= 0) cleaned = cleaned.substring(instEnd + 7);
         cleaned = cleaned.replaceAll("(?i)^\\s*Response\\s*:\\s*", "").trim();
 
-        List<ClauseCheckResult> clauses = parseChecklistResponse(cleaned);
+        // Try CSV parser first (v8 format), fall back to pipe-delimited
+        List<ClauseCheckResult> clauses = parseChecklistCsv(cleaned);
+        if (clauses.isEmpty()) {
+            log.info("[prompt={}] CSV checklist parser found 0 clauses — trying pipe parser", PromptTemplates.PROMPT_VERSION);
+            clauses = parseChecklistResponse(cleaned);
+        }
 
         if (clauses.isEmpty()) {
             log.warn("[prompt={}] Checklist review returned no structured clauses for doc {}",
@@ -145,6 +150,43 @@ public class ContractReviewService {
         if (results.isEmpty()) {
             log.warn("Checklist parser: no lines matched. Raw length={}, preview={}",
                     raw.length(), raw.substring(0, Math.min(300, raw.length())).replace('\n', ' '));
+        }
+        return results;
+    }
+
+    /** Parse CSV format: LIABILITY_LIMIT=PRESENT-LOW,INDEMNITY=WEAK-MEDIUM,... */
+    private List<ClauseCheckResult> parseChecklistCsv(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        List<ClauseCheckResult> results = new ArrayList<>();
+
+        // Find the CSV line — model may add prose before/after
+        java.util.regex.Matcher csvLine = java.util.regex.Pattern
+                .compile("LIABILITY_LIMIT=[A-Z]+-[A-Z]+(,[A-Z_]+=[A-Z]+-[A-Z]+)+",
+                        java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(raw);
+        String csv = csvLine.find() ? csvLine.group() : raw;
+
+        for (String entry : csv.split(",")) {
+            String[] kv = entry.trim().split("=", 2);
+            if (kv.length < 2) continue;
+            String clauseId = kv[0].trim().toUpperCase();
+            if (!CLAUSE_ID_NAMES.containsKey(clauseId)) continue;
+
+            String[] sr = kv[1].split("-", 2);
+            String status   = sr[0].trim().toUpperCase();
+            String riskLevel = sr.length > 1 ? sr[1].trim().toUpperCase() : "MEDIUM";
+
+            if (!status.matches("PRESENT|WEAK|MISSING")) continue;
+            if (!riskLevel.matches("HIGH|MEDIUM|LOW")) riskLevel = "MEDIUM";
+
+            results.add(new ClauseCheckResult(
+                    CLAUSE_ID_NAMES.get(clauseId), status, null,
+                    "MISSING".equals(status) ? "MISSING" : "See contract",
+                    riskLevel, "", null
+            ));
+        }
+        if (!results.isEmpty()) {
+            log.info("[prompt={}] CSV checklist parser: {} clauses", PromptTemplates.PROMPT_VERSION, results.size());
         }
         return results;
     }

@@ -5,7 +5,7 @@ public final class PromptTemplates {
     private PromptTemplates() {}
 
     /** Bump this whenever prompts change — appears in logs for easy correlation with results. */
-    public static final String PROMPT_VERSION = "v7-raw-completions";
+    public static final String PROMPT_VERSION = "v8-csv";
 
     public static final String QUERY_SYSTEM = """
             You are a senior Indian legal analyst with expertise in contract law, Indian Contract Act 1872, and Indian corporate law.
@@ -108,29 +108,17 @@ public final class PromptTemplates {
             LOW = clause clear and balanced.
             """;
 
+    // CSV format: one line, commas only — avoids EOS firing after first newline.
+    // Completions prefix is "OVERALL=" so model continues: HIGH,LIABILITY=HIGH,...
     public static final String RISK_USER = """
-            Example output format:
-            OVERALL: HIGH
-            LIABILITY: HIGH
-            INDEMNITY: MEDIUM
-            TERMINATION: LOW
-            IP_RIGHTS: HIGH
-            CONFIDENTIALITY: MEDIUM
-            GOVERNING_LAW: LOW
-            FORCE_MAJEURE: HIGH
-
-            Contract excerpts:
+            Contract text:
             %2$s
 
-            Fill in all 8 lines for the contract above:
-            OVERALL:
-            LIABILITY:
-            INDEMNITY:
-            TERMINATION:
-            IP_RIGHTS:
-            CONFIDENTIALITY:
-            GOVERNING_LAW:
-            FORCE_MAJEURE:
+            Output exactly 8 ratings as a single comma-separated line (no spaces, no newlines):
+            OVERALL=?,LIABILITY=?,INDEMNITY=?,TERMINATION=?,IP_RIGHTS=?,CONFIDENTIALITY=?,GOVERNING_LAW=?,FORCE_MAJEURE=?
+
+            Replace each ? with HIGH, MEDIUM, or LOW. Example:
+            OVERALL=HIGH,LIABILITY=HIGH,INDEMNITY=MEDIUM,TERMINATION=LOW,IP_RIGHTS=HIGH,CONFIDENTIALITY=MEDIUM,GOVERNING_LAW=LOW,FORCE_MAJEURE=HIGH
             """;
 
     public static final String DRAFT_LIABILITY_SYSTEM = """
@@ -460,29 +448,18 @@ public final class PromptTemplates {
             RISK: HIGH = missing or dangerous, MEDIUM = present but improvable, LOW = clear and balanced.
             """;
 
+    // CSV format: STATUS-RISK per clause, comma-separated — avoids EOS after first newline.
+    // Completions prefix is "LIABILITY_LIMIT=" so model continues: PRESENT-LOW,INDEMNITY=...
     public static final String CHECKLIST_USER = """
-            Example output format:
-            LIABILITY_LIMIT: PRESENT | LOW
-            INDEMNITY: WEAK | MEDIUM
-            FORCE_MAJEURE: MISSING | HIGH
-
             Contract: %s
 
             Contract excerpts:
             %s
 
-            Fill in all 12 lines for the contract above:
-            LIABILITY_LIMIT:
-            INDEMNITY:
-            TERMINATION_CONVENIENCE:
-            TERMINATION_CAUSE:
-            FORCE_MAJEURE:
-            CONFIDENTIALITY:
-            GOVERNING_LAW:
-            DISPUTE_RESOLUTION:
-            IP_OWNERSHIP:
-            DATA_PROTECTION:
-            PAYMENT_TERMS:
-            ASSIGNMENT:
+            Output exactly 12 ratings as a single comma-separated line (format CLAUSE=STATUS-RISK, no spaces):
+            LIABILITY_LIMIT=?-?,INDEMNITY=?-?,TERMINATION_CONVENIENCE=?-?,TERMINATION_CAUSE=?-?,FORCE_MAJEURE=?-?,CONFIDENTIALITY=?-?,GOVERNING_LAW=?-?,DISPUTE_RESOLUTION=?-?,IP_OWNERSHIP=?-?,DATA_PROTECTION=?-?,PAYMENT_TERMS=?-?,ASSIGNMENT=?-?
+
+            Replace ? with STATUS (PRESENT/WEAK/MISSING) and RISK (HIGH/MEDIUM/LOW). Example:
+            LIABILITY_LIMIT=PRESENT-LOW,INDEMNITY=WEAK-MEDIUM,TERMINATION_CONVENIENCE=MISSING-HIGH,TERMINATION_CAUSE=PRESENT-LOW,FORCE_MAJEURE=MISSING-HIGH,CONFIDENTIALITY=PRESENT-LOW,GOVERNING_LAW=PRESENT-LOW,DISPUTE_RESOLUTION=WEAK-MEDIUM,IP_OWNERSHIP=MISSING-HIGH,DATA_PROTECTION=WEAK-MEDIUM,PAYMENT_TERMS=PRESENT-LOW,ASSIGNMENT=MISSING-HIGH
             """;
 }

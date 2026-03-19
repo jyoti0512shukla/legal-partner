@@ -284,15 +284,61 @@ public class AiService {
         }
 
         String prompt = String.format(PromptTemplates.RISK_USER, documentId, context);
-        // Use assistant-prefix priming: model continues from "OVERALL:" instead of deciding how to start.
-        // This is the most reliable approach for fill-in-the-blank tasks with instruction-tuned 7B models.
+        // CSV format: model outputs one comma-separated line starting from "OVERALL="
+        // No newlines = no EOS trigger between labels.
         String rawText = stripResponsePrefix(
-                vllmClient.generateText(PromptTemplates.RISK_SYSTEM, prompt, "OVERALL:", 200));
+                vllmClient.generateText(PromptTemplates.RISK_SYSTEM, prompt, "OVERALL=", 150));
         log.info("[prompt={}] Risk assessment raw response length={}, preview={}",
                 PromptTemplates.PROMPT_VERSION,
                 rawText.length(), rawText.substring(0, Math.min(300, rawText.length())).replace('\n', ' '));
 
+        // Try CSV parser first (v8 format), fall back to line-by-line
+        RiskAssessmentResult csvResult = parseRiskCsv(rawText);
+        if (!csvResult.categories().isEmpty()) return csvResult;
+        log.info("CSV risk parser found 0 categories — falling back to line parser");
         return parseRiskLines(rawText);
+    }
+
+    // Maps LABEL= keys to display names
+    private static final java.util.Map<String, String> RISK_LABEL_NAMES = java.util.Map.of(
+            "OVERALL",         "Overall",
+            "LIABILITY",       "Liability",
+            "INDEMNITY",       "Indemnity",
+            "TERMINATION",     "Termination",
+            "IP_RIGHTS",       "IP Rights",
+            "CONFIDENTIALITY", "Confidentiality",
+            "GOVERNING_LAW",   "Governing Law",
+            "FORCE_MAJEURE",   "Force Majeure"
+    );
+
+    /** Parse CSV format: OVERALL=HIGH,LIABILITY=MEDIUM,... */
+    private RiskAssessmentResult parseRiskCsv(String raw) {
+        if (raw == null || raw.isBlank()) return new RiskAssessmentResult("MEDIUM", List.of());
+        String overallRisk = "MEDIUM";
+        List<RiskCategory> categories = new ArrayList<>();
+
+        // Find the CSV line — could have prose before/after
+        java.util.regex.Matcher csvLine = java.util.regex.Pattern
+                .compile("OVERALL=[A-Z]+(,[A-Z_]+=[A-Z]+)+", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(raw);
+        String csv = csvLine.find() ? csvLine.group() : raw;
+
+        for (String entry : csv.split(",")) {
+            String[] kv = entry.trim().split("=", 2);
+            if (kv.length < 2) continue;
+            String key = kv[0].trim().toUpperCase().replace(' ', '_');
+            String val = kv[1].trim().toUpperCase();
+            if (!val.matches("HIGH|MEDIUM|LOW")) continue;
+            if ("OVERALL".equals(key)) {
+                overallRisk = val;
+            } else if (RISK_LABEL_NAMES.containsKey(key)) {
+                categories.add(new RiskCategory(RISK_LABEL_NAMES.get(key), val, "", "See contract"));
+            }
+        }
+        if (!categories.isEmpty()) {
+            log.info("CSV risk parser: overall={}, categories={}", overallRisk, categories.size());
+        }
+        return new RiskAssessmentResult(overallRisk, categories);
     }
 
     public ExtractionResult extractKeyTerms(UUID documentId, String username) {
