@@ -1225,7 +1225,7 @@ public class AiService {
         return Map.of(
                 "clauseType", clauseType,
                 "content", content,
-                "contractType", meta.getContractType() != null ? meta.getContractType() : ""
+                "contractType", meta.getDocumentType() != null ? meta.getDocumentType().name() : ""
         );
     }
 }
