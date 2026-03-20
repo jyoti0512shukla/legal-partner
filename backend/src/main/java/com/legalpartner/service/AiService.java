@@ -1291,7 +1291,7 @@ public class AiService {
         }
 
         AiMessage response = chatModel.generate(
-                SystemMessage.from(legalSystemConfig.localize(systemPrompt.toString())),
+                SystemMessage.from(legalSystemConfig.localizeForJurisdiction(systemPrompt.toString(), jurisdiction)),
                 UserMessage.from(userPrompt.toString())
         ).content();
 

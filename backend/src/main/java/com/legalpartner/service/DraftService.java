@@ -354,7 +354,7 @@ public class DraftService {
         }
 
         // Append content guardrails to every draft system prompt to prevent placeholder leakage
-        String localizedSystemPrompt = legalSystemConfig.localize(systemPrompt) + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
+        String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction) + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
 
         AiMessage response = chatModel.generate(
                 UserMessage.from(localizedSystemPrompt + "\n\n" + prompt)

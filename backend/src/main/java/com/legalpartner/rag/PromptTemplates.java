@@ -257,9 +257,8 @@ public final class PromptTemplates {
             Rules:
             - Sub-clause 1: %GOVERNING_LAW_STATEMENT%
             - Sub-clause 2: Negotiation — parties attempt resolution in 30 days.
-            - Sub-clause 3: Arbitration — %ARBITRATION_ACT%, sole arbitrator, seat at %ARBITRATION_SEAT% and language.
-            - Sub-clause 4: Courts — exclusive jurisdiction for interim relief at %COURT_SEAT%.
-            - Output EXACTLY 4 sub-clauses numbered 1, 2, 3, 4. STOP after sub-clause 4. Do not add lease, property, or tenancy terms.
+            - %DISPUTE_RESOLUTION_CLAUSE%
+            - Output EXACTLY 3 sub-clauses numbered 1, 2, 3. STOP after sub-clause 3. Do not add lease, property, or tenancy terms.
             - Output ONLY the clause text, no headings, no preamble.
             """;
 
