@@ -73,6 +73,7 @@ function DrilldownPanel({ data }) {
 
 function RiskTab({ docId, result, setResult, loading, setLoading, error, setError, cached }) {
   const [drilldowns, setDrilldowns] = useState({});
+  const [expanded, setExpanded] = useState({});
 
   const fireDrilldown = (cat) => {
     setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: true, data: null, error: null } }));
@@ -88,12 +89,24 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
     });
   };
 
+  const toggleExpand = (cat) => {
+    const isNowOpen = !expanded[cat.name];
+    setExpanded(prev => ({ ...prev, [cat.name]: isNowOpen }));
+    // Fire drilldown on first open if not already loaded
+    if (isNowOpen && !drilldowns[cat.name] && (cat.rating === 'HIGH' || cat.rating === 'MEDIUM')) {
+      fireDrilldown(cat);
+    }
+  };
+
   const run = async () => {
-    setLoading(true); setError(''); setResult(null); setDrilldowns({});
+    setLoading(true); setError(''); setResult(null); setDrilldowns({}); setExpanded({});
     try {
       const res = await api.post(`/ai/risk-assessment/${docId}`);
       setResult(res.data);
-      // Auto-drilldown HIGH risk items
+      // Auto-expand and drilldown HIGH risk items
+      const initialExpanded = {};
+      (res.data.categories || []).forEach(c => { if (c.rating === 'HIGH') initialExpanded[c.name] = true; });
+      setExpanded(initialExpanded);
       (res.data.categories || []).filter(c => c.rating === 'HIGH').forEach(cat => fireDrilldown(cat));
     } catch (e) {
       setError(e.response?.data?.message || 'Assessment failed');
@@ -140,37 +153,45 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
             {result.categories?.map((cat, i) => {
               const dd = drilldowns[cat.name];
               const canDrilldown = cat.rating === 'HIGH' || cat.rating === 'MEDIUM';
+              const isOpen = !!expanded[cat.name];
               const sectionRef = cat.clauseReference && !/^see contract$/i.test(cat.clauseReference.trim())
                 ? cat.clauseReference : null;
               return (
-                <div key={i} className={`card border-t-4 border-${RISK_COLOR[cat.rating] || 'border'}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold text-text-primary">{cat.name}</h4>
-                    <RiskBadge level={cat.rating} />
-                  </div>
-                  {cat.justification && (
-                    <p className="text-sm text-text-secondary mb-2">{cat.justification}</p>
-                  )}
-                  {sectionRef && (
-                    <p className="font-mono text-xs text-primary mb-2">{sectionRef}</p>
-                  )}
-                  {canDrilldown && (
-                    <div className="border-t border-border/60 pt-3 mt-1">
-                      {!dd ? (
-                        <button
-                          onClick={() => fireDrilldown(cat)}
-                          className="flex items-center gap-1 text-xs text-primary hover:underline"
-                        >
-                          <ChevronRight className="w-3.5 h-3.5" />
-                          Analyse risk &amp; get fix
-                        </button>
-                      ) : dd.loading ? (
-                        <div className="flex items-center gap-2 text-xs text-text-muted py-1">
+                <div key={i} className={`card border-t-4 border-${RISK_COLOR[cat.rating] || 'border'} !p-0 overflow-hidden`}>
+                  <button
+                    onClick={() => canDrilldown && toggleExpand(cat)}
+                    className={`w-full flex items-start gap-3 px-4 py-3 text-left ${canDrilldown ? 'cursor-pointer hover:bg-white/5' : 'cursor-default'}`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <h4 className="font-semibold text-text-primary">{cat.name}</h4>
+                        <RiskBadge level={cat.rating} />
+                      </div>
+                      {cat.justification && (
+                        <p className="text-sm text-text-secondary">{cat.justification}</p>
+                      )}
+                      {sectionRef && (
+                        <p className="font-mono text-xs text-primary mt-1">{sectionRef}</p>
+                      )}
+                    </div>
+                    {canDrilldown && (
+                      <div className="shrink-0 mt-0.5">
+                        {isOpen
+                          ? <ChevronUp className="w-4 h-4 text-text-muted" />
+                          : <ChevronDown className="w-4 h-4 text-text-muted" />}
+                      </div>
+                    )}
+                  </button>
+
+                  {canDrilldown && isOpen && (
+                    <div className="border-t border-border/60 px-4 pb-4">
+                      {!dd || dd.loading ? (
+                        <div className="flex items-center gap-2 text-xs text-text-muted py-3">
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           Analysing…
                         </div>
                       ) : dd.error ? (
-                        <p className="text-xs text-danger">{dd.error}</p>
+                        <p className="text-xs text-danger pt-3">{dd.error}</p>
                       ) : (
                         <DrilldownPanel data={dd.data} />
                       )}
