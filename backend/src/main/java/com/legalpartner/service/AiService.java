@@ -1188,6 +1188,7 @@ public class AiService {
 
         String contractText = fullTextRetriever.retrieveFullText(documentId);
         String clauseType = params != null ? params.getOrDefault("clauseType", "LIABILITY") : "LIABILITY";
+        String contractTypeName = meta.getDocumentType() != null ? meta.getDocumentType().name() : "Commercial";
 
         StringBuilder systemPrompt = new StringBuilder("""
                 You are a senior commercial contracts lawyer.
@@ -1198,7 +1199,7 @@ public class AiService {
                 - Write at least 3 numbered sub-clauses with full legal text.
                 - Base your language on the PRECEDENT CONTEXT provided.
                 """.replace("%CLAUSE_TYPE%", clauseType)
-                   .replace("%CONTRACT_TYPE%", meta.getContractType() != null ? meta.getContractType() : "Commercial"));
+                   .replace("%CONTRACT_TYPE%", contractTypeName));
 
         StringBuilder userPrompt = new StringBuilder();
         if (ragContext != null && !ragContext.isBlank()) {

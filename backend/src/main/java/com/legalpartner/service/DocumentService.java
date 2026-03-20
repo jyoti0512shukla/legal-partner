@@ -80,13 +80,14 @@ public class DocumentService {
     }
 
     /**
-     * Ingest a document from bytes (e.g. from cloud storage import).
+     * Ingest a document from bytes (e.g. from cloud storage or EDGAR import).
+     * source: "USER" (default), "EDGAR" (corpus seed), "CLOUD" (cloud import)
      */
     public DocumentMetadata ingestFromBytes(
             byte[] fileBytes, String fileName, String contentType,
             String jurisdiction, Integer year, boolean confidential,
             String documentType, String practiceArea, String clientName, String matterId,
-            String industry, String username
+            String industry, String username, String source
     ) {
         DocumentMetadata doc = DocumentMetadata.builder()
                 .fileName(fileName)
@@ -102,6 +103,7 @@ public class DocumentService {
                 .uploadedBy(username)
                 .fileSizeBytes((long) fileBytes.length)
                 .processingStatus(ProcessingStatus.PENDING)
+                .source(source != null ? source : "USER")
                 .build();
         doc = repository.save(doc);
         processDocumentAsync(doc.getId(), fileBytes);
@@ -163,9 +165,9 @@ public class DocumentService {
 
     public Page<DocumentMetadata> listDocuments(String userRole, Pageable pageable) {
         if (userRole.contains("ASSOCIATE")) {
-            return repository.findByConfidentialFalse(pageable);
+            return repository.findBySourceNotAndConfidentialFalse("EDGAR", pageable);
         }
-        return repository.findAll(pageable);
+        return repository.findBySourceNot("EDGAR", pageable);
     }
 
     public DocumentDetail getDocument(UUID id, String userRole) {

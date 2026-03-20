@@ -106,4 +106,9 @@ public class DocumentMetadata {
     @Column(length = 50)
     @Builder.Default
     private ExtractionStatus extractionStatus = ExtractionStatus.PENDING;
+
+    /** Origin of the document: USER (uploaded), EDGAR (corpus seed), CLOUD (cloud import) */
+    @Column(length = 20, nullable = false)
+    @Builder.Default
+    private String source = "USER";
 }

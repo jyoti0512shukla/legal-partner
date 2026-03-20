@@ -200,7 +200,8 @@ public class EdgarImportService {
                 entityName,
                 null,
                 industry,
-                username
+                username,
+                "EDGAR"
         );
     }
 

@@ -85,7 +85,7 @@ public class WorkflowContextService {
         for (String clauseType : weakTypes) {
             List<ClauseLibraryEntry> entries = clauseLibraryService.findForDraft(
                     clauseType,
-                    docMeta != null ? docMeta.getContractType() : null,
+                    docMeta != null && docMeta.getDocumentType() != null ? docMeta.getDocumentType().name() : null,
                     docMeta != null ? docMeta.getIndustry() : null,
                     null
             );
@@ -130,7 +130,8 @@ public class WorkflowContextService {
         StringBuilder sb = new StringBuilder();
         sb.append("=== PRECEDENT CONTEXT: Firm clause library and corpus ===\n\n");
 
-        List<ClauseLibraryEntry> allGolden = clauseLibraryService.listAll().stream()
+        List<ClauseLibraryEntry> allGolden = clauseLibraryService.findForDraft(null, null, null, null)
+                .stream()
                 .filter(ClauseLibraryEntry::isGolden)
                 .limit(3)
                 .toList();

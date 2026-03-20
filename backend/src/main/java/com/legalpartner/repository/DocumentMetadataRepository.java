@@ -18,6 +18,10 @@ public interface DocumentMetadataRepository extends JpaRepository<DocumentMetada
 
     Page<DocumentMetadata> findByConfidentialFalse(Pageable pageable);
 
+    Page<DocumentMetadata> findBySourceNot(String source, Pageable pageable);
+
+    Page<DocumentMetadata> findBySourceNotAndConfidentialFalse(String source, Pageable pageable);
+
     List<DocumentMetadata> findByProcessingStatus(ProcessingStatus status);
 
     @Query("SELECT SUM(d.segmentCount) FROM DocumentMetadata d")
