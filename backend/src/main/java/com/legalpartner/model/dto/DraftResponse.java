@@ -18,6 +18,8 @@ public class DraftResponse {
     private List<ClauseSuggestion> suggestions;
     /** clauseKey → list of QA warning strings. Populated when post-generation validation finds issues. */
     private Map<String, List<String>> qaWarnings;
+    /** Cross-clause coherence issues found by the post-generation coherence scan. */
+    private List<String> coherenceIssues;
 
     @Data
     @Builder

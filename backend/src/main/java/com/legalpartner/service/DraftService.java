@@ -147,10 +147,20 @@ public class DraftService {
                     .build());
         }
 
+        List<CoherenceIssue> coherenceIssues = runCoherenceScan(plannedSections, sectionValues, manifest);
+        if (!coherenceIssues.isEmpty()) {
+            log.warn("Coherence scan found {} issue(s) across {} clauses", coherenceIssues.size(), plannedSections.size());
+        }
+
+        List<String> coherenceSummary = coherenceIssues.stream()
+                .map(ci -> "[" + ci.clause() + "] " + ci.type() + ": " + ci.detail())
+                .collect(Collectors.toList());
+
         return DraftResponse.builder()
                 .draftHtml(buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues))
                 .suggestions(suggestions)
                 .qaWarnings(allQaWarnings.isEmpty() ? null : allQaWarnings)
+                .coherenceIssues(coherenceSummary.isEmpty() ? null : coherenceSummary)
                 .build();
     }
 
@@ -221,11 +231,23 @@ public class DraftService {
                     .build());
         }
 
+        List<CoherenceIssue> coherenceIssues = runCoherenceScan(plannedSections, sectionValues, manifest);
+        if (!coherenceIssues.isEmpty()) {
+            log.warn("Coherence scan found {} issue(s)", coherenceIssues.size());
+        }
+
+        List<String> coherenceSummary = coherenceIssues.stream()
+                .map(ci -> "[" + ci.clause() + "] " + ci.type() + ": " + ci.detail())
+                .collect(Collectors.toList());
+
         Map<String, Object> completePayload = new LinkedHashMap<>();
         completePayload.put("type", "complete");
         completePayload.put("draftHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
         completePayload.put("suggestions", suggestions);
         completePayload.put("qaWarnings", allQaWarnings);
+        if (!coherenceSummary.isEmpty()) {
+            completePayload.put("coherenceIssues", coherenceSummary);
+        }
         emitter.send(SseEmitter.event().data(toJson(completePayload)));
         emitter.complete();
     }
@@ -395,9 +417,12 @@ public class DraftService {
 
         String manifestConstraint = (manifest != null) ? buildManifestConstraint(manifest) : "";
         String ragGrounding = ctx.chunkCount() > 0
-                ? "\n\nRAG GROUNDING MANDATE: The precedent clauses provided above are your primary source. " +
-                  "Base your clause structure and language on those precedents. " +
-                  "If precedent covers a topic, follow it — do not invent language from scratch.\n"
+                ? "\n\nRAG AUTHORITY MANDATE — CRITICAL:\n" +
+                  "The firm's precedent clauses in the user message are your ONLY permitted structural source.\n" +
+                  "STEP 1: Read the precedent and identify the exact structure it uses.\n" +
+                  "STEP 2: Use that EXACT structure. Do NOT invent different structure.\n" +
+                  "STEP 3: Substitute party names and deal-specific terms from the contract context.\n" +
+                  "Generating structure not found in the precedent is a DRAFTING ERROR.\n"
                 : "";
         String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction)
                 + manifestConstraint + ragGrounding + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
@@ -508,6 +533,25 @@ public class DraftService {
             }
         }
 
+        // 6. Semantic requirement check — clause must address expected legal concepts
+        List<String> semanticReqs = CLAUSE_SEMANTIC_REQUIREMENTS.get(clauseKey);
+        if (semanticReqs != null) {
+            String lowerPlain = plain.toLowerCase();
+            List<String> missingConcepts = new ArrayList<>();
+            for (String req : semanticReqs) {
+                if (!lowerPlain.contains(req.toLowerCase())) {
+                    missingConcepts.add(req);
+                }
+            }
+            if (!missingConcepts.isEmpty()) {
+                String msg = "Missing required legal concepts for " + clauseKey + ": "
+                        + String.join(", ", missingConcepts)
+                        + " — your clause MUST address each of these";
+                warnings.add(msg);
+                log.warn("QA [{}]: missing semantic requirements: {}", clauseKey, missingConcepts);
+            }
+        }
+
         return warnings;
     }
 
@@ -517,6 +561,23 @@ public class DraftService {
         "Employment Agreement", List.of("saas platform", "uptime guarantee", "api access", "software subscription", "real property"),
         "Supply Agreement", List.of("software license", "saas", "uptime", "source code", "real property", "employment"),
         "Master Services Agreement", List.of("real property", "lease", "tenant", "mortgage", "employment contract")
+    );
+
+    /**
+     * Semantic requirements per clause type: keywords that MUST appear in the generated text.
+     * These represent the minimum legally meaningful content each clause type must address.
+     * If absent, QA flags with a targeted warning so the retry knows exactly what to add.
+     */
+    private static final Map<String, List<String>> CLAUSE_SEMANTIC_REQUIREMENTS = Map.of(
+        "PAYMENT",          List.of("invoice", "net ", "due date", "late payment"),
+        "LIABILITY",        List.of("shall not exceed", "aggregate", "indemnif"),
+        "TERMINATION",      List.of("written notice", "material breach", "effect"),
+        "CONFIDENTIALITY",  List.of("confidential information", "shall not disclose", "exception"),
+        "IP_RIGHTS",        List.of("ownership", "license", "intellectual property"),
+        "FORCE_MAJEURE",    List.of("force majeure", "notification", "suspend"),
+        "GOVERNING_LAW",    List.of("governed by", "jurisdiction", "dispute"),
+        "DATA_PROTECTION",  List.of("personal data", "security", "breach"),
+        "REPRESENTATIONS_WARRANTIES", List.of("authoris", "compliance", "conflict")
     );
 
     private List<String> detectContamination(String plain, String contractType) {
@@ -676,10 +737,12 @@ public class DraftService {
             }
         }
         sb.append("\nRULES FOR THIS REWRITE:\n")
+          .append("- ANCHOR: Follow the firm precedent provided in the original request as your structural baseline.\n")
           .append("- Do NOT introduce new placeholders or brackets.\n")
-          .append("- Do NOT change sub-clauses that are already correctly drafted.\n")
+          .append("- PRESERVE sub-clauses that do NOT have issues listed above — rewrite only the failing ones.\n")
           .append("- Output the COMPLETE rewritten clause (all sub-clauses, not just the fixed ones).\n")
-          .append("- Use only the party names specified in the terminology mandate above.\n");
+          .append("- Use only the party names specified in the terminology mandate above.\n")
+          .append("- Do NOT add new defined terms, new party roles, or new legal concepts not already in the original.\n");
         return sb.toString();
     }
 
@@ -735,6 +798,64 @@ public class DraftService {
             .replaceAll("\\[[A-Z][A-Z\\s]{1,60}\\]", "as mutually agreed by the Parties in writing")
             // Any remaining mixed-case bracket e.g. [insert number], [number of days]
             .replaceAll("\\[[a-zA-Z][a-zA-Z\\s]{1,60}\\]", "as mutually agreed by the Parties in writing");
+    }
+
+    // ── Post-generation coherence scan ────────────────────────────────────────
+
+    private record CoherenceIssue(String clause, String type, String detail) {}
+
+    /**
+     * Scans all generated clauses for cross-clause consistency issues:
+     * party name drift and defined term usage inconsistency.
+     * Returns a list of issues found (empty = coherent).
+     */
+    private List<CoherenceIssue> runCoherenceScan(List<String> sections,
+                                                   Map<String, String> sectionValues,
+                                                   TerminologyManifest manifest) {
+        List<CoherenceIssue> issues = new ArrayList<>();
+
+        // Party name synonyms that indicate drift
+        List<String> vendorSynonyms  = List.of("Vendor", "Supplier", "Company", "Contractor", "Provider");
+        List<String> clientSynonyms  = List.of("Customer", "Buyer", "Purchaser", "Recipient");
+
+        for (String key : sections) {
+            String html = sectionValues.getOrDefault(key, "");
+            if (html.isBlank()) continue;
+            // strip HTML for plain text analysis
+            String plain = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
+
+            // Check party name drift if manifest is available
+            if (manifest != null) {
+                for (String syn : vendorSynonyms) {
+                    if (!manifest.partyAName().contains(syn)
+                            && java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(syn) + "\\b")
+                                   .matcher(plain).find()) {
+                        issues.add(new CoherenceIssue(key, "PARTY_NAME_DRIFT",
+                                "Party A referred to as '" + syn + "' but manifest says '" + manifest.partyAName() + "'"));
+                    }
+                }
+                for (String syn : clientSynonyms) {
+                    if (!manifest.partyBName().contains(syn)
+                            && java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(syn) + "\\b")
+                                   .matcher(plain).find()) {
+                        issues.add(new CoherenceIssue(key, "PARTY_NAME_DRIFT",
+                                "Party B referred to as '" + syn + "' but manifest says '" + manifest.partyBName() + "'"));
+                    }
+                }
+
+                // Check defined term consistency — if DEFINITIONS defined a term, other clauses should use it
+                for (String term : manifest.definedTerms()) {
+                    if ("CONFIDENTIALITY".equals(key) && term.equalsIgnoreCase("Confidential Information")) {
+                        if (!plain.contains("Confidential Information") && !plain.contains("confidential information")) {
+                            issues.add(new CoherenceIssue(key, "DEFINED_TERM_MISSING",
+                                    "CONFIDENTIALITY clause does not use defined term 'Confidential Information'"));
+                        }
+                    }
+                }
+            }
+        }
+
+        return issues;
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────

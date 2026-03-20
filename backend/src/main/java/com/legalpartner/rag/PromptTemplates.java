@@ -5,7 +5,7 @@ public final class PromptTemplates {
     private PromptTemplates() {}
 
     /** Bump this whenever prompts change — appears in logs for easy correlation with results. */
-    public static final String PROMPT_VERSION = "v9-guided-json";
+    public static final String PROMPT_VERSION = "v10-semantic-discipline";
 
     public static final String QUERY_SYSTEM = """
             You are a senior %LEGAL_ANALYST_EXPERTISE%.
@@ -272,12 +272,21 @@ public final class PromptTemplates {
             """;
 
     public static final String DRAFT_IP_RIGHTS_SYSTEM = """
-            You are a senior %LEGAL_DRAFTSMAN%. Draft an INTELLECTUAL PROPERTY RIGHTS clause.
+            You are a senior %LEGAL_DRAFTSMAN%. Draft an INTELLECTUAL PROPERTY RIGHTS clause for a %COUNTRY% contract.
 
-            Rules:
-            - Cover: ownership of work product, background IP, license grants, %MORAL_RIGHTS_REF%, IP indemnification.
-            - Reference %IP_LAWS% where relevant.
-            - Output ONLY the clause text with numbered sub-clauses (e.g. 4.1, 4.2). 3-5 sub-clauses.
+            Write EXACTLY 4 numbered sub-clauses. Each must be 2-3 complete legal sentences.
+
+            Sub-clause 1 — WORK PRODUCT OWNERSHIP: Draft that all deliverables, work product, documents, and materials created specifically for the client under this Agreement vest in and are owned by the Client upon payment of the applicable fees in full. Include that the Service Provider hereby assigns all right, title, and interest (including future copyright) in such deliverables to the Client. Reference %IP_LAWS% for the assignment.
+            Sub-clause 2 — BACKGROUND IP: Draft that each Party retains ownership of all Background IP it owned or developed prior to or independently of this Agreement. Define "Background IP" as all IP owned or licensed by a Party prior to the Effective Date or developed independently of the work under this Agreement. State that no Background IP is assigned or transferred under this Agreement.
+            Sub-clause 3 — LICENCE GRANT: Draft that to the extent any Background IP of the Service Provider is incorporated into the deliverables, the Service Provider grants the Client a non-exclusive, perpetual, royalty-free, irrevocable licence to use that Background IP solely to the extent necessary to use the deliverables for their intended purpose. Reference %MORAL_RIGHTS_REF% for moral rights waiver if applicable.
+            Sub-clause 4 — IP INDEMNIFICATION: Draft that the Service Provider shall indemnify and defend the Client against any third-party claims alleging that the deliverables infringe any third-party intellectual property right, provided: (a) the Client notifies the Service Provider in writing within 30 days of the claim; (b) the Service Provider controls the defence; and (c) the Client cooperates and does not make any admission without consent.
+
+            HARD RULES — output will be REJECTED if violated:
+            - This is a commercial IP clause. No NDA definitions, no employment law terms, no real property terms.
+            - No [brackets] or placeholders. Use "the Service Provider" and "the Client" as party role labels (the Terminology Mandate above may override these with actual names).
+            - Reference %IP_LAWS% in sub-clause 1. Reference %MORAL_RIGHTS_REF% in sub-clause 3.
+            - Begin sub-clause 1 immediately with "1." — STOP after sub-clause 4.
+            - Output ONLY the clause text, no preamble.
             """;
 
     public static final String DRAFT_IP_RIGHTS_USER = """
@@ -290,12 +299,20 @@ public final class PromptTemplates {
             """;
 
     public static final String DRAFT_PAYMENT_SYSTEM = """
-            You are a senior %LEGAL_DRAFTSMAN%. Draft a PAYMENT TERMS clause.
+            You are a senior %LEGAL_DRAFTSMAN%. Draft a PAYMENT TERMS clause for a %COUNTRY% contract.
 
-            Rules:
-            - Cover: payment schedule, due dates, late payment interest (reference %MSME_REF%), %TAX_REF%, invoice requirements, disputed invoices.
-            - Reference %CONTRACT_ACT% and applicable tax laws.
-            - Output ONLY the clause text with numbered sub-clauses (e.g. 4.1, 4.2). 3-5 sub-clauses.
+            Write EXACTLY 4 numbered sub-clauses. Each must be 2-4 complete legal sentences — never a bare heading.
+
+            Sub-clause 1 — PAYMENT SCHEDULE: Draft that fees are due within 30 (thirty) days of the invoice date. State the currency. Reference that amounts are as set out in the applicable Statement of Work or Order Form. Example: "The Client shall pay each valid invoice within thirty (30) days of the invoice date. All payments shall be made in [currency] by bank transfer to the account notified by the Service Provider."
+            Sub-clause 2 — INVOICING: Draft that invoices must be submitted in writing referencing the applicable Statement of Work, and that undisputed invoices are deemed accepted if not disputed within 7 business days of receipt. Apply %TAX_REF% to all invoiced amounts.
+            Sub-clause 3 — LATE PAYMENT: Draft that overdue amounts bear interest at 2% (two percent) per annum above the prevailing base rate from the due date until actual payment. Reference %MSME_REF% where the payee is a registered MSME. State this is without prejudice to any other rights or remedies.
+            Sub-clause 4 — DISPUTED INVOICES: Draft that disputes must be raised in writing within 15 (fifteen) days of receipt of the invoice, stating the grounds in reasonable detail. State that undisputed portions of any disputed invoice must be paid on time. Provide that the Parties shall escalate to senior management within 10 business days.
+
+            HARD RULES — output will be REJECTED if violated:
+            - Every sub-clause must draft the actual legal text, not describe it.
+            - No [brackets], [INSERT X], or placeholders. Use the numbers and defaults stated above.
+            - Begin sub-clause 1 immediately with "1." — STOP after sub-clause 4.
+            - Output ONLY the clause text, no preamble.
             """;
 
     public static final String DRAFT_PAYMENT_USER = """
@@ -328,17 +345,26 @@ public final class PromptTemplates {
     public static final String DRAFT_DEFINITIONS_SYSTEM = """
             You are a senior %LEGAL_DRAFTSMAN%. Draft a DEFINITIONS clause for a %COUNTRY% contract.
 
-            Output EXACTLY 7 definitions in this order:
-            1. "Confidential Information" — broad definition including business, technical and financial information
-            2. "Disclosing Party" — the party disclosing Confidential Information
-            3. "Receiving Party" — the party receiving Confidential Information
-            4. "Purpose" — the business purpose for which information is shared
-            5. "Affiliate" — entity controlling, controlled by, or under common control
-            6. "Intellectual Property" — patents, trademarks, copyrights, trade secrets
-            7. "Term" — the duration of this Agreement
+            Output EXACTLY 7 numbered definitions appropriate for the contract type stated in the user message.
 
-            STOP after definition 7. Do not add definition 8 or beyond. Do not repeat any definition.
-            Output ONLY the numbered definitions, no preamble, no notes.
+            MANDATORY definitions (always include these 4):
+            1. "Confidential Information" means any information disclosed by one Party to the other that is designated as confidential or that reasonably should be understood to be confidential given the nature of the information and circumstances of disclosure, including technical, business, financial, and operational data.
+            2. "Affiliate" means any entity that directly or indirectly controls, is controlled by, or is under common control with a Party, where "control" means ownership of more than fifty percent (50%) of the voting securities of such entity.
+            3. "Intellectual Property" means all patents, trademarks, service marks, trade names, copyrights, trade secrets, know-how, database rights, and all other proprietary rights, whether registered or unregistered, worldwide.
+            4. "Effective Date" means the date on which this Agreement comes into force as stated on the signature page or in the recitals.
+
+            PLUS exactly 3 definitions chosen for the contract type:
+            - SaaS/Software/Platform: choose from "Services", "Platform", "Subscription Fee", "Customer Data", "Uptime"
+            - Services/MSA/Consulting: choose from "Services", "Statement of Work", "Deliverables", "Change Request", "Acceptance"
+            - NDA/Confidentiality: choose from "Disclosing Party", "Receiving Party", "Purpose", "Term", "Permitted Purpose"
+            - Supply/Procurement: choose from "Goods", "Purchase Order", "Delivery Date", "Specifications", "Warranty Period"
+            - Employment: choose from "Employee", "Employer", "Compensation", "Employment Term", "Termination"
+
+            Each definition must follow the format: NUMBER. "DefinedTerm" means [definition].
+            HARD RULES:
+            - Use definitions relevant to the stated contract type — do NOT use NDA definitions (Disclosing Party, Receiving Party) in a SaaS or MSA contract.
+            - STOP after definition 7. Do not repeat any definition.
+            - Output ONLY the 7 numbered definitions, no preamble, no notes.
             """;
 
     public static final String DRAFT_DEFINITIONS_USER = """
@@ -605,14 +631,20 @@ public final class PromptTemplates {
     public static final String DRAFT_FORCE_MAJEURE_SYSTEM = """
             You are a senior %LEGAL_DRAFTSMAN%. Draft a FORCE MAJEURE clause for a %COUNTRY% contract.
 
-            Rules:
-            - Sub-clause 1: Definition of Force Majeure — broad definition including acts of God, pandemic, war, government action, natural disaster, strikes, cyberattacks.
-            - Sub-clause 2: Notification obligation — affected party must notify within 7 days.
-            - Sub-clause 3: Effect — obligations suspended for duration of Force Majeure event; no liability.
-            - Sub-clause 4: Mitigation — affected party must use reasonable efforts to overcome the event.
-            - Sub-clause 5: Prolonged Force Majeure — either party may terminate if event persists beyond 90 days.
-            - Output EXACTLY 5 sub-clauses numbered 1, 2, 3, 4, 5. STOP after sub-clause 5. Do not repeat any sub-clause.
-            - Output ONLY the clause text, no headings, no preamble.
+            Write EXACTLY 5 numbered sub-clauses. Each must be 1-3 complete legal sentences — no lists, no bullets.
+
+            Sub-clause 1 — DEFINITION: Draft a definition of "Force Majeure Event" covering: acts of God, epidemic, pandemic, war, terrorism, government action or restriction, natural disaster, fire, flood, earthquake, lightning, power failure, strike or industrial action, or cyberattack beyond the affected Party's reasonable control. Example opening: "A Force Majeure Event means any event or circumstance beyond the reasonable control of a Party, including but not limited to..."
+            Sub-clause 2 — NOTIFICATION: Draft that the affected Party must give written notice to the other Party within 7 (seven) days of the Force Majeure Event arising, describing the event and its expected duration. State that failure to notify promptly does not excuse the non-notification but limits the period for which relief is available.
+            Sub-clause 3 — EFFECT: Draft that affected obligations are suspended for the duration of the Force Majeure Event. State that neither Party is in breach for suspended obligations. State that the affected Party must use reasonable endeavours to perform its obligations despite the event to the extent possible.
+            Sub-clause 4 — MITIGATION: Draft that the affected Party shall take all reasonable steps to minimise the impact of the Force Majeure Event and resume full performance as soon as reasonably practicable. State it must provide fortnightly updates on the duration and expected cessation of the event.
+            Sub-clause 5 — PROLONGED EVENT: Draft that if a Force Majeure Event continues for more than 90 (ninety) consecutive days, either Party may terminate the Agreement by giving 30 (thirty) days' written notice without liability to the other Party, other than for amounts already due and payable.
+
+            HARD RULES — output will be REJECTED if violated:
+            - This is a commercial contract clause ONLY. No real property terms, no lease terms, no employment terms.
+            - Each sub-clause is 1-3 sentences. Do NOT write a list of events as separate bullets inside a sub-clause.
+            - No [brackets] or placeholders. Use the specific numbers stated above.
+            - Begin sub-clause 1 immediately with "1." — STOP after sub-clause 5.
+            - Output ONLY the clause text, no preamble, no headings.
             """;
 
     public static final String DRAFT_FORCE_MAJEURE_USER = """
