@@ -129,7 +129,7 @@ public class DraftService {
         for (String key : plannedSections) {
             ClauseSpec spec = CLAUSE_SPECS.get(key);
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses());
+            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), null);
             sectionValues.put(key, result.html());
             if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
 
@@ -190,7 +190,7 @@ public class DraftService {
                     "totalClauses", plannedSections.size()))));
 
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses());
+            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), emitter);
             sectionValues.put(key, result.html());
             List<String> qaWarnings = result.qaWarnings();
             if (!qaWarnings.isEmpty()) allQaWarnings.put(key, qaWarnings);
@@ -346,7 +346,8 @@ public class DraftService {
 
     private ClauseResult generateClauseWithQa(DraftRequest request, DraftContext ctx,
                                                String clauseKey, String systemPrompt,
-                                               String userPromptTemplate, int expectedSubclauses) {
+                                               String userPromptTemplate, int expectedSubclauses,
+                                               SseEmitter emitter) {
         String contractType = resolveContractTypeName(request);
         String jurisdiction = nullToDefault(request.getJurisdiction(), "India");
         String counterparty = nullToDefault(request.getCounterpartyType(), "general");
@@ -371,9 +372,21 @@ public class DraftService {
             String issueList = qaWarnings.stream()
                     .map(w -> "- " + w)
                     .collect(Collectors.joining("\n"));
-            String retryPrompt = String.format(PromptTemplates.DRAFT_QA_RETRY_USER, issueList);
             log.warn("QA [{}] attempt {}/{}: {} issues — retrying", clauseKey, attempt, QA_MAX_RETRIES, qaWarnings.size());
 
+            // Notify frontend what we're fixing
+            if (emitter != null) {
+                try {
+                    emitter.send(SseEmitter.event().data(toJson(Map.of(
+                            "type", "clause_retry",
+                            "clauseType", clauseKey,
+                            "attempt", attempt,
+                            "fixing", issueList
+                    ))));
+                } catch (IOException ignored) {}
+            }
+
+            String retryPrompt = String.format(PromptTemplates.DRAFT_QA_RETRY_USER, issueList);
             // Include full context in retry — model needs parties/deal brief/RAG to rewrite correctly
             generated = sanitizeClauseText(
                     chatModel.generate(UserMessage.from(fullSystemAndInitial + "\n\n" + retryPrompt)).content().text().trim());

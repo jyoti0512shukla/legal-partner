@@ -154,6 +154,8 @@ export default function DraftPage() {
             setDraft({ draftHtml: event.partialHtml, suggestions: [] });
           } else if (event.type === 'clause_start') {
             setGeneratingStatus({ label: event.label, index: event.index, total: event.totalClauses });
+          } else if (event.type === 'clause_retry') {
+            setGeneratingStatus(prev => ({ ...prev, label: prev?.label, retrying: `QA issues found — fixing: ${event.fixing}` }));
           } else if (event.type === 'clause_done') {
             setGeneratingStatus({ label: event.label, index: event.index, total: event.totalClauses, done: true });
             setDraft(prev => ({ ...(prev || {}), draftHtml: event.partialHtml }));
@@ -592,6 +594,12 @@ export default function DraftPage() {
                   {generatingStatus.index}/{generatingStatus.total}
                 </span>
               </div>
+              {generatingStatus.retrying && (
+                <p className="text-xs text-warning mb-2 flex items-center gap-1">
+                  <span>⚠ QA retry —</span>
+                  <span className="truncate">{generatingStatus.retrying}</span>
+                </p>
+              )}
               <div className="w-full bg-surface-el rounded-full h-1.5">
                 <div
                   className="bg-primary h-1.5 rounded-full transition-all duration-500"
