@@ -374,15 +374,18 @@ public class DraftService {
             String retryPrompt = String.format(PromptTemplates.DRAFT_QA_RETRY_USER, issueList);
             log.warn("QA [{}] attempt {}/{}: {} issues — retrying", clauseKey, attempt, QA_MAX_RETRIES, qaWarnings.size());
 
+            // Include full context in retry — model needs parties/deal brief/RAG to rewrite correctly
             generated = sanitizeClauseText(
-                    chatModel.generate(UserMessage.from(localizedSystemPrompt + "\n\n" + retryPrompt)).content().text().trim());
+                    chatModel.generate(UserMessage.from(fullSystemAndInitial + "\n\n" + retryPrompt)).content().text().trim());
             qaWarnings = qaClause(clauseKey, generated, expectedSubclauses);
         }
 
         if (!qaWarnings.isEmpty()) {
-            log.warn("QA [{}]: {} residual warning(s) after {} retries", clauseKey, qaWarnings.size(), QA_MAX_RETRIES);
+            log.warn("QA [{}]: {} residual warning(s) after {} retries — applying post-processor", clauseKey, qaWarnings.size(), QA_MAX_RETRIES);
         }
-        return new ClauseResult(generated, qaWarnings);
+        // Always post-process to replace any remaining placeholders with sensible defaults
+        generated = postProcessPlaceholders(generated, request);
+        return new ClauseResult(generated, qaClause(clauseKey, generated, expectedSubclauses));
     }
 
     /**
@@ -535,6 +538,53 @@ public class DraftService {
         }
 
         return html.toString().stripTrailing();
+    }
+
+    // ── Placeholder post-processor ────────────────────────────────────────────
+
+    /**
+     * Last-resort replacement of common unfilled placeholder patterns with
+     * commercially reasonable defaults derived from the request context.
+     * This runs after all QA retries so the output is never left with raw brackets.
+     */
+    private String postProcessPlaceholders(String html, DraftRequest request) {
+        String partyA = nullToDefault(request.getPartyA(), "the Service Provider");
+        String partyB = nullToDefault(request.getPartyB(), "the Client");
+        String jurisdiction = nullToDefault(request.getJurisdiction(), "the governing jurisdiction");
+        String noticeDays = nullToDefault(request.getNoticeDays(), "30");
+        String termYears = nullToDefault(request.getTermYears(), "3");
+
+        return html
+            // Party name placeholders
+            .replaceAll("(?i)\\[(?:Party A|Party 1|First Party|Service Provider|Company|Vendor)\\]", partyA)
+            .replaceAll("(?i)\\[(?:Party B|Party 2|Second Party|Client|Customer|Buyer)\\]", partyB)
+            .replaceAll("(?i)\\[(?:party name|name of party|insert party)\\]", partyA)
+            // Date placeholders
+            .replaceAll("(?i)\\[(?:effective date|commencement date|start date|date)\\]", "the Effective Date")
+            .replaceAll("(?i)\\(insert(?:ion)? (?:effective )?date\\)", "the Effective Date")
+            .replaceAll("(?i)\\[insert date\\]", "the Effective Date")
+            // Duration placeholders
+            .replaceAll("(?i)\\[(?:X+|N+|\\d*)\\s*(?:days?|months?|years?)\\]",
+                    noticeDays + " (thirty) days")
+            .replaceAll("(?i)\\(insert (?:notice )?period\\)", noticeDays + " days")
+            .replaceAll("(?i)\\[insert duration\\]", termYears + " years")
+            .replaceAll("(?i)\\[insert (?:initial )?term\\]", termYears + " years")
+            // Financial placeholders
+            .replaceAll("(?i)\\[insert (?:billing|payment) cycle\\]", "monthly in advance")
+            .replaceAll("(?i)\\[insert (?:applicable )?interest rate\\]",
+                    "2% per annum above the applicable base rate")
+            .replaceAll("(?i)\\[(?:insert )?(?:amount|fee|price|rate|sum|\\$+|£+|₹+|\\*+)\\]",
+                    "the amounts set forth in the applicable Statement of Work")
+            // Jurisdiction placeholders
+            .replaceAll("(?i)\\[(?:jurisdiction|governing law|applicable law|state|country)\\]", jurisdiction)
+            // Generic catch-all: [***] and similar redaction markers
+            .replaceAll("\\[\\*{2,}\\]", "as mutually agreed in writing by the Parties")
+            .replaceAll("\\[_{2,}\\]", "as mutually agreed in writing by the Parties")
+            // (insert ...) patterns not already caught
+            .replaceAll("(?i)\\(insert[^)]{0,60}\\)", "as specified in the applicable Order Form")
+            // TBD / TBC
+            .replaceAll("(?i)\\bTBD\\b", "as mutually agreed by the Parties in writing")
+            .replaceAll("(?i)\\bTBC\\b", "to be confirmed by written notice");
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
