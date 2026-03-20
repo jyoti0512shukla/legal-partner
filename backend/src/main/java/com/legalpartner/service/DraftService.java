@@ -238,7 +238,7 @@ public class DraftService {
      */
     private List<String> planSections(DraftRequest request) {
         String prompt = String.format(PromptTemplates.SECTION_PLANNER_USER,
-                nullToDefault(request.getTemplateId(), "contract").toUpperCase(),
+                resolveContractTypeName(request),
                 nullToDefault(request.getPartyA(), "Party A"),
                 nullToDefault(request.getPartyB(), "Party B"),
                 nullToDefault(request.getPracticeArea(), "general"),
@@ -273,10 +273,27 @@ public class DraftService {
     }
 
     private List<String> defaultSections(String templateId) {
-        if ("nda".equalsIgnoreCase(templateId)) {
-            return List.of("DEFINITIONS", "CONFIDENTIALITY", "LIABILITY", "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
-        }
-        // MSA and everything else
+        if (templateId == null) return defaultMsaSections();
+        return switch (templateId.toLowerCase()) {
+            case "nda"              -> List.of("DEFINITIONS", "CONFIDENTIALITY", "LIABILITY",
+                                               "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
+            case "software_license",
+                 "ip_license"      -> List.of("DEFINITIONS", "IP_RIGHTS", "PAYMENT", "LIABILITY",
+                                               "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
+            case "employment"      -> List.of("DEFINITIONS", "SERVICES", "PAYMENT", "CONFIDENTIALITY",
+                                               "IP_RIGHTS", "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
+            case "supply"          -> List.of("DEFINITIONS", "SERVICES", "PAYMENT", "FORCE_MAJEURE",
+                                               "LIABILITY", "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
+            case "saas",
+                 "fintech_msa",
+                 "clinical_services" -> List.of("DEFINITIONS", "SERVICES", "PAYMENT", "CONFIDENTIALITY",
+                                               "DATA_PROTECTION", "LIABILITY", "TERMINATION",
+                                               "GOVERNING_LAW", "GENERAL_PROVISIONS");
+            default                -> defaultMsaSections(); // vendor, msa, custom, unknown
+        };
+    }
+
+    private static List<String> defaultMsaSections() {
         return List.of("DEFINITIONS", "SERVICES", "PAYMENT", "CONFIDENTIALITY", "IP_RIGHTS",
                 "LIABILITY", "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
     }
@@ -324,7 +341,7 @@ public class DraftService {
 
     private String generateClause(DraftRequest request, DraftContext ctx,
                                    String systemPrompt, String userPromptTemplate) {
-        String contractType = request.getTemplateId() != null ? request.getTemplateId().toUpperCase() : "CONTRACT";
+        String contractType = resolveContractTypeName(request);
         String jurisdiction = nullToDefault(request.getJurisdiction(), "India");
         String counterparty = nullToDefault(request.getCounterpartyType(), "general");
         String practiceArea = nullToDefault(request.getPracticeArea(), "general");
@@ -509,17 +526,40 @@ public class DraftService {
         Map<String, String> m = new HashMap<>();
         m.put("PARTY_A", nullToDefault(r.getPartyA(), "Party A"));
         m.put("PARTY_B", nullToDefault(r.getPartyB(), "Party B"));
-        m.put("PARTY_A_ADDRESS", nullToDefault(r.getPartyAAddress(), "[Address]"));
-        m.put("PARTY_B_ADDRESS", nullToDefault(r.getPartyBAddress(), "[Address]"));
-        m.put("PARTY_A_REP", nullToDefault(r.getPartyARep(), "[Representative]"));
-        m.put("PARTY_B_REP", nullToDefault(r.getPartyBRep(), "[Representative]"));
-        m.put("EFFECTIVE_DATE", nullToDefault(r.getEffectiveDate(), "[Date]"));
+        m.put("PARTY_A_ADDRESS", nullToDefault(r.getPartyAAddress(), "its registered office"));
+        m.put("PARTY_B_ADDRESS", nullToDefault(r.getPartyBAddress(), "its registered office"));
+        m.put("PARTY_A_REP", nullToDefault(r.getPartyARep(), "its authorised signatory"));
+        m.put("PARTY_B_REP", nullToDefault(r.getPartyBRep(), "its authorised signatory"));
+        m.put("EFFECTIVE_DATE", nullToDefault(r.getEffectiveDate(), java.time.LocalDate.now().toString()));
         m.put("JURISDICTION", nullToDefault(r.getJurisdiction(), "India"));
         m.put("AGREEMENT_REF", nullToDefault(r.getAgreementRef(), "REF-001"));
         m.put("TERM_YEARS", nullToDefault(r.getTermYears(), "3"));
         m.put("NOTICE_DAYS", nullToDefault(r.getNoticeDays(), "30"));
         m.put("SURVIVAL_YEARS", nullToDefault(r.getSurvivalYears(), "5"));
+        m.put("CONTRACT_TYPE_TITLE", resolveContractTypeName(r).toUpperCase());
         return m;
+    }
+
+    /** Resolves the human-readable contract type name for use in the template title and AI prompts. */
+    private String resolveContractTypeName(DraftRequest r) {
+        if (r.getContractTypeName() != null && !r.getContractTypeName().isBlank()) {
+            return r.getContractTypeName();
+        }
+        // Derive from templateId
+        if (r.getTemplateId() == null) return "Contract";
+        return switch (r.getTemplateId().toLowerCase()) {
+            case "nda"              -> "Non-Disclosure Agreement";
+            case "msa"              -> "Master Services Agreement";
+            case "saas"             -> "SaaS Subscription Agreement";
+            case "software_license" -> "Software License Agreement";
+            case "vendor"           -> "Vendor Agreement";
+            case "supply"           -> "Supply Agreement";
+            case "employment"       -> "Employment Agreement";
+            case "ip_license"       -> "IP License Agreement";
+            case "clinical_services"-> "Clinical Services Agreement";
+            case "fintech_msa"      -> "Fintech Master Services Agreement";
+            default                 -> r.getTemplateId().replace("_", " ");
+        };
     }
 
     private String replacePlaceholders(String template, Map<String, String> values) {

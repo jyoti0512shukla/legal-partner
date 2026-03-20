@@ -15,6 +15,10 @@ public class DraftRequest {
     @NotBlank(message = "Template ID is required")
     private String templateId;
 
+    /** Display name for the contract type — used in AI prompts and the document title.
+     *  Required when templateId is "custom"; optional for built-in types (falls back to template name). */
+    private String contractTypeName;
+
     private String partyA;
     private String partyB;
     private String partyAAddress;

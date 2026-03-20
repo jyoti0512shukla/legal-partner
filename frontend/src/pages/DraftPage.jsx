@@ -57,6 +57,7 @@ export default function DraftPage() {
 
   const [form, setForm] = useState({
     templateId: '',
+    contractTypeName: '',
     partyA: '',
     partyB: '',
     partyAAddress: '',
@@ -112,6 +113,7 @@ export default function DraftPage() {
 
   const handleGenerate = async () => {
     if (!form.templateId) return;
+    if (form.templateId === 'custom' && !form.contractTypeName.trim()) return;
     setLoading(true);
     setError('');
     setDraft(null);
@@ -320,11 +322,30 @@ export default function DraftPage() {
             <h3 className="font-semibold mb-4">Create Draft</h3>
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-text-muted mb-1 block">Template</label>
-                <select value={form.templateId} onChange={e => setForm({ ...form, templateId: e.target.value })} className="input-field w-full text-sm">
-                  <option value="">Select template...</option>
-                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                <label className="text-xs text-text-muted mb-1 block">Contract Type</label>
+                <select
+                  value={form.templateId}
+                  onChange={e => setForm({ ...form, templateId: e.target.value, contractTypeName: '' })}
+                  className="input-field w-full text-sm"
+                >
+                  <option value="">Select contract type…</option>
+                  {templates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
                 </select>
+                {form.templateId && templates.find(t => t.id === form.templateId)?.description && (
+                  <p className="text-xs text-text-muted mt-1">
+                    {templates.find(t => t.id === form.templateId).description}
+                  </p>
+                )}
+                {form.templateId === 'custom' && (
+                  <input
+                    value={form.contractTypeName}
+                    onChange={e => setForm({ ...form, contractTypeName: e.target.value })}
+                    placeholder="e.g. Joint Venture Agreement, Franchise Agreement…"
+                    className="input-field w-full text-sm mt-2"
+                  />
+                )}
               </div>
               <div>
                 <label className="text-xs text-text-muted mb-1 block">Party A</label>

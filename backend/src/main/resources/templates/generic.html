@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>{{CONTRACT_TYPE_TITLE}}</title>
+<style>
+  body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.6; max-width: 800px; margin: 40px auto; color: #1a1a1a; }
+  h1 { text-align: center; font-size: 16pt; letter-spacing: 1px; margin-bottom: 4px; }
+  h2 { font-size: 12pt; margin-top: 28px; margin-bottom: 8px; text-transform: uppercase; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  p { margin: 6px 0; text-align: justify; }
+  .article-body p { margin: 10px 0; }
+  .article-body p.clause-sub { padding-left: 20px; }
+  .article-body p.clause-sub strong { min-width: 28px; display: inline-block; }
+</style>
+</head>
+<body>
+
+<h1>{{CONTRACT_TYPE_TITLE}}</h1>
+
+<p><strong>Agreement No:</strong> {{AGREEMENT_REF}}<br>
+<strong>Effective Date:</strong> {{EFFECTIVE_DATE}}<br>
+<strong>Governing Law:</strong> {{JURISDICTION}}</p>
+
+<h2>PARTIES</h2>
+
+<p><strong>PARTY A:</strong> {{PARTY_A}}, having its registered office at {{PARTY_A_ADDRESS}}, represented by {{PARTY_A_REP}} ("Party A").</p>
+
+<p><strong>PARTY B:</strong> {{PARTY_B}}, having its registered office at {{PARTY_B_ADDRESS}}, represented by {{PARTY_B_REP}} ("Party B").</p>
+
+<p>Party A and Party B are each referred to as a "Party" and collectively as the "Parties".</p>
+
+<h2>RECITALS</h2>
+
+<p>WHEREAS the Parties wish to enter into this {{CONTRACT_TYPE_TITLE}} on the terms and conditions set forth herein;</p>
+
+<p>NOW, THEREFORE, in consideration of the mutual covenants herein and for other good and valuable consideration, the Parties agree as follows:</p>
+
+{{AI_SECTIONS}}
+
+</body>
+</html>
