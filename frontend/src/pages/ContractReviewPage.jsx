@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert, ClipboardList, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronUp, Clock } from 'lucide-react';
+import { ShieldAlert, ClipboardList, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronUp, Clock, ChevronRight, Loader2 } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
@@ -38,14 +38,63 @@ function RiskGauge({ rating }) {
   );
 }
 
+/* ─── Drilldown panel ────────────────────────────────────────────── */
+
+function DrilldownPanel({ data }) {
+  return (
+    <div className="space-y-3 mt-3">
+      <div>
+        <p className="text-[10px] font-semibold text-danger uppercase tracking-wide mb-1">What's at risk</p>
+        <p className="text-xs text-text-secondary leading-relaxed">{data.detailedRisk}</p>
+      </div>
+      {data.businessImpact && (
+        <div>
+          <p className="text-[10px] font-semibold text-warning uppercase tracking-wide mb-1">Business impact</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{data.businessImpact}</p>
+        </div>
+      )}
+      {data.howToFix && (
+        <div>
+          <p className="text-[10px] font-semibold text-success uppercase tracking-wide mb-1">How to fix</p>
+          <p className="text-xs text-text-secondary leading-relaxed">{data.howToFix}</p>
+        </div>
+      )}
+      {data.suggestedLanguage && (
+        <div>
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-1">Suggested language</p>
+          <p className="text-xs font-mono leading-relaxed bg-surface-el rounded-lg p-2.5 border border-border text-text-secondary whitespace-pre-wrap">{data.suggestedLanguage}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Tab 1: Risk Assessment ─────────────────────────────────────── */
 
 function RiskTab({ docId, result, setResult, loading, setLoading, error, setError, cached }) {
+  const [drilldowns, setDrilldowns] = useState({});
+
+  const fireDrilldown = (cat) => {
+    setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: true, data: null, error: null } }));
+    api.post(`/ai/risk-drilldown/${docId}`, {
+      categoryName: cat.name,
+      rating: cat.rating,
+      justification: cat.justification,
+      sectionRef: cat.clauseReference,
+    }).then(r => {
+      setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: false, data: r.data, error: null } }));
+    }).catch(e => {
+      setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: false, data: null, error: e.response?.data?.message || 'Analysis failed' } }));
+    });
+  };
+
   const run = async () => {
-    setLoading(true); setError(''); setResult(null);
+    setLoading(true); setError(''); setResult(null); setDrilldowns({});
     try {
       const res = await api.post(`/ai/risk-assessment/${docId}`);
       setResult(res.data);
+      // Auto-drilldown HIGH risk items
+      (res.data.categories || []).filter(c => c.rating === 'HIGH').forEach(cat => fireDrilldown(cat));
     } catch (e) {
       setError(e.response?.data?.message || 'Assessment failed');
     } finally { setLoading(false); }
@@ -88,18 +137,48 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {result.categories?.map((cat, i) => (
-              <div key={i} className={`card border-t-4 border-${RISK_COLOR[cat.rating] || 'border'}`}>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-semibold text-text-primary">{cat.name}</h4>
-                  <RiskBadge level={cat.rating} />
+            {result.categories?.map((cat, i) => {
+              const dd = drilldowns[cat.name];
+              const canDrilldown = cat.rating === 'HIGH' || cat.rating === 'MEDIUM';
+              const sectionRef = cat.clauseReference && !/^see contract$/i.test(cat.clauseReference.trim())
+                ? cat.clauseReference : null;
+              return (
+                <div key={i} className={`card border-t-4 border-${RISK_COLOR[cat.rating] || 'border'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-semibold text-text-primary">{cat.name}</h4>
+                    <RiskBadge level={cat.rating} />
+                  </div>
+                  {cat.justification && (
+                    <p className="text-sm text-text-secondary mb-2">{cat.justification}</p>
+                  )}
+                  {sectionRef && (
+                    <p className="font-mono text-xs text-primary mb-2">{sectionRef}</p>
+                  )}
+                  {canDrilldown && (
+                    <div className="border-t border-border/60 pt-3 mt-1">
+                      {!dd ? (
+                        <button
+                          onClick={() => fireDrilldown(cat)}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <ChevronRight className="w-3.5 h-3.5" />
+                          Analyse risk &amp; get fix
+                        </button>
+                      ) : dd.loading ? (
+                        <div className="flex items-center gap-2 text-xs text-text-muted py-1">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Analysing…
+                        </div>
+                      ) : dd.error ? (
+                        <p className="text-xs text-danger">{dd.error}</p>
+                      ) : (
+                        <DrilldownPanel data={dd.data} />
+                      )}
+                    </div>
+                  )}
                 </div>
-                <p className="text-sm text-text-secondary mb-2">{cat.justification}</p>
-                {cat.clauseReference && (
-                  <p className="font-mono text-xs text-primary">{cat.clauseReference}</p>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
