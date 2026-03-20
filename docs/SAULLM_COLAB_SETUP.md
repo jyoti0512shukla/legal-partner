@@ -19,7 +19,7 @@
 
 ## Colab Notebook
 
-### Cell 1 — Verify A100 GPU
+### Cell 1 — Verify GPU
 
 Run this **first** before spending time on installs — confirm you have A100, not L4 or T4.
 
@@ -41,7 +41,7 @@ Expected output:
 ### Cell 2 — Install dependencies
 
 ```python
-!pip install vllm==0.4.3 outlines
+!pip install vllm pyngrok outlines -q
 ```
 
 After this cell finishes → **Runtime → Restart runtime** (mandatory).
@@ -52,7 +52,7 @@ After this cell finishes → **Runtime → Restart runtime** (mandatory).
 
 ```python
 import vllm, outlines
-print("vllm:", vllm.__version__)   # expect: 0.4.3
+print("vllm:", vllm.__version__)
 print("outlines: OK")
 ```
 
@@ -60,27 +60,18 @@ Both must print without error. If `outlines` import fails, re-run Cell 2.
 
 ---
 
-### Cell 4 — Start vLLM server
+### Cell 4 — HuggingFace login (if model is gated)
 
 ```python
-!HF_TOKEN="hf_YOUR_TOKEN_HERE" vllm serve Equall/Saul-Instruct-v1 \
-  --port 8000 --host 0.0.0.0 \
-  --max-model-len 8192 \
-  --gpu-memory-utilization 0.90 \
-  --dtype float16
-```
-
-Model download is ~14GB on first run (~5 min). Subsequent runs use the Colab cache.
-
-Server is ready when you see:
-```
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000
+import os
+os.environ["HUGGING_FACE_HUB_TOKEN"] = "hf_YOUR_TOKEN_HERE"
 ```
 
 ---
 
-### Cell 5 — ngrok tunnel (new cell, run in parallel)
+### Cell 5 — ngrok tunnel
+
+Start the tunnel **before** the vLLM server so the URL is ready.
 
 ```python
 from pyngrok import ngrok, conf
@@ -95,7 +86,50 @@ Copy the printed URL — you will paste it into the backend config.
 
 ---
 
-### Cell 6 — Smoke test
+### Cell 6 — Write Mistral chat template (CRITICAL)
+
+Saul-7B is based on Mistral and does not ship a proper `tokenizer_config.json` chat template. Without this, vLLM wraps messages incorrectly → garbage output or "roles must alternate" errors.
+
+**This cell MUST run before starting the vLLM server.**
+
+```python
+%%writefile /tmp/mistral.jinja
+{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}[INST] {{ message['content'] }} [/INST]{% elif message['role'] == 'assistant' %}{{ message['content'] }}{{ eos_token }}{% endif %}{% endfor %}
+```
+
+---
+
+### Cell 7 — Start vLLM server
+
+```python
+!python -m vllm.entrypoints.openai.api_server \
+    --model Equall/Saul-Instruct-v1 \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --max-model-len 8192 \
+    --dtype half \
+    --gpu-memory-utilization 0.95 \
+    --trust-remote-code \
+    --chat-template /tmp/mistral.jinja
+```
+
+Model download is ~14GB on first run (~5 min). Subsequent runs use the Colab cache.
+
+Server is ready when you see:
+```
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000
+```
+
+> **Key flags:**
+> - `--chat-template /tmp/mistral.jinja` — uses the Mistral chat format from Cell 6
+> - `--dtype half` — fp16 for A100/L4
+> - `--gpu-memory-utilization 0.95` — maximise VRAM usage
+> - For **L4 (23GB)**: change `--max-model-len 8192` to `4096`
+
+---
+
+### Cell 8 — Smoke test
 
 ```python
 import requests
@@ -116,11 +150,13 @@ print(resp.json()["choices"][0]["message"]["content"])
 
 ---
 
-### Cell 7 — Verify guided_json / Outlines
+### Cell 9 — Verify guided_json / Outlines (structured response)
 
-This confirms constrained decoding is active. If this returns valid JSON, all structured output features in the backend will work reliably.
+This confirms constrained decoding is active. If this returns valid JSON, all structured output features in the backend (`VllmGuidedClient` + `StructuredSchemas`) will work reliably.
 
 ```python
+import json
+
 resp = requests.post(
     VLLM_URL + "/v1/chat/completions",
     headers={"Authorization": "Bearer no-op"},
@@ -139,14 +175,15 @@ resp = requests.post(
         }
     }
 )
-print(resp.json()["choices"][0]["message"]["content"])
+result = resp.json()["choices"][0]["message"]["content"]
+print(result)
 # Expected: {"risk": "HIGH"} — valid JSON, constrained to enum
 # If prose is returned instead: outlines is not active, re-check Cell 3
 ```
 
 ---
 
-### Cell 8 — Keep-alive (optional, prevents Colab session timeout)
+### Cell 10 — Keep-alive (optional, prevents Colab session timeout)
 
 ```python
 import time, requests
@@ -161,14 +198,39 @@ while True:
 
 ---
 
+## Quick Copy-Paste (all cells in order)
+
+For fast setup, run these cells in order:
+
+```
+Cell 1: !nvidia-smi
+Cell 2: !pip install vllm pyngrok outlines -q  → then RESTART RUNTIME
+Cell 3: import vllm, outlines; print("OK")
+Cell 4: os.environ["HUGGING_FACE_HUB_TOKEN"] = "hf_..."
+Cell 5: ngrok tunnel → get VLLM_URL
+Cell 6: %%writefile /tmp/mistral.jinja  (Mistral chat template)
+Cell 7: vllm serve ... --chat-template /tmp/mistral.jinja
+Cell 8: Smoke test (plain text)
+Cell 9: guided_json test (structured JSON)
+```
+
+---
+
 ## Backend Configuration
 
 Update the following two values wherever your backend config is defined.
 
-**`application.properties`:**
-```properties
-legalpartner.chat-api-url=https://YOUR-NGROK-URL-HERE
-legalpartner.chat-api-model=Equall/Saul-Instruct-v1
+**Environment variables (GCP VM):**
+```bash
+export LEGALPARTNER_CHAT_API_URL=https://YOUR-NGROK-URL-HERE/v1
+export LEGALPARTNER_CHAT_API_MODEL=Equall/Saul-Instruct-v1
+```
+
+**`application.yml` defaults:**
+```yaml
+legalpartner:
+  chat-api-url: ${LEGALPARTNER_CHAT_API_URL:}
+  chat-api-model: ${LEGALPARTNER_CHAT_API_MODEL:Equall/Saul-Instruct-v1}
 ```
 
 **Docker Compose environment:**
@@ -178,7 +240,7 @@ environment:
   - LEGALPARTNER_CHAT_API_MODEL=Equall/Saul-Instruct-v1
 ```
 
-Restart the backend container after updating. No code changes needed.
+Restart the backend after updating. No code changes needed.
 
 ---
 
@@ -186,13 +248,13 @@ Restart the backend container after updating. No code changes needed.
 
 ### Success — guided_json working end-to-end:
 ```
-[prompt=v9-guided-json] guided_json parsed: overall=HIGH, categories=7
-[prompt=v9-guided-json] guided_json checklist parsed: 12 clauses
+[prompt=v10-semantic-discipline] guided_json parsed: overall=HIGH, categories=7
+[prompt=v10-semantic-discipline] guided_json checklist parsed: 12 clauses
 ```
 
 ### Fallback active — Outlines not installed or vLLM too old:
 ```
-[prompt=v9-guided-json] guided_json returned no categories — falling back to CSV completions
+[prompt=v10-semantic-discipline] guided_json returned no categories — falling back to CSV completions
 ```
 Fix: re-run Cell 2 and Cell 3, confirm outlines imports correctly.
 
@@ -201,6 +263,12 @@ Fix: re-run Cell 2 and Cell 3, confirm outlines imports correctly.
 LLM endpoint returned an error page (HTTP 404) — ngrok tunnel may be offline
 ```
 Fix: re-run Cell 5 (ngrok), update backend config with new URL.
+
+### Chat template issue (garbage output):
+```
+Conversation roles must alternate user/assistant
+```
+Fix: make sure Cell 6 ran and `--chat-template /tmp/mistral.jinja` is in the serve command.
 
 ---
 
@@ -220,15 +288,19 @@ For **L4 (23GB)**: use `--max-model-len 4096` instead of 8192.
 ## Switching Back to AALAP (Indian Legal)
 
 Change the two config values and restart:
-```properties
-legalpartner.chat-api-url=https://YOUR-NGROK-URL-HERE
-legalpartner.chat-api-model=opennyaiorg/Aalap-Mistral-7B-v0.1-bf16
+```bash
+export LEGALPARTNER_CHAT_API_URL=https://YOUR-NGROK-URL-HERE/v1
+export LEGALPARTNER_CHAT_API_MODEL=opennyaiorg/Aalap-Mistral-7B-v0.1-bf16
 ```
 
-vLLM command for AALAP:
+vLLM command for AALAP (also uses the Mistral chat template):
 ```python
-!HF_TOKEN="hf_YOUR_TOKEN" vllm serve opennyaiorg/Aalap-Mistral-7B-v0.1-bf16 \
-  --port 8000 --host 0.0.0.0 \
-  --max-model-len 8192 --gpu-memory-utilization 0.90 \
-  --chat-template /tmp/mistral.jinja
+!HF_TOKEN="hf_YOUR_TOKEN" python -m vllm.entrypoints.openai.api_server \
+    --model opennyaiorg/Aalap-Mistral-7B-v0.1-bf16 \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --max-model-len 8192 \
+    --dtype half \
+    --gpu-memory-utilization 0.95 \
+    --chat-template /tmp/mistral.jinja
 ```
