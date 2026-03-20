@@ -3,7 +3,7 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, Loader2, Clock, ChevronDown, ChevronUp,
   ArrowLeft, ShieldAlert, Key, ClipboardList, Workflow, FileText,
-  Sparkles, Download, Briefcase, SkipForward
+  Sparkles, Download, Briefcase, SkipForward, RefreshCw, PenLine
 } from 'lucide-react';
 import api from '../api/client';
 
@@ -13,21 +13,23 @@ const STEP_ICONS = {
   CLAUSE_CHECKLIST: ClipboardList,
   GENERATE_SUMMARY: FileText,
   REDLINE_SUGGESTIONS: Sparkles,
+  DRAFT_CLAUSE: PenLine,
 };
 
 const RISK_COLOR = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
 
-function StepCard({ step, status, result }) {
+function StepCard({ step, status, result, iteration }) {
   const [open, setOpen] = useState(false);
   const Icon = STEP_ICONS[step.type] || Workflow;
 
   const borderColor = status === 'done' ? 'border-success'
-    : status === 'running' ? 'border-warning'
+    : status === 'running' || status === 'refining' ? 'border-warning'
     : status === 'error' ? 'border-danger'
     : status === 'skipped' ? 'border-border'
     : 'border-border';
 
   const statusIcon = status === 'done' ? <CheckCircle2 className="w-5 h-5 text-success" />
+    : status === 'refining' ? <RefreshCw className="w-5 h-5 text-primary animate-spin" />
     : status === 'running' ? <Loader2 className="w-5 h-5 text-warning animate-spin" />
     : status === 'error' ? <XCircle className="w-5 h-5 text-danger" />
     : status === 'skipped' ? <SkipForward className="w-5 h-5 text-text-muted" />
@@ -45,9 +47,14 @@ function StepCard({ step, status, result }) {
         </div>
         <div className="flex-1">
           <p className="text-sm font-medium text-text-primary">{step.label}</p>
-          <p className="text-xs text-text-muted">
-            {step.type.replace(/_/g, ' ')}
-            {status === 'skipped' && ' — skipped (condition not met)'}
+          <p className="text-xs text-text-muted flex items-center gap-2">
+            <span>{step.type.replace(/_/g, ' ')}</span>
+            {status === 'skipped' && <span>— skipped (condition not met)</span>}
+            {status === 'refining' && iteration && (
+              <span className="inline-flex items-center gap-1 text-primary font-medium">
+                <RefreshCw className="w-3 h-3" /> Refining pass {iteration.current}/{iteration.max}…
+              </span>
+            )}
           </p>
         </div>
         {statusIcon}
@@ -187,6 +194,19 @@ function ResultPreview({ type, result }) {
     );
   }
 
+  if (type === 'DRAFT_CLAUSE') {
+    return (
+      <div className="space-y-2">
+        {result.clauseType && (
+          <p className="text-xs font-semibold text-text-muted">Clause type: {result.clauseType}</p>
+        )}
+        <div className="bg-surface-el rounded-lg p-3 max-h-64 overflow-y-auto">
+          <pre className="text-xs text-text-secondary whitespace-pre-wrap leading-relaxed">{result.content}</pre>
+        </div>
+      </div>
+    );
+  }
+
   return <pre className="text-xs text-text-muted overflow-auto max-h-40">{JSON.stringify(result, null, 2)}</pre>;
 }
 
@@ -207,6 +227,7 @@ export default function WorkflowRunPage() {
   const [associating, setAssociating] = useState(false);
   const [matterSaved, setMatterSaved] = useState(false);
   const [matterError, setMatterError] = useState('');
+  const [stepIterations, setStepIterations] = useState({}); // stepIndex → {current, max}
 
   const definitionId = searchParams.get('definitionId');
   const documentId = searchParams.get('documentId');
@@ -309,9 +330,14 @@ export default function WorkflowRunPage() {
       setSteps(prev => { const next = [...prev]; next[data.stepIndex] = { type: data.stepType, label: data.label }; return next; });
       setStepStatuses(prev => ({ ...prev, [data.stepIndex]: 'running' }));
       addLog(`Step ${data.stepIndex + 1}: ${data.label} — started`);
+    } else if (event === 'step_iteration') {
+      setStepStatuses(prev => ({ ...prev, [data.stepIndex]: 'refining' }));
+      setStepIterations(prev => ({ ...prev, [data.stepIndex]: { current: data.iteration, max: data.maxIterations } }));
+      addLog(`Step ${data.stepIndex + 1}: refining pass ${data.iteration}/${data.maxIterations}…`);
     } else if (event === 'step_complete') {
       setSteps(prev => { const next = [...prev]; next[data.stepIndex] = { type: data.stepType, label: data.label }; return next; });
       setStepStatuses(prev => ({ ...prev, [data.stepIndex]: 'done' }));
+      setStepIterations(prev => { const n = { ...prev }; delete n[data.stepIndex]; return n; });
       setStepResults(prev => ({ ...prev, [data.stepType]: data.result }));
       addLog(`Step ${data.stepIndex + 1}: ${data.label} — done`);
     } else if (event === 'step_skipped') {
@@ -426,6 +452,7 @@ export default function WorkflowRunPage() {
             step={step}
             status={stepStatuses[i] || 'pending'}
             result={stepResults[step.type]}
+            iteration={stepIterations[i]}
           />
         ))}
       </div>

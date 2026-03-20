@@ -5,5 +5,7 @@ public enum WorkflowStepType {
     RISK_ASSESSMENT,
     CLAUSE_CHECKLIST,
     GENERATE_SUMMARY,
-    REDLINE_SUGGESTIONS
+    REDLINE_SUGGESTIONS,
+    /** Draft a specific clause using RAG corpus + clause library, then loop-refine */
+    DRAFT_CLAUSE
 }

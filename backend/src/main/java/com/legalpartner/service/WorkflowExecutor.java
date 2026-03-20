@@ -3,8 +3,10 @@ package com.legalpartner.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.dto.*;
+import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.model.entity.WorkflowRun;
 import com.legalpartner.model.enums.WorkflowStatus;
+import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.WorkflowRunRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +17,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -25,6 +28,9 @@ public class WorkflowExecutor {
     private final ContractReviewService contractReviewService;
     private final WorkflowRunRepository runRepo;
     private final ConnectorService connectorService;
+    private final WorkflowQualityScorer qualityScorer;
+    private final WorkflowContextService workflowContextService;
+    private final DocumentMetadataRepository documentMetadataRepository;
     private final ObjectMapper objectMapper;
 
     public SseEmitter execute(WorkflowRun run, List<WorkflowStepConfig> steps, String workflowName) {
@@ -41,6 +47,9 @@ public class WorkflowExecutor {
             UUID runId = run.getId();
             UUID docId = run.getDocumentId();
             String username = run.getUsername();
+
+            // Load document metadata once — used for RAG context filtering
+            DocumentMetadata docMeta = documentMetadataRepository.findById(docId).orElse(null);
 
             try {
                 updateStatus(runId, WorkflowStatus.RUNNING, 0, null, skippedIndices);
@@ -72,8 +81,8 @@ public class WorkflowExecutor {
                             "label", step.getLabel()
                     ));
 
-                    // Execute with retry
-                    Object result = executeWithRetry(step, docId, username, results, runId, i);
+                    // Execute with quality loop (replaces plain exception-retry)
+                    Object result = executeWithQualityLoop(step, docId, username, results, runId, i, docMeta, emitter);
                     results.put(step.getType().name(), result);
 
                     updateStatus(runId, WorkflowStatus.RUNNING, i + 1, results, skippedIndices);
@@ -93,7 +102,6 @@ public class WorkflowExecutor {
                 ));
                 emitter.complete();
 
-                // Fire output connectors async (email, webhook) — after SSE closed
                 if (connectors != null && !connectors.isEmpty()) {
                     runRepo.findById(runId).ifPresent(completedRun ->
                             connectorService.fireAll(completedRun, connectors, results, workflowName));
@@ -102,9 +110,8 @@ public class WorkflowExecutor {
             } catch (Exception e) {
                 log.error("Workflow run {} failed: {}", runId, e.getMessage(), e);
                 persistFailure(runId, e.getMessage(), results, skippedIndices);
-                try {
-                    send(emitter, "workflow_error", Map.of("error", e.getMessage() != null ? e.getMessage() : "Unknown error"));
-                } catch (Exception ignored) {}
+                try { send(emitter, "workflow_error", Map.of("error", e.getMessage() != null ? e.getMessage() : "Unknown error")); }
+                catch (Exception ignored) {}
                 emitter.completeWithError(e);
             }
         });
@@ -112,61 +119,103 @@ public class WorkflowExecutor {
         return emitter;
     }
 
-    private Object executeWithRetry(WorkflowStepConfig step, UUID docId, String username,
-                                    Map<String, Object> priorResults, UUID runId, int stepIndex) throws Exception {
-        int maxAttempts = 1 + Math.max(0, Math.min(step.getRetryCount(), 3));
+    // ── Quality loop (replaces exception-only retry) ──────────────────────────
+
+    private Object executeWithQualityLoop(WorkflowStepConfig step, UUID docId, String username,
+                                          Map<String, Object> priorResults, UUID runId, int stepIndex,
+                                          DocumentMetadata docMeta, SseEmitter emitter) throws Exception {
+        int maxIter = Math.max(1, Math.min(step.getMaxIterations(), 3));
+
+        // Retrieve RAG context once before the loop — same context is enriched by feedback each pass
+        String ragContext = workflowContextService.getContextForStep(
+                step.getType(), docMeta, priorResults, objectMapper);
+        if (!ragContext.isBlank()) {
+            log.info("Workflow {}: step {} RAG context: {} chars", runId, step.getType(), ragContext.length());
+        }
+
+        String feedbackContext = null;
+        Object result = null;
         Exception lastException = null;
-        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+
+        for (int iter = 0; iter < maxIter; iter++) {
+            if (iter > 0) {
+                // Notify frontend that this step is being refined
+                try {
+                    send(emitter, "step_iteration", Map.of(
+                            "stepIndex", stepIndex,
+                            "stepType", step.getType().name(),
+                            "iteration", iter + 1,
+                            "maxIterations", maxIter
+                    ));
+                } catch (Exception ignored) {}
+                Thread.sleep(400);
+                log.info("Workflow {}: step {} ({}) refinement pass {}/{}", runId, stepIndex, step.getType(), iter + 1, maxIter);
+            }
+
             try {
-                if (attempt > 0) {
-                    log.info("Workflow {}: retrying step {} ({}) — attempt {}/{}", runId, stepIndex, step.getType(), attempt + 1, maxAttempts);
-                    Thread.sleep(1000L * attempt);
-                }
-                return executeStep(step, docId, username, priorResults);
+                result = executeStep(step, docId, username, priorResults, ragContext, feedbackContext);
+                lastException = null;
             } catch (Exception e) {
                 lastException = e;
-                log.warn("Workflow {}: step {} ({}) failed attempt {}: {}", runId, stepIndex, step.getType(), attempt + 1, e.getMessage());
+                log.warn("Workflow {}: step {} ({}) failed on iter {}: {}", runId, stepIndex, step.getType(), iter + 1, e.getMessage());
+                if (iter == maxIter - 1) throw e;
+                feedbackContext = "Previous attempt failed with error: " + e.getMessage() + ". Retry carefully.";
+                continue;
             }
+
+            // Score quality — if passing or last iteration, accept
+            WorkflowQualityScorer.QualityScore quality = qualityScorer.score(step.getType(), result, objectMapper);
+            log.info("Workflow {}: step {} iter {}/{} quality={}/100 gaps={}",
+                    runId, step.getType(), iter + 1, maxIter, quality.score(), quality.gaps());
+
+            if (quality.isPassing() || iter == maxIter - 1) break;
+
+            // Build targeted feedback for next iteration
+            feedbackContext = buildFeedbackContext(quality, iter + 1);
         }
-        throw lastException != null ? lastException : new RuntimeException("Step failed after " + maxAttempts + " attempts");
+
+        if (lastException != null) throw lastException;
+        return result;
     }
 
     private Object executeStep(WorkflowStepConfig step, UUID docId, String username,
-                               Map<String, Object> priorResults) {
+                               Map<String, Object> priorResults, String ragContext, String feedbackContext) {
         return switch (step.getType()) {
-            case EXTRACT_KEY_TERMS -> aiService.extractKeyTerms(docId, username);
-            case RISK_ASSESSMENT   -> aiService.assessRisk(docId, username);
-            case CLAUSE_CHECKLIST  -> contractReviewService.review(new ContractReviewRequest(docId, null), username);
-            case GENERATE_SUMMARY  -> aiService.generateWorkflowSummary(docId, priorResults, username);
-            case REDLINE_SUGGESTIONS -> aiService.generateRedlines(docId, priorResults, username);
+            case EXTRACT_KEY_TERMS   -> aiService.extractKeyTerms(docId, username);
+            case RISK_ASSESSMENT     -> aiService.assessRiskWithContext(docId, username, ragContext, feedbackContext);
+            case CLAUSE_CHECKLIST    -> contractReviewService.review(new ContractReviewRequest(docId, null), username);
+            case GENERATE_SUMMARY    -> aiService.generateWorkflowSummary(docId, priorResults, username);
+            case REDLINE_SUGGESTIONS -> aiService.generateRedlinesWithContext(docId, priorResults, username, ragContext, feedbackContext);
+            case DRAFT_CLAUSE        -> aiService.draftClauseForWorkflow(docId, step.getParams(), username, ragContext, feedbackContext);
         };
     }
 
-    /**
-     * Evaluate a step condition against prior results.
-     * Field is a dot-path into the results map serialized as JSON, e.g. "RISK_ASSESSMENT.overallRisk".
-     * Returns true (run the step) when condition is null or satisfied.
-     */
+    private String buildFeedbackContext(WorkflowQualityScorer.QualityScore quality, int attempt) {
+        if (quality.gaps().isEmpty()) return null;
+        return "=== REFINEMENT REQUIRED (Pass " + attempt + ") ===\n" +
+               "Your previous output was incomplete. Address ALL of the following:\n" +
+               quality.gaps().stream().map(g -> "• " + g).collect(Collectors.joining("\n")) +
+               "\n=== PRODUCE AN IMPROVED VERSION NOW ===\n";
+    }
+
+    // ── Condition evaluation ──────────────────────────────────────────────────
+
     @SuppressWarnings("unchecked")
     private boolean evaluateCondition(WorkflowCondition condition, Map<String, Object> results) {
         if (condition == null || condition.getField() == null) return true;
         try {
-            // Serialize to JSON and back to get a plain Map<String,Object> (handles DTO objects)
             String json = objectMapper.writeValueAsString(results);
             Map<String, Object> jsonMap = objectMapper.readValue(json, new TypeReference<>() {});
 
             String[] parts = condition.getField().split("\\.");
             Object current = jsonMap;
             for (String part : parts) {
-                if (current instanceof Map) {
-                    current = ((Map<String, Object>) current).get(part);
-                } else {
-                    return false;
-                }
+                if (current instanceof Map) current = ((Map<String, Object>) current).get(part);
+                else return false;
             }
             if (current == null) return false;
 
-            String actual = String.valueOf(current).toUpperCase();
+            String actual   = String.valueOf(current).toUpperCase();
             String expected = condition.getValue().toUpperCase();
 
             return switch (condition.getOp().toLowerCase()) {
@@ -180,6 +229,8 @@ public class WorkflowExecutor {
             return true;
         }
     }
+
+    // ── Persistence helpers ───────────────────────────────────────────────────
 
     private void updateStatus(UUID runId, WorkflowStatus status, int currentStep,
                               Map<String, Object> results, List<Integer> skipped) {

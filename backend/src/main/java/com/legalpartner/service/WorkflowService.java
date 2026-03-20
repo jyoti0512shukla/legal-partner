@@ -48,35 +48,71 @@ public class WorkflowService implements ApplicationRunner {
         seedIfAbsent("Due Diligence",
                 "Full contract analysis: extract terms, assess risk, and audit clauses",
                 List.of(
-                        new WorkflowStepConfig(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms", null, 0),
-                        new WorkflowStepConfig(WorkflowStepType.RISK_ASSESSMENT, "Risk Assessment", null, 0),
-                        new WorkflowStepConfig(WorkflowStepType.CLAUSE_CHECKLIST, "Clause Checklist", null, 0),
-                        new WorkflowStepConfig(WorkflowStepType.GENERATE_SUMMARY, "Executive Summary", null, 0)
+                        step(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms", null, 1),
+                        step(WorkflowStepType.RISK_ASSESSMENT,   "Risk Assessment (RAG)", null, 2),
+                        step(WorkflowStepType.CLAUSE_CHECKLIST,  "Clause Checklist", null, 2),
+                        step(WorkflowStepType.GENERATE_SUMMARY,  "Executive Summary", null, 1)
                 ));
 
         seedIfAbsent("Contract Review",
-                "Rapid review: audit standard clauses, assess risk, and generate redlines",
+                "Rapid review: audit clauses, corpus-benchmarked risk, and firm-grounded redlines",
                 List.of(
-                        new WorkflowStepConfig(WorkflowStepType.CLAUSE_CHECKLIST, "Clause Checklist", null, 0),
-                        new WorkflowStepConfig(WorkflowStepType.RISK_ASSESSMENT, "Risk Assessment", null, 0),
-                        new WorkflowStepConfig(WorkflowStepType.REDLINE_SUGGESTIONS, "Redline Suggestions", null, 0)
+                        step(WorkflowStepType.CLAUSE_CHECKLIST,   "Clause Checklist", null, 2),
+                        step(WorkflowStepType.RISK_ASSESSMENT,    "Risk Assessment (RAG)", null, 2),
+                        step(WorkflowStepType.REDLINE_SUGGESTIONS,"Redline Suggestions (Firm Clauses)", null, 2)
                 ));
 
         seedIfAbsent("Key Terms Only",
                 "Extract structured key terms and data points from the document",
                 List.of(
-                        new WorkflowStepConfig(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms", null, 0)
+                        step(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms", null, 1)
                 ));
 
         seedIfAbsent("High-Risk Deep Dive",
                 "Full analysis with conditional redlines — redlines generated only when risk is HIGH",
                 List.of(
-                        new WorkflowStepConfig(WorkflowStepType.RISK_ASSESSMENT, "Risk Assessment", null, 0),
-                        new WorkflowStepConfig(WorkflowStepType.CLAUSE_CHECKLIST, "Clause Checklist", null, 0),
-                        new WorkflowStepConfig(WorkflowStepType.REDLINE_SUGGESTIONS, "Redline Suggestions",
-                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "eq", "HIGH"), 0),
-                        new WorkflowStepConfig(WorkflowStepType.GENERATE_SUMMARY, "Executive Summary", null, 0)
+                        step(WorkflowStepType.RISK_ASSESSMENT,    "Risk Assessment (RAG)", null, 2),
+                        step(WorkflowStepType.CLAUSE_CHECKLIST,   "Clause Checklist", null, 2),
+                        step(WorkflowStepType.REDLINE_SUGGESTIONS,"Redline Suggestions (Firm Clauses)",
+                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "eq", "HIGH"), 2),
+                        step(WorkflowStepType.GENERATE_SUMMARY,   "Executive Summary", null, 1)
                 ));
+
+        // ── New: Playbook Review — clause library grounded, full iterative loop ──
+        seedIfAbsent("Playbook Review",
+                "Checklist → corpus-benchmarked risk → firm-grounded redlines, each step self-refines up to 2 passes",
+                List.of(
+                        step(WorkflowStepType.CLAUSE_CHECKLIST,   "Clause Checklist (Refined)", null, 2),
+                        step(WorkflowStepType.RISK_ASSESSMENT,    "Risk Benchmark vs Corpus", null, 2),
+                        step(WorkflowStepType.REDLINE_SUGGESTIONS,"Redlines from Firm Playbook", null, 2),
+                        step(WorkflowStepType.GENERATE_SUMMARY,   "Executive Memo", null, 1)
+                ));
+
+        // ── New: Draft & Assess Loop — draft a clause, assess, refine ────────────
+        seedIfAbsent("Draft & Assess Loop",
+                "Draft a clause using corpus + firm library → assess risk → refine redlines → summary. Each step iterates until quality passes.",
+                List.of(
+                        stepWithParams(WorkflowStepType.DRAFT_CLAUSE, "Draft Liability Clause",  null, 2, Map.of("clauseType", "LIABILITY")),
+                        step(WorkflowStepType.RISK_ASSESSMENT,        "Assess Drafted Clause",    null, 2),
+                        step(WorkflowStepType.REDLINE_SUGGESTIONS,    "Refine with Firm Playbook",
+                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "in", "HIGH,MEDIUM"), 2),
+                        step(WorkflowStepType.GENERATE_SUMMARY,       "Draft Summary", null, 1)
+                ));
+    }
+
+    private static WorkflowStepConfig step(WorkflowStepType type, String label,
+                                           WorkflowCondition condition, int maxIterations) {
+        return WorkflowStepConfig.builder()
+                .type(type).label(label).condition(condition)
+                .retryCount(0).maxIterations(maxIterations).build();
+    }
+
+    private static WorkflowStepConfig stepWithParams(WorkflowStepType type, String label,
+                                                     WorkflowCondition condition, int maxIterations,
+                                                     Map<String, String> params) {
+        return WorkflowStepConfig.builder()
+                .type(type).label(label).condition(condition)
+                .retryCount(0).maxIterations(maxIterations).params(params).build();
     }
 
     private void seedIfAbsent(String name, String description, List<WorkflowStepConfig> steps) {

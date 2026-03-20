@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Trash2, GripVertical, Save, ShieldAlert, Key,
-  ClipboardList, ArrowDown, FileText, Sparkles, Users, Zap, Mail, Globe, ChevronDown, ChevronUp,
+  ClipboardList, ArrowDown, FileText, Sparkles, Users, Zap, Mail, Globe, ChevronDown, ChevronUp, PenLine,
 } from 'lucide-react';
 import api from '../api/client';
 
@@ -42,10 +42,18 @@ const STEP_DEFS = [
   {
     type: 'REDLINE_SUGGESTIONS',
     label: 'Redline Suggestions',
-    description: 'Generates specific improved clause language for weak/missing clauses',
+    description: 'Generates specific improved clause language for weak/missing clauses, grounded in firm clause library',
     icon: Sparkles,
     color: 'text-primary',
     bg: 'bg-primary/10',
+  },
+  {
+    type: 'DRAFT_CLAUSE',
+    label: 'Draft Clause',
+    description: 'Drafts a specific clause type using corpus precedents + firm golden clauses. Set clauseType param (e.g. LIABILITY).',
+    icon: PenLine,
+    color: 'text-gold',
+    bg: 'bg-gold/10',
   },
 ];
 
@@ -146,6 +154,33 @@ function WorkflowStep({ step, index, onRemove, onUpdate, isLast }) {
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] text-text-muted font-medium">Quality passes:</label>
+            <select
+              value={step.maxIterations || 1}
+              onChange={e => onUpdate({ ...step, maxIterations: Number(e.target.value) })}
+              className="text-xs bg-surface border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-primary"
+              title="Re-runs the step with targeted feedback if output quality < 70/100"
+            >
+              <option value={1}>1 (no loop)</option>
+              <option value={2}>2 passes</option>
+              <option value={3}>3 passes</option>
+            </select>
+          </div>
+          {step.type === 'DRAFT_CLAUSE' && (
+            <div className="flex items-center gap-2">
+              <label className="text-[10px] text-text-muted font-medium">Clause type:</label>
+              <select
+                value={(step.params && step.params.clauseType) || 'LIABILITY'}
+                onChange={e => onUpdate({ ...step, params: { ...(step.params || {}), clauseType: e.target.value } })}
+                className="text-xs bg-surface border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-primary"
+              >
+                {['LIABILITY', 'TERMINATION', 'CONFIDENTIALITY', 'IP_RIGHTS', 'PAYMENT', 'GOVERNING_LAW', 'FORCE_MAJEURE', 'INDEMNITY'].map(t => (
+                  <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
       {!isLast && (

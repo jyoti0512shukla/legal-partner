@@ -1088,4 +1088,143 @@ public class AiService {
         }
         return RedlineSuggestionsResult.builder().suggestions(suggestions).build();
     }
+
+    // ── Workflow: RAG-aware risk assessment ───────────────────────────────────
+
+    /**
+     * Risk assessment with optional corpus benchmark context and feedback from prior iteration.
+     * ragContext: precedent clauses from similar contracts (from WorkflowContextService)
+     * feedbackContext: quality gaps from previous attempt (drives refinement loop)
+     */
+    public RiskAssessmentResult assessRiskWithContext(UUID documentId, String username,
+                                                      String ragContext, String feedbackContext) {
+        documentRepository.findById(documentId)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+
+        String contractText = fullTextRetriever.retrieveFullText(documentId);
+        if (contractText.isBlank()) {
+            return new RiskAssessmentResult("UNKNOWN", List.of(new RiskCategory(
+                    "Not Ready", "UNKNOWN", "Document not yet indexed.", "")));
+        }
+
+        // Build enriched context: RAG benchmarks + contract + optional refinement feedback
+        StringBuilder fullContext = new StringBuilder();
+        if (ragContext != null && !ragContext.isBlank()) {
+            fullContext.append(ragContext);
+        }
+        fullContext.append("=== CONTRACT TO ANALYZE ===\n").append(contractText);
+        if (feedbackContext != null && !feedbackContext.isBlank()) {
+            fullContext.append("\n\n").append(feedbackContext);
+        }
+
+        String guidedPrompt = String.format(PromptTemplates.RISK_USER_GUIDED,
+                fullContext.toString().substring(0, Math.min(fullContext.length(), 8000)));
+
+        com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
+                legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM_GUIDED),
+                guidedPrompt, StructuredSchemas.RISK_SCHEMA, 900);
+
+        RiskAssessmentResult result = parseRiskJson(json);
+        if (!result.categories().isEmpty()) return result;
+
+        // Fallback to CSV then prose
+        String csvPrompt = String.format(PromptTemplates.RISK_USER, documentId, contractText);
+        String rawText = stripResponsePrefix(
+                vllmClient.generateText(legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM), csvPrompt, "OVERALL=", 150));
+        result = parseRiskCsv(rawText);
+        return result.categories().isEmpty() ? parseRiskLines(rawText) : result;
+    }
+
+    // ── Workflow: RAG-aware redlines ──────────────────────────────────────────
+
+    /**
+     * Redline suggestions grounded in firm's clause library (golden clauses) and corpus precedents.
+     * ragContext: golden library clauses + similar contract text (from WorkflowContextService)
+     * feedbackContext: quality gaps from previous attempt
+     */
+    public RedlineSuggestionsResult generateRedlinesWithContext(UUID documentId,
+                                                                Map<String, Object> priorResults,
+                                                                String username,
+                                                                String ragContext,
+                                                                String feedbackContext) {
+        documentRepository.findById(documentId)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+
+        String clauseIssues = buildClauseIssuesList(priorResults);
+        if (clauseIssues.isBlank()) return RedlineSuggestionsResult.builder().suggestions(List.of()).build();
+
+        StringBuilder userPrompt = new StringBuilder();
+        if (ragContext != null && !ragContext.isBlank()) {
+            userPrompt.append(ragContext);
+        }
+        userPrompt.append("The following clause issues were identified in the contract:\n").append(clauseIssues);
+        if (feedbackContext != null && !feedbackContext.isBlank()) {
+            userPrompt.append("\n\n").append(feedbackContext);
+        }
+
+        String prompt = userPrompt.toString();
+        if (prompt.length() > 6000) prompt = prompt.substring(0, 6000) + "\n[...truncated]";
+
+        com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
+                legalSystemConfig.localize(PromptTemplates.REDLINE_SYSTEM_GUIDED),
+                prompt, StructuredSchemas.REDLINE_SCHEMA, 1400);
+        return parseRedlineJson(json);
+    }
+
+    // ── Workflow: Draft clause step ───────────────────────────────────────────
+
+    /**
+     * Drafts a specific clause type as a workflow step.
+     * Uses the document's deal context (parties, dates) + RAG corpus + clause library.
+     * Returns a Map<String,Object> with "clauseType" and "content" keys.
+     */
+    public Map<String, Object> draftClauseForWorkflow(UUID documentId,
+                                                       Map<String, String> params,
+                                                       String username,
+                                                       String ragContext,
+                                                       String feedbackContext) {
+        DocumentMetadata meta = documentRepository.findById(documentId)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+
+        String contractText = fullTextRetriever.retrieveFullText(documentId);
+        String clauseType = params != null ? params.getOrDefault("clauseType", "LIABILITY") : "LIABILITY";
+
+        StringBuilder systemPrompt = new StringBuilder("""
+                You are a senior commercial contracts lawyer.
+                Draft a complete, enforceable %CLAUSE_TYPE% clause for a %CONTRACT_TYPE% agreement.
+                STRICT RULES:
+                - Do NOT use placeholders like [Party Name], [DATE], [INSERT].
+                - Use "the Service Provider" and "the Client" as party names if not specified.
+                - Write at least 3 numbered sub-clauses with full legal text.
+                - Base your language on the PRECEDENT CONTEXT provided.
+                """.replace("%CLAUSE_TYPE%", clauseType)
+                   .replace("%CONTRACT_TYPE%", meta.getContractType() != null ? meta.getContractType() : "Commercial"));
+
+        StringBuilder userPrompt = new StringBuilder();
+        if (ragContext != null && !ragContext.isBlank()) {
+            userPrompt.append(ragContext);
+        }
+        // Inject deal context from the document (parties, dates, etc.)
+        String dealContext = contractText.length() > 2000 ? contractText.substring(0, 2000) : contractText;
+        if (!dealContext.isBlank()) {
+            userPrompt.append("=== DEAL CONTEXT (from the contract being processed) ===\n")
+                      .append(dealContext).append("\n=== END DEAL CONTEXT ===\n\n");
+        }
+        userPrompt.append("Draft a complete ").append(clauseType).append(" clause for this agreement.");
+        if (feedbackContext != null && !feedbackContext.isBlank()) {
+            userPrompt.append("\n\n").append(feedbackContext);
+        }
+
+        AiMessage response = chatModel.generate(
+                SystemMessage.from(legalSystemConfig.localize(systemPrompt.toString())),
+                UserMessage.from(userPrompt.toString())
+        ).content();
+
+        String content = stripResponsePrefix(response.text());
+        return Map.of(
+                "clauseType", clauseType,
+                "content", content,
+                "contractType", meta.getContractType() != null ? meta.getContractType() : ""
+        );
+    }
 }
