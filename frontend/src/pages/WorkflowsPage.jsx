@@ -27,14 +27,16 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  const selectedDef = definitions.find(d => d.id === defId);
+  const isDraftWorkflow = selectedDef?.steps?.some(s => s.type === 'DRAFT_CLAUSE');
+
   const handleRun = async () => {
-    if (!defId || !docId) { setError('Select a workflow and document'); return; }
+    if (!defId) { setError('Select a workflow'); return; }
+    if (!isDraftWorkflow && !docId) { setError('Select a document'); return; }
     setLoading(true); setError('');
-    try { await onStarted(defId, docId); }
+    try { await onStarted(defId, docId || null); }
     catch (e) { setError(e.message || 'Failed to start'); setLoading(false); }
   };
-
-  const selectedDef = definitions.find(d => d.id === defId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -43,7 +45,7 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted }) {
 
         <div>
           <label className="text-xs text-text-muted mb-1 block">Workflow</label>
-          <select value={defId} onChange={e => setDefId(e.target.value)} className="input-field w-full text-sm">
+          <select value={defId} onChange={e => { setDefId(e.target.value); setDocId(''); }} className="input-field w-full text-sm">
             <option value="">Choose a workflow…</option>
             {definitions.map(d => (
               <option key={d.id} value={d.id}>
@@ -55,9 +57,16 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted }) {
         </div>
 
         <div>
-          <label className="text-xs text-text-muted mb-1 block">Document</label>
+          <label className="text-xs text-text-muted mb-1 block">
+            Document {isDraftWorkflow && <span className="text-primary ml-1">(optional — draft runs without a document)</span>}
+          </label>
+          {isDraftWorkflow && !docId && (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg px-3 py-2 mb-2 text-xs text-primary">
+              This workflow drafts new content from scratch using the firm's clause library and corpus — no existing document needed. Optionally select one to use as deal context.
+            </div>
+          )}
           <select value={docId} onChange={e => setDocId(e.target.value)} className="input-field w-full text-sm">
-            <option value="">Choose a document…</option>
+            <option value="">{isDraftWorkflow ? 'No document (draft from scratch)' : 'Choose a document…'}</option>
             {docs.map(d => (
               <option key={d.id} value={d.id}>{d.fileName}{d.clientName ? ` — ${d.clientName}` : ''}</option>
             ))}
@@ -188,7 +197,9 @@ export default function WorkflowsPage() {
 
   const handleStarted = async (defId, docId) => {
     setShowModal(false);
-    navigate(`/workflows/run?definitionId=${defId}&documentId=${docId}`);
+    const params = new URLSearchParams({ definitionId: defId });
+    if (docId) params.set('documentId', docId);
+    navigate(`/workflows/run?${params.toString()}`);
   };
 
   const handleDelete = async (id) => {

@@ -48,8 +48,8 @@ public class WorkflowExecutor {
             UUID docId = run.getDocumentId();
             String username = run.getUsername();
 
-            // Load document metadata once — used for RAG context filtering
-            DocumentMetadata docMeta = documentMetadataRepository.findById(docId).orElse(null);
+            // Load document metadata once — used for RAG context filtering (null for draft-only runs)
+            DocumentMetadata docMeta = (docId != null) ? documentMetadataRepository.findById(docId).orElse(null) : null;
 
             try {
                 updateStatus(runId, WorkflowStatus.RUNNING, 0, null, skippedIndices);
@@ -180,14 +180,34 @@ public class WorkflowExecutor {
 
     private Object executeStep(WorkflowStepConfig step, UUID docId, String username,
                                Map<String, Object> priorResults, String ragContext, String feedbackContext) {
+        // For draft-only runs (no document), inject the DRAFT_CLAUSE output as the "contract text"
+        String draftedText = extractDraftedText(priorResults);
         return switch (step.getType()) {
-            case EXTRACT_KEY_TERMS   -> aiService.extractKeyTerms(docId, username);
-            case RISK_ASSESSMENT     -> aiService.assessRiskWithContext(docId, username, ragContext, feedbackContext);
-            case CLAUSE_CHECKLIST    -> contractReviewService.review(new ContractReviewRequest(docId, null), username);
-            case GENERATE_SUMMARY    -> aiService.generateWorkflowSummary(docId, priorResults, username);
-            case REDLINE_SUGGESTIONS -> aiService.generateRedlinesWithContext(docId, priorResults, username, ragContext, feedbackContext);
+            case EXTRACT_KEY_TERMS   -> docId != null
+                    ? aiService.extractKeyTerms(docId, username)
+                    : Map.of("note", "Key terms extraction requires an uploaded document");
+            case RISK_ASSESSMENT     -> aiService.assessRiskWithContext(docId, username, ragContext, feedbackContext, draftedText);
+            case CLAUSE_CHECKLIST    -> docId != null
+                    ? contractReviewService.review(new ContractReviewRequest(docId, null), username)
+                    : Map.of("clauses", List.of(), "note", "Clause checklist requires an uploaded document");
+            case GENERATE_SUMMARY    -> aiService.generateWorkflowSummary(docId, priorResults, username, draftedText);
+            case REDLINE_SUGGESTIONS -> aiService.generateRedlinesWithContext(docId, priorResults, username, ragContext, feedbackContext, draftedText);
             case DRAFT_CLAUSE        -> aiService.draftClauseForWorkflow(docId, step.getParams(), username, ragContext, feedbackContext);
         };
+    }
+
+    /** Extracts drafted clause text from prior DRAFT_CLAUSE step result (for document-less runs). */
+    @SuppressWarnings("unchecked")
+    private String extractDraftedText(Map<String, Object> priorResults) {
+        Object draftRaw = priorResults.get("DRAFT_CLAUSE");
+        if (draftRaw == null) return null;
+        try {
+            String json = objectMapper.writeValueAsString(draftRaw);
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
+            return node.path("content").asText(null);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private String buildFeedbackContext(WorkflowQualityScorer.QualityScore quality, int attempt) {

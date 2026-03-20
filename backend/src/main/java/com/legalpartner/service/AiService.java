@@ -986,8 +986,14 @@ public class AiService {
     // ── Workflow step: Executive Summary ──────────────────────────────────────
 
     public ExecutiveSummaryResult generateWorkflowSummary(UUID documentId, Map<String, Object> priorResults, String username) {
-        documentRepository.findById(documentId)
-                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+        return generateWorkflowSummary(documentId, priorResults, username, null);
+    }
+
+    public ExecutiveSummaryResult generateWorkflowSummary(UUID documentId, Map<String, Object> priorResults, String username, String draftedText) {
+        if (documentId != null) {
+            documentRepository.findById(documentId)
+                    .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+        }
 
         String priorJson;
         try {
@@ -1074,6 +1080,28 @@ public class AiService {
         }
     }
 
+    /** Builds redline issues from RISK_ASSESSMENT categories (for draft-only runs with no checklist). */
+    private String buildClauseIssuesFromRisk(Map<String, Object> priorResults) {
+        Object riskRaw = priorResults.get("RISK_ASSESSMENT");
+        if (riskRaw == null) return "";
+        try {
+            String json = objectMapper.writeValueAsString(riskRaw);
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
+            StringBuilder sb = new StringBuilder();
+            node.path("categories").forEach(cat -> {
+                String rating = cat.path("rating").asText("");
+                if ("HIGH".equals(rating) || "MEDIUM".equals(rating)) {
+                    sb.append("- ").append(cat.path("name").asText("Clause"))
+                      .append(" [").append(rating).append(" RISK]: ")
+                      .append(cat.path("justification").asText("")).append("\n");
+                }
+            });
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private RedlineSuggestionsResult parseRedlineJson(com.fasterxml.jackson.databind.JsonNode root) {
         List<RedlineSuggestionsResult.RedlineSuggestion> suggestions = new ArrayList<>();
         if (root != null && root.has("suggestions")) {
@@ -1098,13 +1126,23 @@ public class AiService {
      */
     public RiskAssessmentResult assessRiskWithContext(UUID documentId, String username,
                                                       String ragContext, String feedbackContext) {
-        documentRepository.findById(documentId)
-                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+        return assessRiskWithContext(documentId, username, ragContext, feedbackContext, null);
+    }
 
-        String contractText = fullTextRetriever.retrieveFullText(documentId);
+    public RiskAssessmentResult assessRiskWithContext(UUID documentId, String username,
+                                                      String ragContext, String feedbackContext,
+                                                      String draftedText) {
+        String contractText;
+        if (documentId != null) {
+            documentRepository.findById(documentId)
+                    .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+            contractText = fullTextRetriever.retrieveFullText(documentId);
+        } else {
+            contractText = draftedText != null ? draftedText : "";
+        }
         if (contractText.isBlank()) {
             return new RiskAssessmentResult("UNKNOWN", List.of(new RiskCategory(
-                    "Not Ready", "UNKNOWN", "Document not yet indexed.", "")));
+                    "Not Ready", "UNKNOWN", "No contract text available.", "")));
         }
 
         // Build enriched context: RAG benchmarks + contract + optional refinement feedback
@@ -1147,10 +1185,25 @@ public class AiService {
                                                                 String username,
                                                                 String ragContext,
                                                                 String feedbackContext) {
-        documentRepository.findById(documentId)
-                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+        return generateRedlinesWithContext(documentId, priorResults, username, ragContext, feedbackContext, null);
+    }
+
+    public RedlineSuggestionsResult generateRedlinesWithContext(UUID documentId,
+                                                                Map<String, Object> priorResults,
+                                                                String username,
+                                                                String ragContext,
+                                                                String feedbackContext,
+                                                                String draftedText) {
+        if (documentId != null) {
+            documentRepository.findById(documentId)
+                    .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+        }
 
         String clauseIssues = buildClauseIssuesList(priorResults);
+        // For draft-only runs, fall back to risk categories as clause issues
+        if (clauseIssues.isBlank() && draftedText != null) {
+            clauseIssues = buildClauseIssuesFromRisk(priorResults);
+        }
         if (clauseIssues.isBlank()) return RedlineSuggestionsResult.builder().suggestions(List.of()).build();
 
         StringBuilder userPrompt = new StringBuilder();
@@ -1183,12 +1236,15 @@ public class AiService {
                                                        String username,
                                                        String ragContext,
                                                        String feedbackContext) {
-        DocumentMetadata meta = documentRepository.findById(documentId)
-                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
-
-        String contractText = fullTextRetriever.retrieveFullText(documentId);
         String clauseType = params != null ? params.getOrDefault("clauseType", "LIABILITY") : "LIABILITY";
-        String contractTypeName = meta.getDocumentType() != null ? meta.getDocumentType().name() : "Commercial";
+        String contractText = "";
+        String contractTypeName = "Commercial";
+        if (documentId != null) {
+            DocumentMetadata meta = documentRepository.findById(documentId)
+                    .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
+            contractText = fullTextRetriever.retrieveFullText(documentId);
+            contractTypeName = meta.getDocumentType() != null ? meta.getDocumentType().name() : "Commercial";
+        }
 
         StringBuilder systemPrompt = new StringBuilder("""
                 You are a senior commercial contracts lawyer.
@@ -1225,7 +1281,7 @@ public class AiService {
         return Map.of(
                 "clauseType", clauseType,
                 "content", content,
-                "contractType", meta.getDocumentType() != null ? meta.getDocumentType().name() : ""
+                "contractType", contractTypeName
         );
     }
 }

@@ -273,11 +273,14 @@ export default function WorkflowRunPage() {
       return;
     }
 
-    if (!definitionId || !documentId) return;
+    if (!definitionId) return;
 
     const controller = new AbortController();
 
-    fetch(`/api/v1/workflows/runs?definitionId=${definitionId}&documentId=${documentId}`, {
+    const runParams = new URLSearchParams({ definitionId });
+    if (documentId) runParams.set('documentId', documentId);
+
+    fetch(`/api/v1/workflows/runs?${runParams.toString()}`, {
       method: 'POST',
       credentials: 'include',
       headers: { Accept: 'text/event-stream' },

@@ -97,7 +97,7 @@ public class WorkflowController {
     @PostMapping(value = "/runs", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter executeWorkflow(
             @RequestParam UUID definitionId,
-            @RequestParam UUID documentId,
+            @RequestParam(required = false) UUID documentId,
             Authentication auth) {
         checkEnabled();
         return workflowService.executeWorkflow(definitionId, documentId, auth.getName());
