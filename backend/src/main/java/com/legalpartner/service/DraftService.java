@@ -126,11 +126,13 @@ public class DraftService {
         List<ClauseSuggestion> suggestions = new ArrayList<>();
         Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
+        TerminologyManifest manifest = null;
         for (String key : plannedSections) {
             ClauseSpec spec = CLAUSE_SPECS.get(key);
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), null);
+            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), null, manifest);
             sectionValues.put(key, result.html());
+            if ("DEFINITIONS".equals(key)) manifest = extractTerminology(result.html(), request);
             if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
 
             String reasoning = "Generated using RAG from firm's corpus.";
@@ -178,6 +180,7 @@ public class DraftService {
         Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
         // Phase 2: generate each planned section
+        TerminologyManifest manifest = null;
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
             ClauseSpec spec = CLAUSE_SPECS.get(key);
@@ -190,8 +193,9 @@ public class DraftService {
                     "totalClauses", plannedSections.size()))));
 
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), emitter);
+            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), emitter, manifest);
             sectionValues.put(key, result.html());
+            if ("DEFINITIONS".equals(key)) manifest = extractTerminology(result.html(), request);
             List<String> qaWarnings = result.qaWarnings();
             if (!qaWarnings.isEmpty()) allQaWarnings.put(key, qaWarnings);
 
@@ -344,10 +348,39 @@ public class DraftService {
      */
     record ClauseResult(String html, List<String> qaWarnings) {}
 
+    /** Party names and defined terms extracted from the DEFINITIONS clause — injected into all subsequent clauses. */
+    private record TerminologyManifest(String partyAName, String partyBName, List<String> definedTerms) {}
+
+    private TerminologyManifest extractTerminology(String definitionsHtml, DraftRequest request) {
+        String partyA = nullToDefault(request.getPartyA(), "the Service Provider");
+        String partyB = nullToDefault(request.getPartyB(), "the Client");
+        List<String> terms = new ArrayList<>();
+        String plain = definitionsHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
+        // Extract "Term" means... patterns
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("[\"'\\u201C\\u2018]([A-Z][A-Za-z ]{2,40})[\"'\\u201D\\u2019]\\s+means")
+                .matcher(plain);
+        while (m.find() && terms.size() < 20) terms.add(m.group(1).trim());
+        return new TerminologyManifest(partyA, partyB, terms);
+    }
+
+    private String buildManifestConstraint(TerminologyManifest manifest) {
+        StringBuilder sb = new StringBuilder(
+                "\n\nTERMINOLOGY MANDATE — non-negotiable:\n" +
+                "- Refer to the service provider/vendor ONLY as \"" + manifest.partyAName() + "\" — never Vendor, Supplier, Company, or any other name.\n" +
+                "- Refer to the client/customer ONLY as \"" + manifest.partyBName() + "\" — never Customer, Buyer, or any other name.\n" +
+                "- Do NOT introduce any party name not listed above.\n");
+        if (!manifest.definedTerms().isEmpty()) {
+            sb.append("- Use these defined terms consistently (exact capitalisation): ")
+              .append(String.join(", ", manifest.definedTerms())).append(".\n");
+        }
+        return sb.toString();
+    }
+
     private ClauseResult generateClauseWithQa(DraftRequest request, DraftContext ctx,
                                                String clauseKey, String systemPrompt,
                                                String userPromptTemplate, int expectedSubclauses,
-                                               SseEmitter emitter) {
+                                               SseEmitter emitter, TerminologyManifest manifest) {
         String contractType = resolveContractTypeName(request);
         String jurisdiction = nullToDefault(request.getJurisdiction(), "India");
         String counterparty = nullToDefault(request.getCounterpartyType(), "general");
@@ -360,37 +393,40 @@ public class DraftService {
             log.info("Draft context: {} chunks from {} sources", ctx.chunkCount(), ctx.sourceDocuments().size());
         }
 
-        String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction) + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
+        String manifestConstraint = (manifest != null) ? buildManifestConstraint(manifest) : "";
+        String ragGrounding = ctx.chunkCount() > 0
+                ? "\n\nRAG GROUNDING MANDATE: The precedent clauses provided above are your primary source. " +
+                  "Base your clause structure and language on those precedents. " +
+                  "If precedent covers a topic, follow it — do not invent language from scratch.\n"
+                : "";
+        String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction)
+                + manifestConstraint + ragGrounding + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
         String fullSystemAndInitial = localizedSystemPrompt + "\n\n" + initialPrompt;
 
         String generated = sanitizeClauseText(
                 chatModel.generate(UserMessage.from(fullSystemAndInitial)).content().text().trim());
 
-        List<String> qaWarnings = qaClause(clauseKey, generated, expectedSubclauses);
+        List<String> qaWarnings = qaClause(clauseKey, generated, expectedSubclauses, contractType);
 
         for (int attempt = 1; attempt <= QA_MAX_RETRIES && !qaWarnings.isEmpty(); attempt++) {
-            String issueList = qaWarnings.stream()
-                    .map(w -> "- " + w)
-                    .collect(Collectors.joining("\n"));
+            String directiveRetry = buildDirectiveRetry(qaWarnings, clauseKey, expectedSubclauses);
             log.warn("QA [{}] attempt {}/{}: {} issues — retrying", clauseKey, attempt, QA_MAX_RETRIES, qaWarnings.size());
 
-            // Notify frontend what we're fixing
             if (emitter != null) {
                 try {
+                    String summary = qaWarnings.stream().map(w -> "- " + w).collect(Collectors.joining("\n"));
                     emitter.send(SseEmitter.event().data(toJson(Map.of(
                             "type", "clause_retry",
                             "clauseType", clauseKey,
                             "attempt", attempt,
-                            "fixing", issueList
+                            "fixing", summary
                     ))));
                 } catch (IOException ignored) {}
             }
 
-            String retryPrompt = String.format(PromptTemplates.DRAFT_QA_RETRY_USER, issueList);
-            // Include full context in retry — model needs parties/deal brief/RAG to rewrite correctly
             generated = sanitizeClauseText(
-                    chatModel.generate(UserMessage.from(fullSystemAndInitial + "\n\n" + retryPrompt)).content().text().trim());
-            qaWarnings = qaClause(clauseKey, generated, expectedSubclauses);
+                    chatModel.generate(UserMessage.from(fullSystemAndInitial + "\n\n" + directiveRetry)).content().text().trim());
+            qaWarnings = qaClause(clauseKey, generated, expectedSubclauses, contractType);
         }
 
         if (!qaWarnings.isEmpty()) {
@@ -398,7 +434,7 @@ public class DraftService {
         }
         // Always post-process to replace any remaining placeholders with sensible defaults
         generated = postProcessPlaceholders(generated, request);
-        return new ClauseResult(generated, qaClause(clauseKey, generated, expectedSubclauses));
+        return new ClauseResult(generated, qaClause(clauseKey, generated, expectedSubclauses, contractType));
     }
 
     /**
@@ -406,6 +442,10 @@ public class DraftService {
      * Returns a list of human-readable warning strings (empty = clean).
      */
     private List<String> qaClause(String clauseKey, String htmlText, int expectedSubclauses) {
+        return qaClause(clauseKey, htmlText, expectedSubclauses, null);
+    }
+
+    private List<String> qaClause(String clauseKey, String htmlText, int expectedSubclauses, String contractType) {
         List<String> warnings = new ArrayList<>();
 
         // Strip HTML tags for plain-text analysis
@@ -457,7 +497,41 @@ public class DraftService {
             log.warn("QA [{}]: clause too short — {} chars", clauseKey, plain.length());
         }
 
+        // 5. Contract-type contamination check
+        if (contractType != null) {
+            List<String> contaminants = detectContamination(plain, contractType);
+            if (!contaminants.isEmpty()) {
+                warnings.add("Template contamination detected — content from a different contract type: "
+                        + String.join(", ", contaminants)
+                        + ". Remove these and replace with content appropriate for a " + contractType + " agreement.");
+                log.warn("QA [{}]: contamination detected for contract type '{}': {}", clauseKey, contractType, contaminants);
+            }
+        }
+
         return warnings;
+    }
+
+    private static final Map<String, List<String>> CONTAMINATION_SIGNALS = Map.of(
+        "SaaS", List.of("real property", "lease agreement", "lessee", "lessor", "landlord", "tenant", "mortgage", "premises", "rental"),
+        "Non-Disclosure Agreement", List.of("service level", "uptime", "subscription fee", "software license", "source code", "purchase order"),
+        "Employment Agreement", List.of("saas platform", "uptime guarantee", "api access", "software subscription", "real property"),
+        "Supply Agreement", List.of("software license", "saas", "uptime", "source code", "real property", "employment"),
+        "Master Services Agreement", List.of("real property", "lease", "tenant", "mortgage", "employment contract")
+    );
+
+    private List<String> detectContamination(String plain, String contractType) {
+        String lowerPlain = plain.toLowerCase();
+        String lowerType = contractType.toLowerCase();
+        List<String> found = new ArrayList<>();
+        for (Map.Entry<String, List<String>> entry : CONTAMINATION_SIGNALS.entrySet()) {
+            if (lowerType.contains(entry.getKey().toLowerCase())) continue; // skip own contract type
+            for (String signal : entry.getValue()) {
+                if (lowerPlain.contains(signal.toLowerCase()) && !found.contains(signal)) {
+                    found.add(signal);
+                }
+            }
+        }
+        return found;
     }
 
     private String buildDealContext(DraftRequest request) {
@@ -575,6 +649,38 @@ public class DraftService {
         }
 
         return html.toString().stripTrailing();
+    }
+
+    private String buildDirectiveRetry(List<String> warnings, String clauseKey, int expectedSubclauses) {
+        StringBuilder sb = new StringBuilder("=== REWRITE REQUIRED — fix each issue below EXACTLY as instructed ===\n\n");
+        for (String w : warnings) {
+            if (w.startsWith("Unfilled placeholder:")) {
+                String ph = w.replace("Unfilled placeholder:", "").trim();
+                sb.append("PLACEHOLDER: ").append(ph).append(" must be replaced with a specific legal term. ")
+                  .append("Do NOT use any square brackets. Use words like 'the Effective Date', ")
+                  .append("'30 days', 'net 30 days', 'monthly in advance', 'as agreed in the Order Form'.\n");
+            } else if (w.startsWith("Incomplete:")) {
+                sb.append("MISSING SUB-CLAUSES: You must write exactly ").append(expectedSubclauses)
+                  .append(" numbered sub-clauses. ")
+                  .append("Keep any sub-clauses that are correct. Add the missing ones with full legal text. ")
+                  .append("Each sub-clause needs 2+ complete sentences of substantive legal language.\n");
+            } else if (w.contains("Heading-only") || w.contains("headings only")) {
+                sb.append("EMPTY SUB-CLAUSES: Some numbered items have a title but no legal text. ")
+                  .append("For EVERY numbered sub-clause, write 2-4 complete legal sentences after the heading. ")
+                  .append("A heading alone (e.g. '4.1. Background IP') is NOT acceptable.\n");
+            } else if (w.contains("too short")) {
+                sb.append("TOO SHORT: Expand every sub-clause. Each must be a standalone enforceable provision ")
+                  .append("of at least 2 sentences. Do not use bullet points or lists — write full prose.\n");
+            } else {
+                sb.append("FIX: ").append(w).append("\n");
+            }
+        }
+        sb.append("\nRULES FOR THIS REWRITE:\n")
+          .append("- Do NOT introduce new placeholders or brackets.\n")
+          .append("- Do NOT change sub-clauses that are already correctly drafted.\n")
+          .append("- Output the COMPLETE rewritten clause (all sub-clauses, not just the fixed ones).\n")
+          .append("- Use only the party names specified in the terminology mandate above.\n");
+        return sb.toString();
     }
 
     // ── Placeholder post-processor ────────────────────────────────────────────
