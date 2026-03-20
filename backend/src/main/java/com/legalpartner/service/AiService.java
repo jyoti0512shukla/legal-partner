@@ -1289,9 +1289,9 @@ public class AiService {
             userPrompt.append("\n\n").append(feedbackContext);
         }
 
+        String localizedSystem = legalSystemConfig.localizeForJurisdiction(systemPrompt.toString(), jurisdiction);
         AiMessage response = chatModel.generate(
-                SystemMessage.from(legalSystemConfig.localizeForJurisdiction(systemPrompt.toString(), jurisdiction)),
-                UserMessage.from(userPrompt.toString())
+                UserMessage.from(localizedSystem + "\n\n" + userPrompt)
         ).content();
 
         String content = stripResponsePrefix(response.text());
