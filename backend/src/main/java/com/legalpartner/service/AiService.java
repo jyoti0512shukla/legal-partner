@@ -1236,7 +1236,12 @@ public class AiService {
                                                        String username,
                                                        String ragContext,
                                                        String feedbackContext) {
-        String clauseType = params != null ? params.getOrDefault("clauseType", "LIABILITY") : "LIABILITY";
+        String clauseType   = params != null ? params.getOrDefault("clauseType",   "LIABILITY") : "LIABILITY";
+        String partyA       = params != null ? params.getOrDefault("partyA",       "") : "";
+        String partyB       = params != null ? params.getOrDefault("partyB",       "") : "";
+        String jurisdiction = params != null ? params.getOrDefault("jurisdiction", "") : "";
+        String dealBrief    = params != null ? params.getOrDefault("dealBrief",    "") : "";
+
         String contractText = "";
         String contractTypeName = "Commercial";
         if (documentId != null) {
@@ -1246,27 +1251,40 @@ public class AiService {
             contractTypeName = meta.getDocumentType() != null ? meta.getDocumentType().name() : "Commercial";
         }
 
-        StringBuilder systemPrompt = new StringBuilder("""
-                You are a senior commercial contracts lawyer.
-                Draft a complete, enforceable %CLAUSE_TYPE% clause for a %CONTRACT_TYPE% agreement.
-                STRICT RULES:
-                - Do NOT use placeholders like [Party Name], [DATE], [INSERT].
-                - Use "the Service Provider" and "the Client" as party names if not specified.
-                - Write at least 3 numbered sub-clauses with full legal text.
-                - Base your language on the PRECEDENT CONTEXT provided.
-                """.replace("%CLAUSE_TYPE%", clauseType)
-                   .replace("%CONTRACT_TYPE%", contractTypeName));
+        // Build system prompt — inject parties and jurisdiction directly so model can't override them
+        String partyALabel = partyA.isBlank() ? "the Service Provider" : partyA;
+        String partyBLabel = partyB.isBlank() ? "the Client" : partyB;
+        String jurisdictionLabel = jurisdiction.isBlank() ? "" : ", governed by the laws of " + jurisdiction;
+        StringBuilder systemPrompt = new StringBuilder();
+        systemPrompt.append("You are a senior commercial contracts lawyer.\n");
+        systemPrompt.append("Draft a complete, enforceable ").append(clauseType)
+                    .append(" clause for a ").append(contractTypeName).append(" agreement")
+                    .append(jurisdictionLabel).append(".\n");
+        systemPrompt.append("STRICT RULES:\n");
+        systemPrompt.append("- Do NOT use placeholders like [Party Name], [DATE], [INSERT], [***], [__].\n");
+        systemPrompt.append("- Use \"").append(partyALabel).append("\" and \"").append(partyBLabel)
+                    .append("\" as the party names throughout. Do not substitute other names.\n");
+        systemPrompt.append("- Write at least 3 numbered sub-clauses with full legal text.\n");
+        systemPrompt.append("- Base your language on the PRECEDENT CONTEXT provided.\n");
+        if (!jurisdiction.isBlank()) {
+            systemPrompt.append("- Governing law is ").append(jurisdiction)
+                        .append(". Do NOT reference any other jurisdiction.\n");
+        }
 
         StringBuilder userPrompt = new StringBuilder();
         if (ragContext != null && !ragContext.isBlank()) {
             userPrompt.append(ragContext);
         }
-        // Inject deal context from the document (parties, dates, etc.)
-        String dealContext = contractText.length() > 2000 ? contractText.substring(0, 2000) : contractText;
-        if (!dealContext.isBlank()) {
+        // Inject deal context: user-supplied brief first, then document text if available
+        if (!dealBrief.isBlank()) {
+            userPrompt.append("=== DEAL CONTEXT ===\n").append(dealBrief).append("\n=== END DEAL CONTEXT ===\n\n");
+        } else if (!contractText.isBlank()) {
+            String snip = contractText.length() > 2000 ? contractText.substring(0, 2000) : contractText;
             userPrompt.append("=== DEAL CONTEXT (from the contract being processed) ===\n")
-                      .append(dealContext).append("\n=== END DEAL CONTEXT ===\n\n");
+                      .append(snip).append("\n=== END DEAL CONTEXT ===\n\n");
         }
+        userPrompt.append("Parties: ").append(partyALabel).append(" and ").append(partyBLabel).append(".\n");
+        if (!jurisdiction.isBlank()) userPrompt.append("Governing law: ").append(jurisdiction).append(".\n");
         userPrompt.append("Draft a complete ").append(clauseType).append(" clause for this agreement.");
         if (feedbackContext != null && !feedbackContext.isBlank()) {
             userPrompt.append("\n\n").append(feedbackContext);

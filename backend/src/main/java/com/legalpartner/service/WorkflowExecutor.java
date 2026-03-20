@@ -34,11 +34,16 @@ public class WorkflowExecutor {
     private final ObjectMapper objectMapper;
 
     public SseEmitter execute(WorkflowRun run, List<WorkflowStepConfig> steps, String workflowName) {
-        return execute(run, steps, workflowName, List.of());
+        return execute(run, steps, workflowName, List.of(), null);
     }
 
     public SseEmitter execute(WorkflowRun run, List<WorkflowStepConfig> steps, String workflowName,
                               List<WorkflowConnector> connectors) {
+        return execute(run, steps, workflowName, connectors, null);
+    }
+
+    public SseEmitter execute(WorkflowRun run, List<WorkflowStepConfig> steps, String workflowName,
+                              List<WorkflowConnector> connectors, Map<String, String> draftContext) {
         SseEmitter emitter = new SseEmitter(0L);
 
         Thread.ofVirtual().start(() -> {
@@ -82,7 +87,7 @@ public class WorkflowExecutor {
                     ));
 
                     // Execute with quality loop (replaces plain exception-retry)
-                    Object result = executeWithQualityLoop(step, docId, username, results, runId, i, docMeta, emitter);
+                    Object result = executeWithQualityLoop(step, docId, username, results, runId, i, docMeta, emitter, draftContext);
                     results.put(step.getType().name(), result);
 
                     updateStatus(runId, WorkflowStatus.RUNNING, i + 1, results, skippedIndices);
@@ -123,7 +128,8 @@ public class WorkflowExecutor {
 
     private Object executeWithQualityLoop(WorkflowStepConfig step, UUID docId, String username,
                                           Map<String, Object> priorResults, UUID runId, int stepIndex,
-                                          DocumentMetadata docMeta, SseEmitter emitter) throws Exception {
+                                          DocumentMetadata docMeta, SseEmitter emitter,
+                                          Map<String, String> draftContext) throws Exception {
         int maxIter = Math.max(1, Math.min(step.getMaxIterations(), 3));
 
         // Retrieve RAG context once before the loop — same context is enriched by feedback each pass
@@ -153,7 +159,7 @@ public class WorkflowExecutor {
             }
 
             try {
-                result = executeStep(step, docId, username, priorResults, ragContext, feedbackContext);
+                result = executeStep(step, docId, username, priorResults, ragContext, feedbackContext, draftContext);
                 lastException = null;
             } catch (Exception e) {
                 lastException = e;
@@ -179,7 +185,8 @@ public class WorkflowExecutor {
     }
 
     private Object executeStep(WorkflowStepConfig step, UUID docId, String username,
-                               Map<String, Object> priorResults, String ragContext, String feedbackContext) {
+                               Map<String, Object> priorResults, String ragContext, String feedbackContext,
+                               Map<String, String> draftContext) {
         // For draft-only runs (no document), inject the DRAFT_CLAUSE output as the "contract text"
         String draftedText = extractDraftedText(priorResults);
         return switch (step.getType()) {
@@ -192,7 +199,13 @@ public class WorkflowExecutor {
                     : Map.of("clauses", List.of(), "note", "Clause checklist requires an uploaded document");
             case GENERATE_SUMMARY    -> aiService.generateWorkflowSummary(docId, priorResults, username, draftedText);
             case REDLINE_SUGGESTIONS -> aiService.generateRedlinesWithContext(docId, priorResults, username, ragContext, feedbackContext, draftedText);
-            case DRAFT_CLAUSE        -> aiService.draftClauseForWorkflow(docId, step.getParams(), username, ragContext, feedbackContext);
+            case DRAFT_CLAUSE        -> {
+                // Merge step-level params with runtime draft context from the user
+                Map<String, String> mergedParams = new HashMap<>();
+                if (step.getParams() != null) mergedParams.putAll(step.getParams());
+                if (draftContext != null) mergedParams.putAll(draftContext);
+                yield aiService.draftClauseForWorkflow(docId, mergedParams, username, ragContext, feedbackContext);
+            }
         };
     }
 

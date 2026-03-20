@@ -25,6 +25,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -228,6 +229,11 @@ public class WorkflowService implements ApplicationRunner {
     }
 
     public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username) {
+        return executeWorkflow(definitionId, documentId, username, null);
+    }
+
+    public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username,
+                                      Map<String, String> draftContext) {
         WorkflowDefinition def = definitionRepo.findById(definitionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found"));
         List<WorkflowStepConfig> steps;
@@ -248,7 +254,7 @@ public class WorkflowService implements ApplicationRunner {
                 .status(WorkflowStatus.PENDING)
                 .build();
         WorkflowRun saved = runRepo.save(run);
-        return executor.execute(saved, steps, def.getName(), connectors);
+        return executor.execute(saved, steps, def.getName(), connectors, draftContext);
     }
 
     public WorkflowAnalyticsDto analytics(String username) {

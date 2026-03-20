@@ -98,9 +98,19 @@ public class WorkflowController {
     public SseEmitter executeWorkflow(
             @RequestParam UUID definitionId,
             @RequestParam(required = false) UUID documentId,
+            @RequestParam(required = false) String partyA,
+            @RequestParam(required = false) String partyB,
+            @RequestParam(required = false) String jurisdiction,
+            @RequestParam(required = false) String dealBrief,
             Authentication auth) {
         checkEnabled();
-        return workflowService.executeWorkflow(definitionId, documentId, auth.getName());
+        Map<String, String> draftContext = new java.util.LinkedHashMap<>();
+        if (partyA     != null) draftContext.put("partyA",      partyA);
+        if (partyB     != null) draftContext.put("partyB",      partyB);
+        if (jurisdiction != null) draftContext.put("jurisdiction", jurisdiction);
+        if (dealBrief  != null) draftContext.put("dealBrief",   dealBrief);
+        return workflowService.executeWorkflow(definitionId, documentId, auth.getName(),
+                draftContext.isEmpty() ? null : draftContext);
     }
 
     // ── Analytics ─────────────────────────────────────────────────────────────

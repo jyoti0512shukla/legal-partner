@@ -21,9 +21,16 @@ function StatusBadge({ status }) {
   );
 }
 
-function RunWorkflowModal({ definitions, docs, onClose, onStarted }) {
-  const [defId, setDefId] = useState('');
+const JURISDICTIONS = [
+  'California, United States', 'New York, United States', 'Delaware, United States',
+  'England and Wales', 'Singapore', 'India (Maharashtra)', 'India (Delhi)',
+  'Germany', 'France', 'Australia (New South Wales)',
+];
+
+function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId }) {
+  const [defId, setDefId] = useState(initialDefId || '');
   const [docId, setDocId] = useState('');
+  const [draft, setDraft] = useState({ partyA: '', partyB: '', jurisdiction: 'California, United States', dealBrief: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -33,14 +40,18 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted }) {
   const handleRun = async () => {
     if (!defId) { setError('Select a workflow'); return; }
     if (!isDraftWorkflow && !docId) { setError('Select a document'); return; }
+    if (isDraftWorkflow && !draft.partyA.trim()) { setError('Enter Party A name'); return; }
+    if (isDraftWorkflow && !draft.partyB.trim()) { setError('Enter Party B name'); return; }
     setLoading(true); setError('');
-    try { await onStarted(defId, docId || null); }
+    try { await onStarted(defId, docId || null, isDraftWorkflow ? draft : null); }
     catch (e) { setError(e.message || 'Failed to start'); setLoading(false); }
   };
 
+  const setD = (k, v) => setDraft(p => ({ ...p, [k]: v }));
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="card w-full max-w-md space-y-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="card w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
         <h2 className="text-lg font-bold">Run Workflow</h2>
 
         <div>
@@ -56,22 +67,57 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted }) {
           {selectedDef && <p className="text-xs text-text-muted mt-1">{selectedDef.description}</p>}
         </div>
 
-        <div>
-          <label className="text-xs text-text-muted mb-1 block">
-            Document {isDraftWorkflow && <span className="text-primary ml-1">(optional — draft runs without a document)</span>}
-          </label>
-          {isDraftWorkflow && !docId && (
-            <div className="bg-primary/5 border border-primary/20 rounded-lg px-3 py-2 mb-2 text-xs text-primary">
-              This workflow drafts new content from scratch using the firm's clause library and corpus — no existing document needed. Optionally select one to use as deal context.
+        {isDraftWorkflow ? (
+          /* ── Draft workflow: party + context form ── */
+          <div className="space-y-3">
+            <div className="bg-primary/5 border border-primary/20 rounded-lg px-3 py-2 text-xs text-primary">
+              This workflow drafts new content — enter the deal details below. No existing document needed.
             </div>
-          )}
-          <select value={docId} onChange={e => setDocId(e.target.value)} className="input-field w-full text-sm">
-            <option value="">{isDraftWorkflow ? 'No document (draft from scratch)' : 'Choose a document…'}</option>
-            {docs.map(d => (
-              <option key={d.id} value={d.id}>{d.fileName}{d.clientName ? ` — ${d.clientName}` : ''}</option>
-            ))}
-          </select>
-        </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-text-muted mb-1 block">Party A (your client) *</label>
+                <input value={draft.partyA} onChange={e => setD('partyA', e.target.value)}
+                  placeholder="Acme Corp" className="input-field w-full text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-text-muted mb-1 block">Party B (counterparty) *</label>
+                <input value={draft.partyB} onChange={e => setD('partyB', e.target.value)}
+                  placeholder="Beta Ltd" className="input-field w-full text-sm" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Governing Law / Jurisdiction</label>
+              <select value={draft.jurisdiction} onChange={e => setD('jurisdiction', e.target.value)}
+                className="input-field w-full text-sm">
+                {JURISDICTIONS.map(j => <option key={j}>{j}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Deal context / What to draft</label>
+              <textarea value={draft.dealBrief} onChange={e => setD('dealBrief', e.target.value)}
+                rows={3} placeholder="e.g. Mutual NDA between two SaaS companies exploring a partnership. Strict confidentiality, 5-year survival, no arbitration."
+                className="input-field w-full text-sm resize-none" />
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Reference document (optional — for deal context)</label>
+              <select value={docId} onChange={e => setDocId(e.target.value)} className="input-field w-full text-sm">
+                <option value="">None — draft from scratch</option>
+                {docs.map(d => <option key={d.id} value={d.id}>{d.fileName}{d.clientName ? ` — ${d.clientName}` : ''}</option>)}
+              </select>
+            </div>
+          </div>
+        ) : (
+          /* ── Non-draft workflow: document selector ── */
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Document</label>
+            <select value={docId} onChange={e => setDocId(e.target.value)} className="input-field w-full text-sm">
+              <option value="">Choose a document…</option>
+              {docs.map(d => (
+                <option key={d.id} value={d.id}>{d.fileName}{d.clientName ? ` — ${d.clientName}` : ''}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {selectedDef && (
           <div className="bg-surface-el rounded-lg p-3 space-y-1">
@@ -195,10 +241,14 @@ export default function WorkflowsPage() {
     if (!loading) fetchRuns(matterFilter);
   }, [matterFilter, loading, fetchRuns]);
 
-  const handleStarted = async (defId, docId) => {
+  const handleStarted = async (defId, docId, draftContext) => {
     setShowModal(false);
     const params = new URLSearchParams({ definitionId: defId });
     if (docId) params.set('documentId', docId);
+    if (draftContext?.partyA)       params.set('partyA',       draftContext.partyA);
+    if (draftContext?.partyB)       params.set('partyB',       draftContext.partyB);
+    if (draftContext?.jurisdiction) params.set('jurisdiction', draftContext.jurisdiction);
+    if (draftContext?.dealBrief)    params.set('dealBrief',    draftContext.dealBrief);
     navigate(`/workflows/run?${params.toString()}`);
   };
 
@@ -376,6 +426,7 @@ export default function WorkflowsPage() {
           docs={docs}
           onClose={() => setShowModal(false)}
           onStarted={handleStarted}
+          initialDefId={preselectedDef}
         />
       )}
     </div>

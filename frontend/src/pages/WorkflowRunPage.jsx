@@ -230,7 +230,11 @@ export default function WorkflowRunPage() {
   const [stepIterations, setStepIterations] = useState({}); // stepIndex → {current, max}
 
   const definitionId = searchParams.get('definitionId');
-  const documentId = searchParams.get('documentId');
+  const documentId   = searchParams.get('documentId');
+  const partyA       = searchParams.get('partyA');
+  const partyB       = searchParams.get('partyB');
+  const jurisdiction = searchParams.get('jurisdiction');
+  const dealBrief    = searchParams.get('dealBrief');
 
   const addLog = (msg) => setLogs(l => [...l, { ts: new Date().toLocaleTimeString(), msg }]);
 
@@ -278,7 +282,11 @@ export default function WorkflowRunPage() {
     const controller = new AbortController();
 
     const runParams = new URLSearchParams({ definitionId });
-    if (documentId) runParams.set('documentId', documentId);
+    if (documentId)   runParams.set('documentId',   documentId);
+    if (partyA)       runParams.set('partyA',        partyA);
+    if (partyB)       runParams.set('partyB',        partyB);
+    if (jurisdiction) runParams.set('jurisdiction',  jurisdiction);
+    if (dealBrief)    runParams.set('dealBrief',     dealBrief);
 
     fetch(`/api/v1/workflows/runs?${runParams.toString()}`, {
       method: 'POST',
@@ -322,7 +330,7 @@ export default function WorkflowRunPage() {
     });
 
     return () => controller.abort();
-  }, [definitionId, documentId, id]);
+  }, [definitionId, documentId, partyA, partyB, jurisdiction, dealBrief, id]);
 
   function handleEvent(event, data) {
     if (event === 'workflow_start') {
