@@ -129,11 +129,9 @@ public class DraftService {
         for (String key : plannedSections) {
             ClauseSpec spec = CLAUSE_SPECS.get(key);
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            String generated = generateClause(request, ctx, spec.systemPrompt(), spec.userPromptTemplate());
-            sectionValues.put(key, generated);
-
-            List<String> qaWarnings = qaClause(key, generated, spec.expectedSubclauses());
-            if (!qaWarnings.isEmpty()) allQaWarnings.put(key, qaWarnings);
+            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses());
+            sectionValues.put(key, result.html());
+            if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
 
             String reasoning = "Generated using RAG from firm's corpus.";
             if (!ctx.sourceDocuments().isEmpty()) {
@@ -192,11 +190,9 @@ public class DraftService {
                     "totalClauses", plannedSections.size()))));
 
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            String generated = generateClause(request, ctx, spec.systemPrompt(), spec.userPromptTemplate());
-            sectionValues.put(key, generated);
-
-            // QA pass: check for placeholders and completeness
-            List<String> qaWarnings = qaClause(key, generated, spec.expectedSubclauses());
+            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses());
+            sectionValues.put(key, result.html());
+            List<String> qaWarnings = result.qaWarnings();
             if (!qaWarnings.isEmpty()) allQaWarnings.put(key, qaWarnings);
 
             Map<String, Object> clauseDonePayload = new LinkedHashMap<>();
@@ -339,28 +335,54 @@ public class DraftService {
 
     // ── Clause generation ──────────────────────────────────────────────────────
 
-    private String generateClause(DraftRequest request, DraftContext ctx,
-                                   String systemPrompt, String userPromptTemplate) {
+    private static final int QA_MAX_RETRIES = 2;
+
+    /**
+     * Generates a clause and auto-retries up to QA_MAX_RETRIES times if the QA pass
+     * detects unfilled placeholders or incomplete sub-clauses.
+     * Returns the best result (last attempt) along with any residual QA warnings.
+     */
+    record ClauseResult(String html, List<String> qaWarnings) {}
+
+    private ClauseResult generateClauseWithQa(DraftRequest request, DraftContext ctx,
+                                               String clauseKey, String systemPrompt,
+                                               String userPromptTemplate, int expectedSubclauses) {
         String contractType = resolveContractTypeName(request);
         String jurisdiction = nullToDefault(request.getJurisdiction(), "India");
         String counterparty = nullToDefault(request.getCounterpartyType(), "general");
         String practiceArea = nullToDefault(request.getPracticeArea(), "general");
         String dealContext = buildDealContext(request);
 
-        String prompt = String.format(userPromptTemplate, contractType, jurisdiction, counterparty, practiceArea, dealContext, ctx.structuredContext());
+        String initialPrompt = String.format(userPromptTemplate, contractType, jurisdiction, counterparty, practiceArea, dealContext, ctx.structuredContext());
 
         if (ctx.chunkCount() > 0) {
             log.info("Draft context: {} chunks from {} sources", ctx.chunkCount(), ctx.sourceDocuments().size());
         }
 
-        // Append content guardrails to every draft system prompt to prevent placeholder leakage
         String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction) + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
+        String fullSystemAndInitial = localizedSystemPrompt + "\n\n" + initialPrompt;
 
-        AiMessage response = chatModel.generate(
-                UserMessage.from(localizedSystemPrompt + "\n\n" + prompt)
-        ).content();
+        String generated = sanitizeClauseText(
+                chatModel.generate(UserMessage.from(fullSystemAndInitial)).content().text().trim());
 
-        return sanitizeClauseText(response.text().trim());
+        List<String> qaWarnings = qaClause(clauseKey, generated, expectedSubclauses);
+
+        for (int attempt = 1; attempt <= QA_MAX_RETRIES && !qaWarnings.isEmpty(); attempt++) {
+            String issueList = qaWarnings.stream()
+                    .map(w -> "- " + w)
+                    .collect(Collectors.joining("\n"));
+            String retryPrompt = String.format(PromptTemplates.DRAFT_QA_RETRY_USER, issueList);
+            log.warn("QA [{}] attempt {}/{}: {} issues — retrying", clauseKey, attempt, QA_MAX_RETRIES, qaWarnings.size());
+
+            generated = sanitizeClauseText(
+                    chatModel.generate(UserMessage.from(localizedSystemPrompt + "\n\n" + retryPrompt)).content().text().trim());
+            qaWarnings = qaClause(clauseKey, generated, expectedSubclauses);
+        }
+
+        if (!qaWarnings.isEmpty()) {
+            log.warn("QA [{}]: {} residual warning(s) after {} retries", clauseKey, qaWarnings.size(), QA_MAX_RETRIES);
+        }
+        return new ClauseResult(generated, qaWarnings);
     }
 
     /**

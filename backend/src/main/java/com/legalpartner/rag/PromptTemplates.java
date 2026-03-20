@@ -559,6 +559,22 @@ public final class PromptTemplates {
     // ── Content guardrails — appended to every draft clause system prompt ──────
 
     /**
+     * Retry prompt injected when QA detects placeholders or incomplete output.
+     * %s = newline-separated list of QA issues found.
+     */
+    public static final String DRAFT_QA_RETRY_USER = """
+            The previous output had quality issues that MUST be fixed:
+            %s
+
+            Rewrite the ENTIRE clause from scratch, fixing every issue listed above.
+            Rules:
+            - Replace every [placeholder], [insert X], [***], TBD, TBC with a commercially standard term.
+            - Every numbered sub-clause must contain a complete legal sentence (≥10 words), not just a heading.
+            - Do NOT leave any unfilled brackets or markers.
+            - Output ONLY the clause text, no preamble, no apology.
+            """;
+
+    /**
      * Appended to every draft system prompt to prevent placeholder leakage,
      * heading-only output, and incomplete clauses. Critical for 7B models.
      */
