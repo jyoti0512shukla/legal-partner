@@ -22,7 +22,7 @@ public class WorkflowRun {
     @JoinColumn(name = "workflow_definition_id", nullable = false)
     private WorkflowDefinition definition;
 
-    @Column(nullable = false)
+    @Column(nullable = true)
     private UUID documentId;
 
     @Column(nullable = false, length = 255)
