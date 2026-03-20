@@ -6,6 +6,7 @@ import com.legalpartner.model.dto.*;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.model.entity.WorkflowRun;
 import com.legalpartner.model.enums.WorkflowStatus;
+import com.legalpartner.model.enums.WorkflowStepType;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.WorkflowRunRepository;
 import lombok.RequiredArgsConstructor;
@@ -64,39 +65,24 @@ public class WorkflowExecutor {
                         "totalSteps", steps.size()
                 ));
 
-                for (int i = 0; i < steps.size(); i++) {
-                    WorkflowStepConfig step = steps.get(i);
+                runSteps(steps, docId, username, results, skippedIndices, runId, docMeta, emitter, draftContext, null);
 
-                    // Evaluate condition against prior results
-                    if (!evaluateCondition(step.getCondition(), results)) {
-                        skippedIndices.add(i);
-                        send(emitter, "step_skipped", Map.of(
-                                "stepIndex", i,
-                                "stepType", step.getType().name(),
-                                "label", step.getLabel(),
-                                "reason", "Condition not met"
-                        ));
-                        log.info("Workflow {}: step {} ({}) skipped — condition not met", runId, i, step.getType());
-                        continue;
+                // ── Cross-step feedback: if risk is HIGH and draft exists, re-run from DRAFT_CLAUSE ──
+                int draftStepIdx = indexOfStepType(steps, WorkflowStepType.DRAFT_CLAUSE);
+                if (draftStepIdx >= 0 && isOverallRiskHigh(results)) {
+                    String riskFeedback = buildRiskFeedback(results);
+                    log.info("Workflow {}: overall risk is HIGH — re-running from DRAFT_CLAUSE with risk feedback", runId);
+                    send(emitter, "workflow_refinement", Map.of(
+                            "reason", "Overall risk is HIGH — re-drafting clause with targeted risk feedback",
+                            "draftStepIndex", draftStepIdx
+                    ));
+                    // Clear downstream results so steps re-run cleanly
+                    for (int i = draftStepIdx; i < steps.size(); i++) {
+                        results.remove(steps.get(i).getType().name());
+                        skippedIndices.remove(i);
                     }
-
-                    send(emitter, "step_start", Map.of(
-                            "stepIndex", i,
-                            "stepType", step.getType().name(),
-                            "label", step.getLabel()
-                    ));
-
-                    // Execute with quality loop (replaces plain exception-retry)
-                    Object result = executeWithQualityLoop(step, docId, username, results, runId, i, docMeta, emitter, draftContext);
-                    results.put(step.getType().name(), result);
-
-                    updateStatus(runId, WorkflowStatus.RUNNING, i + 1, results, skippedIndices);
-                    send(emitter, "step_complete", Map.of(
-                            "stepIndex", i,
-                            "stepType", step.getType().name(),
-                            "label", step.getLabel(),
-                            "result", result
-                    ));
+                    runSteps(steps.subList(draftStepIdx, steps.size()), docId, username, results,
+                            skippedIndices, runId, docMeta, emitter, draftContext, riskFeedback);
                 }
 
                 updateStatus(runId, WorkflowStatus.COMPLETED, steps.size(), results, skippedIndices);
@@ -124,12 +110,86 @@ public class WorkflowExecutor {
         return emitter;
     }
 
+    // ── Step runner ───────────────────────────────────────────────────────────
+
+    private void runSteps(List<WorkflowStepConfig> steps, UUID docId, String username,
+                          Map<String, Object> results, List<Integer> skippedIndices,
+                          UUID runId, DocumentMetadata docMeta, SseEmitter emitter,
+                          Map<String, String> draftContext, String extraFeedback) throws Exception {
+        for (int i = 0; i < steps.size(); i++) {
+            WorkflowStepConfig step = steps.get(i);
+
+            if (!evaluateCondition(step.getCondition(), results)) {
+                skippedIndices.add(i);
+                send(emitter, "step_skipped", Map.of(
+                        "stepIndex", i, "stepType", step.getType().name(),
+                        "label", step.getLabel(), "reason", "Condition not met"
+                ));
+                log.info("Workflow {}: step {} ({}) skipped — condition not met", runId, i, step.getType());
+                continue;
+            }
+
+            send(emitter, "step_start", Map.of(
+                    "stepIndex", i, "stepType", step.getType().name(), "label", step.getLabel()
+            ));
+
+            Object result = executeWithQualityLoop(step, docId, username, results, runId, i, docMeta, emitter,
+                    draftContext, step.getType() == WorkflowStepType.DRAFT_CLAUSE ? extraFeedback : null);
+            results.put(step.getType().name(), result);
+
+            updateStatus(runId, WorkflowStatus.RUNNING, i + 1, results, skippedIndices);
+            send(emitter, "step_complete", Map.of(
+                    "stepIndex", i, "stepType", step.getType().name(),
+                    "label", step.getLabel(), "result", result
+            ));
+        }
+    }
+
+    private int indexOfStepType(List<WorkflowStepConfig> steps, WorkflowStepType type) {
+        for (int i = 0; i < steps.size(); i++) {
+            if (steps.get(i).getType() == type) return i;
+        }
+        return -1;
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean isOverallRiskHigh(Map<String, Object> results) {
+        try {
+            Object riskRaw = results.get("RISK_ASSESSMENT");
+            if (riskRaw == null) return false;
+            String json = objectMapper.writeValueAsString(riskRaw);
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
+            return "HIGH".equalsIgnoreCase(node.path("overallRisk").asText(""));
+        } catch (Exception e) { return false; }
+    }
+
+    private String buildRiskFeedback(Map<String, Object> results) {
+        try {
+            Object riskRaw = results.get("RISK_ASSESSMENT");
+            if (riskRaw == null) return null;
+            String json = objectMapper.writeValueAsString(riskRaw);
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
+            StringBuilder fb = new StringBuilder("=== RISK FEEDBACK — REDRAFT REQUIRED ===\n");
+            fb.append("The drafted clause was assessed as HIGH overall risk. Address every HIGH-rated area:\n");
+            for (com.fasterxml.jackson.databind.JsonNode cat : node.path("categories")) {
+                String rating = cat.path("rating").asText("");
+                if ("HIGH".equalsIgnoreCase(rating)) {
+                    fb.append("• ").append(cat.path("name").asText()).append(" [HIGH]: ")
+                      .append(cat.path("justification").asText("no detail")).append("\n");
+                }
+            }
+            fb.append("Rewrite the clause to eliminate these risks while preserving commercial balance.\n");
+            fb.append("=== END RISK FEEDBACK ===\n");
+            return fb.toString();
+        } catch (Exception e) { return null; }
+    }
+
     // ── Quality loop (replaces exception-only retry) ──────────────────────────
 
     private Object executeWithQualityLoop(WorkflowStepConfig step, UUID docId, String username,
                                           Map<String, Object> priorResults, UUID runId, int stepIndex,
                                           DocumentMetadata docMeta, SseEmitter emitter,
-                                          Map<String, String> draftContext) throws Exception {
+                                          Map<String, String> draftContext, String initialFeedback) throws Exception {
         int maxIter = Math.max(1, Math.min(step.getMaxIterations(), 3));
 
         // Retrieve RAG context once before the loop — same context is enriched by feedback each pass
@@ -139,7 +199,8 @@ public class WorkflowExecutor {
             log.info("Workflow {}: step {} RAG context: {} chars", runId, step.getType(), ragContext.length());
         }
 
-        String feedbackContext = null;
+        // initialFeedback is injected when this is a risk-triggered redraft pass
+        String feedbackContext = initialFeedback;
         Object result = null;
         Exception lastException = null;
 
