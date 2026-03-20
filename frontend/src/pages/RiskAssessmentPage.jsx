@@ -53,6 +53,21 @@ export default function RiskAssessmentPage() {
     try {
       const res = await api.post(`/ai/risk-assessment/${docId}`);
       setResult(res.data);
+      // Auto-drilldown HIGH risk items immediately
+      const highItems = (res.data.categories || []).filter(c => c.rating === 'HIGH');
+      highItems.forEach(cat => {
+        setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: true, data: null, error: null } }));
+        api.post(`/ai/risk-drilldown/${docId}`, {
+          categoryName: cat.name,
+          rating: cat.rating,
+          justification: cat.justification,
+          sectionRef: cat.clauseReference,
+        }).then(r => {
+          setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: false, data: r.data, error: null } }));
+        }).catch(e => {
+          setDrilldowns(prev => ({ ...prev, [cat.name]: { loading: false, data: null, error: e.response?.data?.message || 'Analysis failed' } }));
+        });
+      });
     } catch (e) {
       setError(e.response?.data?.message || 'Assessment failed');
     } finally { setLoading(false); }
@@ -115,15 +130,19 @@ export default function RiskAssessmentPage() {
             {result.categories?.map((cat, i) => {
               const dd = drilldowns[cat.name];
               const canDrilldown = cat.rating === 'HIGH' || cat.rating === 'MEDIUM';
+              const sectionRef = cat.clauseReference && !/^see contract$/i.test(cat.clauseReference.trim())
+                ? cat.clauseReference : null;
               return (
                 <div key={i} className={`card border-t-4 border-${riskColor(cat.rating)}`}>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="font-semibold text-text-primary">{cat.name}</h3>
                     <span className={`badge-${cat.rating.toLowerCase()}`}>{cat.rating}</span>
                   </div>
-                  <p className="text-sm text-text-secondary mb-2">{cat.justification}</p>
-                  {cat.clauseReference && (
-                    <p className="font-mono text-xs text-primary mb-2">{cat.clauseReference}</p>
+                  {cat.justification && (
+                    <p className="text-sm text-text-secondary mb-2">{cat.justification}</p>
+                  )}
+                  {sectionRef && (
+                    <p className="font-mono text-xs text-primary mb-2">{sectionRef}</p>
                   )}
 
                   {canDrilldown && (

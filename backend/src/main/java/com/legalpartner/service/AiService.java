@@ -347,7 +347,7 @@ public class AiService {
                     cat.path("name").asText("Unknown"),
                     cat.path("rating").asText("MEDIUM"),
                     cat.path("justification").asText(""),
-                    cat.path("section_ref").asText("See contract")
+                    cat.path("section_ref").asText("")
             ));
         }
         log.info("[prompt={}] guided_json parsed: overall={}, categories={}", PromptTemplates.PROMPT_VERSION, overallRisk, categories.size());
@@ -375,7 +375,7 @@ public class AiService {
             if ("OVERALL".equals(key)) {
                 overallRisk = val;
             } else if (RISK_LABEL_NAMES.containsKey(key)) {
-                categories.add(new RiskCategory(RISK_LABEL_NAMES.get(key), val, "", "See contract"));
+                categories.add(new RiskCategory(RISK_LABEL_NAMES.get(key), val, "", ""));
             }
         }
         if (!categories.isEmpty()) {
@@ -505,7 +505,7 @@ public class AiService {
                 } else if (clean.length() > 3) {
                     justification = clean;
                 }
-                if (ref.isBlank()) ref = "See contract";
+                if (ref.isBlank()) ref = "";
             }
 
             // Normalise label variants to canonical form
@@ -533,7 +533,7 @@ public class AiService {
                     default -> canonicalLabel.charAt(0) + canonicalLabel.substring(1).toLowerCase();
                 };
                 categories.add(new RiskCategory(name, hit.rating(),
-                        justification.isBlank() ? "See contract for details." : justification, ref));
+                        justification, ref));
             }
         }
 
@@ -617,8 +617,7 @@ public class AiService {
                     default -> canonical.charAt(0) + canonical.substring(1).toLowerCase();
                 };
                 categories.add(new RiskCategory(name, rating,
-                        justification.isBlank() ? "See contract for details." : justification,
-                        "See contract"));
+                        justification, ""));
             }
         }
     }
