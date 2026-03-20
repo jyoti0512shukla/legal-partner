@@ -56,10 +56,10 @@ public class DraftService {
     private static final Map<String, ClauseSpec> CLAUSE_SPECS = new LinkedHashMap<>();
     static {
         CLAUSE_SPECS.put("DEFINITIONS",               new ClauseSpec("Definitions",                    PromptTemplates.DRAFT_DEFINITIONS_SYSTEM,               PromptTemplates.DRAFT_DEFINITIONS_USER,               7));
-        CLAUSE_SPECS.put("SERVICES",                  new ClauseSpec("Services",                       PromptTemplates.DRAFT_SERVICES_SYSTEM,                  PromptTemplates.DRAFT_SERVICES_USER,                  0));
-        CLAUSE_SPECS.put("PAYMENT",                   new ClauseSpec("Fees and Payment",               PromptTemplates.DRAFT_PAYMENT_SYSTEM,                   PromptTemplates.DRAFT_PAYMENT_USER,                   0));
+        CLAUSE_SPECS.put("SERVICES",                  new ClauseSpec("Services",                       PromptTemplates.DRAFT_SERVICES_SYSTEM,                  PromptTemplates.DRAFT_SERVICES_USER,                  3));
+        CLAUSE_SPECS.put("PAYMENT",                   new ClauseSpec("Fees and Payment",               PromptTemplates.DRAFT_PAYMENT_SYSTEM,                   PromptTemplates.DRAFT_PAYMENT_USER,                   4));
         CLAUSE_SPECS.put("CONFIDENTIALITY",           new ClauseSpec("Confidentiality",                PromptTemplates.DRAFT_CONFIDENTIALITY_SYSTEM,           PromptTemplates.DRAFT_CONFIDENTIALITY_USER,           5));
-        CLAUSE_SPECS.put("IP_RIGHTS",                 new ClauseSpec("Intellectual Property Rights",   PromptTemplates.DRAFT_IP_RIGHTS_SYSTEM,                 PromptTemplates.DRAFT_IP_RIGHTS_USER,                 0));
+        CLAUSE_SPECS.put("IP_RIGHTS",                 new ClauseSpec("Intellectual Property Rights",   PromptTemplates.DRAFT_IP_RIGHTS_SYSTEM,                 PromptTemplates.DRAFT_IP_RIGHTS_USER,                 4));
         CLAUSE_SPECS.put("LIABILITY",                 new ClauseSpec("Liability and Indemnity",        PromptTemplates.DRAFT_LIABILITY_SYSTEM,                 PromptTemplates.DRAFT_LIABILITY_USER,                 5));
         CLAUSE_SPECS.put("TERMINATION",               new ClauseSpec("Termination",                    PromptTemplates.DRAFT_TERMINATION_SYSTEM,               PromptTemplates.DRAFT_TERMINATION_USER,               4));
         CLAUSE_SPECS.put("FORCE_MAJEURE",             new ClauseSpec("Force Majeure",                  PromptTemplates.DRAFT_FORCE_MAJEURE_SYSTEM,             PromptTemplates.DRAFT_FORCE_MAJEURE_USER,             5));
@@ -420,17 +420,41 @@ public class DraftService {
             log.warn("QA [{}]: unfilled placeholder detected — {}", clauseKey, ph);
         }
 
-        // 2. Sub-clause count check (only for clauses with a strict expected count)
+        // 2. Sub-clause count check
         if (expectedSubclauses > 0) {
             int actual = 0;
             int idx = 0;
             String marker = "clause-sub";
             while ((idx = htmlText.indexOf(marker, idx)) >= 0) { actual++; idx += marker.length(); }
             if (actual < expectedSubclauses) {
-                String msg = "Incomplete: expected " + expectedSubclauses + " sub-clauses, found " + actual;
+                String msg = "Incomplete: expected " + expectedSubclauses + " sub-clauses, found " + actual
+                        + " — write ALL " + expectedSubclauses + " sub-clauses with full legal text";
                 warnings.add(msg);
                 log.warn("QA [{}]: {}", clauseKey, msg);
             }
+        }
+
+        // 3. Heading-only sub-clause detection — sub-clause body must have at least 40 chars after the number
+        java.util.regex.Pattern subBody = java.util.regex.Pattern.compile(
+                "class=\"clause-sub\"><strong>[^<]+</strong>\\s*(.*?)</p>",
+                java.util.regex.Pattern.DOTALL);
+        java.util.regex.Matcher sb2 = subBody.matcher(htmlText);
+        int thinCount = 0;
+        while (sb2.find()) {
+            String body = sb2.group(1).replaceAll("<[^>]+>", "").trim();
+            if (body.length() < 40) thinCount++;
+        }
+        if (thinCount > 0) {
+            String msg = thinCount + " sub-clause(s) contain headings only with no substantive text — "
+                    + "write complete legal sentences (minimum 40 characters) for each numbered sub-clause";
+            warnings.add(msg);
+            log.warn("QA [{}]: {}", clauseKey, msg);
+        }
+
+        // 4. Overall content length sanity check
+        if (plain.length() < 200) {
+            warnings.add("Clause body is too short (" + plain.length() + " chars) — expand with complete legal text");
+            log.warn("QA [{}]: clause too short — {} chars", clauseKey, plain.length());
         }
 
         return warnings;
@@ -597,7 +621,14 @@ public class DraftService {
             .replaceAll("(?i)\\(insert[^)]{0,60}\\)", "as specified in the applicable Order Form")
             // TBD / TBC
             .replaceAll("(?i)\\bTBD\\b", "as mutually agreed by the Parties in writing")
-            .replaceAll("(?i)\\bTBC\\b", "to be confirmed by written notice");
+            .replaceAll("(?i)\\bTBC\\b", "to be confirmed by written notice")
+            // Universal catch-all: any remaining [INSERT ...] or [SPECIFY ...] bracket
+            .replaceAll("(?i)\\[insert\\s+[^\\]]{1,80}\\]", "as specified in the applicable Order Form or Statement of Work")
+            .replaceAll("(?i)\\[specify\\s+[^\\]]{1,80}\\]", "as agreed in writing by the Parties")
+            // Any remaining ALL-CAPS bracket placeholder e.g. [PAYMENT PERIOD], [RATE OF INTEREST], [NUMBER]
+            .replaceAll("\\[[A-Z][A-Z\\s]{1,60}\\]", "as mutually agreed by the Parties in writing")
+            // Any remaining mixed-case bracket e.g. [insert number], [number of days]
+            .replaceAll("\\[[a-zA-Z][a-zA-Z\\s]{1,60}\\]", "as mutually agreed by the Parties in writing");
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────────
