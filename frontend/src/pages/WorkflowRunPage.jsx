@@ -3,7 +3,8 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2, XCircle, Loader2, Clock, ChevronDown, ChevronUp,
   ArrowLeft, ShieldAlert, Key, ClipboardList, Workflow, FileText,
-  Sparkles, Download, Briefcase, SkipForward, RefreshCw, PenLine
+  Sparkles, Download, Briefcase, SkipForward, RefreshCw, PenLine,
+  Globe, Mail, Zap, AlertTriangle
 } from 'lucide-react';
 import api from '../api/client';
 
@@ -210,6 +211,81 @@ function ResultPreview({ type, result }) {
   return <pre className="text-xs text-text-muted overflow-auto max-h-40">{JSON.stringify(result, null, 2)}</pre>;
 }
 
+const CONNECTOR_ICONS = { WEBHOOK: Globe, EMAIL: Mail };
+
+function ConnectorStatusPanel({ connectors, connectorLogs, overallStatus }) {
+  if (!connectors || connectors.length === 0) return null;
+
+  // Map connector logs by type for quick lookup (last entry wins if multiple of same type)
+  const logByIndex = {};
+  connectorLogs?.forEach((log, i) => { logByIndex[i] = log; });
+
+  const isComplete = overallStatus === 'done' || overallStatus === 'error';
+
+  return (
+    <div className="card mb-6">
+      <div className="flex items-center gap-2 mb-3">
+        <Zap className="w-4 h-4 text-primary" />
+        <h3 className="text-sm font-semibold">Output Connectors</h3>
+        <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">
+          {connectors.length}
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {connectors.map((c, i) => {
+          const Icon = CONNECTOR_ICONS[c.type] || Zap;
+          const log = connectorLogs?.find(l => l.type === c.type);
+          let label;
+          try {
+            label = c.type === 'WEBHOOK'
+              ? (c.config?.url ? new URL(c.config.url).hostname : 'Webhook')
+              : (c.config?.recipients || 'Email');
+          } catch {
+            label = c.config?.url || 'Webhook';
+          }
+
+          let statusBadge;
+          if (!isComplete) {
+            statusBadge = <span className="text-[10px] text-text-muted bg-surface-el px-2 py-0.5 rounded-full">Pending</span>;
+          } else if (log?.status === 'SUCCESS') {
+            statusBadge = <span className="text-[10px] text-success bg-success/10 border border-success/20 px-2 py-0.5 rounded-full flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Fired</span>;
+          } else if (log?.status === 'FAILED') {
+            statusBadge = <span className="text-[10px] text-danger bg-danger/10 border border-danger/20 px-2 py-0.5 rounded-full flex items-center gap-1"><XCircle className="w-3 h-3" /> Failed</span>;
+          } else if (isComplete) {
+            statusBadge = <span className="text-[10px] text-text-muted bg-surface-el px-2 py-0.5 rounded-full flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Firing…</span>;
+          }
+
+          return (
+            <div key={i} className="flex items-start gap-3 p-2.5 bg-surface-el rounded-lg">
+              <div className="w-7 h-7 rounded bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+                <Icon className="w-3.5 h-3.5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-medium text-text-primary">{c.type === 'WEBHOOK' ? 'Webhook' : 'Email'}</p>
+                  {statusBadge}
+                </div>
+                <p className="text-[11px] text-text-muted truncate">{label}</p>
+                {log?.error && (
+                  <p className="text-[10px] text-danger mt-0.5 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3 shrink-0" /> {log.error}
+                  </p>
+                )}
+                {log?.firedAt && log?.status === 'SUCCESS' && (
+                  <p className="text-[10px] text-text-muted mt-0.5">
+                    {new Date(log.firedAt).toLocaleTimeString()}
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function WorkflowRunPage() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -228,6 +304,9 @@ export default function WorkflowRunPage() {
   const [matterSaved, setMatterSaved] = useState(false);
   const [matterError, setMatterError] = useState('');
   const [stepIterations, setStepIterations] = useState({}); // stepIndex → {current, max}
+  const [connectors, setConnectors] = useState([]);         // from workflow definition
+  const [connectorLogs, setConnectorLogs] = useState([]);   // fire results from run
+  const [refinementInfo, setRefinementInfo] = useState(null); // {reason, draftStepIndex}
 
   const definitionId = searchParams.get('definitionId');
   const documentId   = searchParams.get('documentId');
@@ -267,7 +346,10 @@ export default function WorkflowRunPage() {
             });
             setStepStatuses(statuses);
           }
+          if (def?.connectors) setConnectors(def.connectors);
         } catch { /* definition fetch failed, steps won't show */ }
+
+        if (run.connectorLogs) setConnectorLogs(run.connectorLogs);
 
         // Map results keyed by step type to keyed by step index
         if (run.results) {
@@ -337,6 +419,16 @@ export default function WorkflowRunPage() {
       setWorkflowName(data.workflowName);
       setRunId(data.runId);
       addLog(`Started: ${data.workflowName} (${data.totalSteps} steps)`);
+      // Fetch connectors from definition so we can show them in the connector panel
+      if (definitionId) {
+        api.get('/workflows/definitions').then(r => {
+          const def = r.data.find(d => d.id === definitionId);
+          if (def?.connectors?.length) setConnectors(def.connectors);
+        }).catch(() => {});
+      }
+    } else if (event === 'workflow_refinement') {
+      setRefinementInfo({ reason: data.reason, draftStepIndex: data.draftStepIndex });
+      addLog(`Re-drafting: ${data.reason}`);
     } else if (event === 'step_start') {
       setSteps(prev => { const next = [...prev]; next[data.stepIndex] = { type: data.stepType, label: data.label }; return next; });
       setStepStatuses(prev => ({ ...prev, [data.stepIndex]: 'running' }));
@@ -467,6 +559,26 @@ export default function WorkflowRunPage() {
           />
         ))}
       </div>
+
+      {/* Refinement banner */}
+      {refinementInfo && (
+        <div className="card border-l-4 border-primary bg-primary/5 mb-4">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-primary shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-text-primary">Risk-driven re-draft</p>
+              <p className="text-xs text-text-muted">{refinementInfo.reason}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Connectors */}
+      <ConnectorStatusPanel
+        connectors={connectors}
+        connectorLogs={connectorLogs}
+        overallStatus={overallStatus}
+      />
 
       {/* Matter association */}
       {(overallStatus === 'done' || id) && (

@@ -1,9 +1,11 @@
 package com.legalpartner.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.config.MailProperties;
 import com.legalpartner.model.dto.WorkflowConnector;
 import com.legalpartner.model.entity.WorkflowRun;
+import com.legalpartner.repository.WorkflowRunRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
@@ -15,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,32 +30,61 @@ public class ConnectorService {
     private final JavaMailSender mailSender;
     private final MailProperties mailProps;
     private final ObjectMapper objectMapper;
+    private final WorkflowRunRepository runRepo;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
     @Autowired
     public ConnectorService(@Nullable JavaMailSender mailSender,
                             MailProperties mailProps,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                            WorkflowRunRepository runRepo) {
         this.mailSender = mailSender;
         this.mailProps = mailProps;
         this.objectMapper = objectMapper;
+        this.runRepo = runRepo;
     }
 
     @Async
     public void fireAll(WorkflowRun run, List<WorkflowConnector> connectors,
                         Map<String, Object> results, String workflowName) {
         if (connectors == null || connectors.isEmpty()) return;
+
+        List<Map<String, Object>> logs = new ArrayList<>();
+
         for (WorkflowConnector connector : connectors) {
+            Map<String, Object> logEntry = new LinkedHashMap<>();
+            logEntry.put("type", connector.getType().name());
+            logEntry.put("firedAt", Instant.now().toString());
+
             try {
                 switch (connector.getType()) {
                     case WEBHOOK -> fireWebhook(connector, run, results, workflowName);
                     case EMAIL   -> fireEmail(connector, run, results, workflowName);
                 }
+                logEntry.put("status", "SUCCESS");
             } catch (Exception e) {
                 log.error("Connector {} failed for run {}: {}", connector.getType(), run.getId(), e.getMessage());
+                logEntry.put("status", "FAILED");
+                logEntry.put("error", e.getMessage() != null ? e.getMessage() : "Unknown error");
             }
+
+            logs.add(logEntry);
         }
+
+        // Persist connector logs back to the run
+        runRepo.findById(run.getId()).ifPresent(r -> {
+            try {
+                // Merge with any existing logs (e.g. from a prior connector fire attempt)
+                List<Map<String, Object>> existing = new ArrayList<>();
+                if (r.getConnectorLogs() != null && !r.getConnectorLogs().isBlank()) {
+                    existing = objectMapper.readValue(r.getConnectorLogs(), new TypeReference<>() {});
+                }
+                existing.addAll(logs);
+                r.setConnectorLogs(objectMapper.writeValueAsString(existing));
+                runRepo.save(r);
+            } catch (Exception ignored) {}
+        });
     }
 
     // ── Webhook ───────────────────────────────────────────────────────────────
@@ -64,17 +97,18 @@ public class ConnectorService {
             return;
         }
 
-        Map<String, Object> payload = Map.of(
-                "event", "workflow.completed",
-                "runId", run.getId().toString(),
-                "workflowName", workflowName,
-                "documentId", run.getDocumentId().toString(),
-                "username", run.getUsername(),
-                "status", run.getStatus().name(),
-                "startedAt", run.getStartedAt().toString(),
-                "completedAt", run.getCompletedAt() != null ? run.getCompletedAt().toString() : Instant.now().toString(),
-                "results", results
-        );
+        String docIdStr = run.getDocumentId() != null ? run.getDocumentId().toString() : null;
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("event", "workflow.completed");
+        payload.put("runId", run.getId().toString());
+        payload.put("workflowName", workflowName);
+        if (docIdStr != null) payload.put("documentId", docIdStr);
+        payload.put("username", run.getUsername());
+        payload.put("status", run.getStatus().name());
+        payload.put("startedAt", run.getStartedAt().toString());
+        payload.put("completedAt", run.getCompletedAt() != null ? run.getCompletedAt().toString() : Instant.now().toString());
+        payload.put("results", results);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -139,6 +173,7 @@ public class ConnectorService {
         if (steps.isEmpty()) steps.append("<li>No steps recorded</li>");
 
         String deepLink = mailProps.getAppUrl() + "/workflows/run/" + run.getId();
+        String docInfo = run.getDocumentId() != null ? run.getDocumentId().toString() : "Draft run (no document)";
 
         return """
                 <!DOCTYPE html>
@@ -172,6 +207,6 @@ public class ConnectorService {
                   <p style='text-align:center; font-size:12px; color:#94a3b8; margin-top:24px'>Legal Partner · Automated notification</p>
                 </body>
                 </html>
-                """.formatted(workflowName, run.getDocumentId(), duration, steps, deepLink);
+                """.formatted(workflowName, docInfo, duration, steps, deepLink);
     }
 }

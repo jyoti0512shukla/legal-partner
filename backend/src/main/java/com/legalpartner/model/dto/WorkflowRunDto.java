@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,4 +29,5 @@ public class WorkflowRunDto {
     private String matterRef;
     private Instant startedAt;
     private Instant completedAt;
+    private List<Map<String, Object>> connectorLogs;
 }

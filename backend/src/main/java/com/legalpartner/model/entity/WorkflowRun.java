@@ -52,6 +52,11 @@ public class WorkflowRun {
     @Builder.Default
     private String skippedSteps = "[]";   // JSON array of skipped step indices
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb", nullable = false)
+    @Builder.Default
+    private String connectorLogs = "[]";  // JSON array of {type, status, firedAt, error}
+
     @Column(nullable = false)
     @Builder.Default
     private Instant startedAt = Instant.now();

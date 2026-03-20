@@ -336,6 +336,11 @@ public class WorkflowService implements ApplicationRunner {
             if (run.getSkippedSteps() != null) skipped = objectMapper.readValue(run.getSkippedSteps(), new TypeReference<>() {});
         } catch (Exception ignored) {}
 
+        List<Map<String, Object>> connectorLogs = List.of();
+        try {
+            if (run.getConnectorLogs() != null) connectorLogs = objectMapper.readValue(run.getConnectorLogs(), new TypeReference<>() {});
+        } catch (Exception ignored) {}
+
         return WorkflowRunDto.builder()
                 .id(run.getId())
                 .workflowDefinitionId(run.getDefinition().getId())
@@ -350,6 +355,7 @@ public class WorkflowService implements ApplicationRunner {
                 .matterRef(run.getMatterRef())
                 .startedAt(run.getStartedAt())
                 .completedAt(run.getCompletedAt())
+                .connectorLogs(connectorLogs)
                 .build();
     }
 }
