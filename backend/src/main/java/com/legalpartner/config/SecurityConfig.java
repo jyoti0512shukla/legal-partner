@@ -69,6 +69,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/change-password").permitAll()
                         .requestMatchers("/api/v1/auth/logout").permitAll()
                         .requestMatchers("/api/v1/cloud-storage/callback").permitAll()
+                        .requestMatchers("/api/v1/integrations/callback").permitAll()
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/audit/**").hasAnyRole("ADMIN", "PARTNER")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/documents/**").hasAnyRole("ADMIN", "PARTNER")

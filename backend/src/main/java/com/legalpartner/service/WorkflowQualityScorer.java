@@ -37,6 +37,7 @@ public class WorkflowQualityScorer {
                 case GENERATE_SUMMARY   -> scoreSummary(node);
                 case EXTRACT_KEY_TERMS  -> scoreExtraction(node);
                 case DRAFT_CLAUSE       -> scoreDraft(node);
+                case SEND_FOR_SIGNATURE -> new QualityScore(100, List.of());
             };
         } catch (Exception e) {
             log.warn("Quality scoring failed for {}: {}", type, e.getMessage());

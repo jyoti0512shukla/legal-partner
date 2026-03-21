@@ -7,5 +7,6 @@ public enum WorkflowStepType {
     GENERATE_SUMMARY,
     REDLINE_SUGGESTIONS,
     /** Draft a specific clause using RAG corpus + clause library, then loop-refine */
-    DRAFT_CLAUSE
+    DRAFT_CLAUSE,
+    SEND_FOR_SIGNATURE
 }

@@ -98,6 +98,16 @@ legalpartner:
   # Optional: When set, use OpenAI-compatible embedding API (e.g. Colab Flask) instead of Ollama. For low-resource dev.
   embedding-api-url: ${LEGALPARTNER_EMBEDDING_API_URL:}
   embedding-api-model: ${LEGALPARTNER_EMBEDDING_API_MODEL:all-MiniLM-L6-v2}
+  integrations:
+    frontend-url: ${LEGALPARTNER_CLOUD_FRONTEND_URL:http://localhost:5173}
+    backend-url: ${LEGALPARTNER_CLOUD_BACKEND_URL:http://localhost:8080}
+    docusign:
+      enabled: ${LEGALPARTNER_DOCUSIGN_ENABLED:false}
+      client-id: ${LEGALPARTNER_DOCUSIGN_CLIENT_ID:}
+      client-secret: ${LEGALPARTNER_DOCUSIGN_CLIENT_SECRET:}
+      environment: ${LEGALPARTNER_DOCUSIGN_ENV:demo}
+    slack:
+      enabled: ${LEGALPARTNER_SLACK_ENABLED:false}
   cloud:
     frontend-url: ${LEGALPARTNER_CLOUD_FRONTEND_URL:http://localhost:5173}
     backend-url: ${LEGALPARTNER_CLOUD_BACKEND_URL:http://localhost:8080}

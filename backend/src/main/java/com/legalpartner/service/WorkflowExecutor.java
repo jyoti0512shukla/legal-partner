@@ -267,6 +267,10 @@ public class WorkflowExecutor {
                 if (draftContext != null) mergedParams.putAll(draftContext);
                 yield aiService.draftClauseForWorkflow(docId, mergedParams, username, ragContext, feedbackContext);
             }
+            case SEND_FOR_SIGNATURE -> Map.of(
+                    "status", "pending",
+                    "note", "E-signature sending requires DocuSign integration configured in Settings"
+            );
         };
     }
 
