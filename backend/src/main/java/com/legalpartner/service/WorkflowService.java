@@ -4,10 +4,16 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.config.WorkflowProperties;
 import com.legalpartner.model.dto.*;
+import com.legalpartner.model.entity.Matter;
+import com.legalpartner.model.entity.User;
 import com.legalpartner.model.entity.WorkflowDefinition;
 import com.legalpartner.model.entity.WorkflowRun;
+import com.legalpartner.model.enums.UserRole;
 import com.legalpartner.model.enums.WorkflowStepType;
 import com.legalpartner.model.enums.WorkflowStatus;
+import com.legalpartner.repository.MatterMemberRepository;
+import com.legalpartner.repository.MatterRepository;
+import com.legalpartner.repository.UserRepository;
 import com.legalpartner.repository.WorkflowDefinitionRepository;
 import com.legalpartner.repository.WorkflowRunRepository;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +44,10 @@ public class WorkflowService implements ApplicationRunner {
     private final WorkflowProperties workflowProperties;
     private final WorkflowExecutor executor;
     private final ObjectMapper objectMapper;
+    private final MatterAccessService matterAccessService;
+    private final MatterRepository matterRepository;
+    private final MatterMemberRepository matterMemberRepository;
+    private final UserRepository userRepository;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -181,6 +191,40 @@ public class WorkflowService implements ApplicationRunner {
     }
 
     public List<WorkflowRunDto> listRuns(String username, int page, String matterRef) {
+        return listRuns(username, page, matterRef, null, null);
+    }
+
+    public List<WorkflowRunDto> listRuns(String username, int page, String matterRef,
+                                         UUID userId, UserRole systemRole) {
+        // If userId and role are provided, apply matter-based access filtering
+        if (userId != null && systemRole != null && systemRole == UserRole.ADMIN) {
+            // ADMIN sees all runs
+            Page<WorkflowRun> result = (matterRef != null && !matterRef.isBlank())
+                    ? runRepo.findByMatterRefIgnoreCaseOrderByStartedAtDesc(matterRef.trim(), PageRequest.of(page, 20))
+                    : runRepo.findAll(PageRequest.of(page, 20, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "startedAt")));
+            return result.stream().map(this::toRunDto).toList();
+        }
+
+        if (userId != null && systemRole != null) {
+            // Non-admin: see their own runs + runs on their matters
+            List<UUID> matterIds = matterMemberRepository.findMatterIdsByUserId(userId);
+            Page<WorkflowRun> ownRuns = (matterRef != null && !matterRef.isBlank())
+                    ? runRepo.findByUsernameAndMatterRefIgnoreCaseOrderByStartedAtDesc(username, matterRef.trim(), PageRequest.of(page, 20))
+                    : runRepo.findByUsernameOrderByStartedAtDesc(username, PageRequest.of(page, 20));
+
+            if (matterIds.isEmpty()) {
+                return ownRuns.stream().map(this::toRunDto).toList();
+            }
+
+            // Combine own runs + matter runs (dedup by id)
+            Page<WorkflowRun> matterRuns = runRepo.findByMatterIdInOrderByStartedAtDesc(matterIds, PageRequest.of(page, 20));
+            Map<UUID, WorkflowRun> combined = new LinkedHashMap<>();
+            ownRuns.forEach(r -> combined.put(r.getId(), r));
+            matterRuns.forEach(r -> combined.put(r.getId(), r));
+            return combined.values().stream().map(this::toRunDto).toList();
+        }
+
+        // Fallback: original behavior
         Page<WorkflowRun> result = (matterRef != null && !matterRef.isBlank())
                 ? runRepo.findByUsernameAndMatterRefIgnoreCaseOrderByStartedAtDesc(username, matterRef.trim(), PageRequest.of(page, 20))
                 : runRepo.findByUsernameOrderByStartedAtDesc(username, PageRequest.of(page, 20));
@@ -243,17 +287,24 @@ public class WorkflowService implements ApplicationRunner {
     }
 
     public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username) {
-        return executeWorkflow(definitionId, documentId, username, null, List.of());
+        return executeWorkflow(definitionId, documentId, username, null, List.of(), null);
     }
 
     public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username,
                                       Map<String, String> draftContext) {
-        return executeWorkflow(definitionId, documentId, username, draftContext, List.of());
+        return executeWorkflow(definitionId, documentId, username, draftContext, List.of(), null);
     }
 
     public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username,
                                       Map<String, String> draftContext,
                                       List<WorkflowConnector> runtimeConnectors) {
+        return executeWorkflow(definitionId, documentId, username, draftContext, runtimeConnectors, null);
+    }
+
+    public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username,
+                                      Map<String, String> draftContext,
+                                      List<WorkflowConnector> runtimeConnectors,
+                                      UUID matterId) {
         WorkflowDefinition def = definitionRepo.findById(definitionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found"));
         List<WorkflowStepConfig> steps;
@@ -271,12 +322,25 @@ public class WorkflowService implements ApplicationRunner {
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Invalid workflow definition");
         }
-        WorkflowRun run = WorkflowRun.builder()
+
+        WorkflowRun.WorkflowRunBuilder runBuilder = WorkflowRun.builder()
                 .definition(def)
                 .documentId(documentId)
                 .username(username)
-                .status(WorkflowStatus.PENDING)
-                .build();
+                .status(WorkflowStatus.PENDING);
+
+        // If matterId provided, validate membership and associate the matter
+        if (matterId != null) {
+            User user = userRepository.findByEmail(username)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+            matterAccessService.requireMembership(matterId, user.getId(), user.getRole());
+            Matter matter = matterRepository.findById(matterId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Matter not found"));
+            runBuilder.matter(matter);
+            runBuilder.matterRef(matter.getName());
+        }
+
+        WorkflowRun run = runBuilder.build();
         WorkflowRun saved = runRepo.save(run);
         return executor.execute(saved, steps, def.getName(), connectors, draftContext);
     }

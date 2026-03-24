@@ -109,6 +109,7 @@ public class WorkflowController {
             @RequestParam(required = false) String jurisdiction,
             @RequestParam(required = false) String dealBrief,
             @RequestParam(required = false) String runtimeConnectors,
+            @RequestParam(required = false) UUID matterId,
             Authentication auth) {
         checkEnabled();
         Map<String, String> draftContext = new java.util.LinkedHashMap<>();
@@ -129,7 +130,7 @@ public class WorkflowController {
         }
 
         return workflowService.executeWorkflow(definitionId, documentId, auth.getName(),
-                draftContext.isEmpty() ? null : draftContext, extraConnectors);
+                draftContext.isEmpty() ? null : draftContext, extraConnectors, matterId);
     }
 
     // ── Analytics ─────────────────────────────────────────────────────────────

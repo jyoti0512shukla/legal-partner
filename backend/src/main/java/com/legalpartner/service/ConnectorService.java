@@ -8,6 +8,7 @@ import com.legalpartner.model.dto.WorkflowConnector;
 import com.legalpartner.model.entity.IntegrationConnection;
 import com.legalpartner.model.entity.WorkflowRun;
 import com.legalpartner.repository.IntegrationConnectionRepository;
+import com.legalpartner.repository.MatterMemberRepository;
 import com.legalpartner.repository.UserRepository;
 import com.legalpartner.repository.WorkflowRunRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +39,7 @@ public class ConnectorService {
     private final SlackWebhookProvider slackProvider;
     private final IntegrationConnectionRepository integrationRepo;
     private final UserRepository userRepo;
+    private final MatterMemberRepository matterMemberRepo;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -48,7 +50,8 @@ public class ConnectorService {
                             WorkflowRunRepository runRepo,
                             SlackWebhookProvider slackProvider,
                             IntegrationConnectionRepository integrationRepo,
-                            UserRepository userRepo) {
+                            UserRepository userRepo,
+                            MatterMemberRepository matterMemberRepo) {
         this.mailSender = mailSender;
         this.mailProps = mailProps;
         this.objectMapper = objectMapper;
@@ -56,6 +59,7 @@ public class ConnectorService {
         this.slackProvider = slackProvider;
         this.integrationRepo = integrationRepo;
         this.userRepo = userRepo;
+        this.matterMemberRepo = matterMemberRepo;
     }
 
     @Async
@@ -155,6 +159,29 @@ public class ConnectorService {
         }
 
         String[] recipients = recipientsStr.split("[,;\\s]+");
+
+        // If the run has a matter, validate recipients are matter members
+        if (run.getMatter() != null) {
+            java.util.Set<String> memberEmails = matterMemberRepo.findByMatterId(run.getMatter().getId())
+                    .stream()
+                    .map(m -> m.getEmail().toLowerCase())
+                    .collect(java.util.stream.Collectors.toSet());
+            List<String> validRecipients = new ArrayList<>();
+            for (String r : recipients) {
+                if (memberEmails.contains(r.trim().toLowerCase())) {
+                    validRecipients.add(r.trim());
+                } else {
+                    log.warn("Email recipient {} is not a member of matter {} — skipping",
+                            r.trim(), run.getMatter().getId());
+                }
+            }
+            if (validRecipients.isEmpty()) {
+                log.warn("No valid recipients after matter membership filter for run {}", run.getId());
+                return;
+            }
+            recipients = validRecipients.toArray(new String[0]);
+        }
+
         String subject = connector.getConfig().getOrDefault("subject",
                 "Legal Partner — " + workflowName + " completed");
 

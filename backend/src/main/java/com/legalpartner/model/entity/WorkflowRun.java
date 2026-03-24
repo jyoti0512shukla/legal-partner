@@ -47,6 +47,10 @@ public class WorkflowRun {
     @Column(length = 100)
     private String matterRef;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "matter_id")
+    private Matter matter;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "jsonb", nullable = false)
     @Builder.Default

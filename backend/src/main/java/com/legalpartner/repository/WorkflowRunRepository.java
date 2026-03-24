@@ -46,4 +46,8 @@ public interface WorkflowRunRepository extends JpaRepository<WorkflowRun, UUID> 
             WHERE username = :username AND status = 'COMPLETED' AND completed_at IS NOT NULL
             """, nativeQuery = true)
     Double findAvgDurationMs(@Param("username") String username);
+
+    Page<WorkflowRun> findByMatterRefIgnoreCaseOrderByStartedAtDesc(String matterRef, Pageable pageable);
+
+    Page<WorkflowRun> findByMatterIdInOrderByStartedAtDesc(List<UUID> matterIds, Pageable pageable);
 }
