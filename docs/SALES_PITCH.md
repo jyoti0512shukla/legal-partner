@@ -176,6 +176,62 @@ Zero external API calls. Zero data exfiltration paths.
 
 ---
 
+## Security & Trust — How We Prove It
+
+Law firms don't trust vendor promises. They trust controls they can verify themselves.
+
+### Architectural Proof (verifiable on day one)
+
+| What we show | What it proves |
+|-------------|---------------|
+| `nvidia-smi` on their VM | The GPU is theirs alone — no shared tenancy |
+| `docker ps` showing the full stack | Everything runs locally — no hidden cloud services |
+| `tcpdump` / `netstat` during a workflow | Zero outbound connections to OpenAI, Google, or any external AI service |
+| `psql` access to their database | Their data, their Postgres, their disk — they can inspect every row |
+| Model weights on their filesystem | They own the model. Not a subscription — an asset. |
+
+### Technical Controls (built into the product)
+
+| Control | What it proves | Can we fake it? |
+|---------|---------------|-----------------|
+| **VPN-only access** | Only their office IPs can reach the VM | No — firewall rule they control |
+| **Client-managed encryption keys** | They hold the AES-256 key. We can't read their data even with full server access. | No — without the key, data is ciphertext |
+| **Full audit trail** | Every AI query, document access, workflow run — timestamped and exportable as JSON | No — immutable database log |
+| **No SSH without approval** | We can't access their VM without their firewall rule. They grant access for maintenance windows only. | No — their infrastructure, their rules |
+| **Matter-based ethical walls** | Data from Matter A is invisible to users not on Matter A's team | No — enforced at database query level |
+| **Role-based access** | Associates can't see what Partners restrict | No — server-side enforcement |
+
+### Contractual Protections (standard enterprise)
+
+| Document | What it covers |
+|----------|---------------|
+| **Data Processing Agreement (DPA)** | Defines what we can/can't do with their data. Specifies data residency, retention, and deletion obligations. |
+| **Right to Audit clause** | "You can inspect our infrastructure, processes, and security controls at any time with reasonable notice." |
+| **Data Deletion guarantee** | "All data deleted within 30 days of contract termination. Certification of destruction provided." |
+| **Source Code Escrow** | Code deposited with a third-party escrow agent. If we go out of business, they get the source. |
+| **No training clause** | "Your data is never used to train, fine-tune, or improve any model — yours or anyone else's." |
+| **Subprocessor transparency** | Full list of any infrastructure providers (GCP, AWS) with no AI subprocessors. |
+
+### What Competitors Can't Offer
+
+| Trust question | Harvey / CoCounsel | Legal Partner |
+|---------------|-------------------|---------------|
+| "Where does my data go?" | OpenAI/Anthropic servers. They have a DPA but data still leaves your control. | Your VM. Run `tcpdump` and verify — zero external calls. |
+| "Can you read our documents?" | Yes. Their ops team has access to the shared infrastructure. | Only if you grant us SSH access. Encryption key is yours. |
+| "What if there's a breach?" | Your data is in a multi-tenant system with thousands of other firms. | Single-tenant. Your data is on one VM. Blast radius = zero. |
+| "Can you prove no one else sees our queries?" | No. Shared API, shared logs, shared infrastructure. | Yes. One GPU, one database, one process. `ps aux` proves it. |
+| "What happens to our data when we leave?" | It's in their cloud. You hope they delete it. | You own the VM. Terminate it yourself. Or we hand you the Docker images and walk away. |
+
+### The Pitch Line
+
+> "We don't ask you to trust us. We give you the infrastructure and the controls to verify it yourself. Your IT team can SSH into the VM, monitor network traffic, and audit every action. The encryption key is yours — we can't read your data even if we wanted to. And if you ever want to leave, we hand you the model weights and the Docker images. You walk away with everything."
+
+### For the Pilot
+
+The strongest trust builder for the first client: **give them SSH access**. Let their IT person poke around for a week. That's more convincing than any SOC 2 badge or marketing page.
+
+---
+
 ## Key Metrics to Track
 
 | Metric | Target |
