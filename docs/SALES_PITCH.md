@@ -8,11 +8,43 @@
 
 ## Target Market
 
-**Mid-size US law firms (20-200 attorneys)** that:
-- Handle sensitive M&A, litigation, corporate transactions
-- Want AI productivity but can't pass compliance review for cloud AI tools
-- Currently do contract review manually (3-4 hours per contract)
-- Have explicit policies against uploading client documents to ChatGPT/Copilot
+### Who is NOT our customer
+
+Firms that can use Harvey/CoCounsel. If they have no compliance restrictions on cloud AI, Harvey has better brand recognition and they should use it. We don't compete with Harvey on features — we compete on architecture.
+
+### Who IS our customer
+
+**US law firms (20-200 attorneys) that WANT AI but CAN'T use cloud AI tools because of compliance.**
+
+Specifically, firms where:
+- **Client contracts prohibit cloud AI** — banks, defense contractors, pharma companies increasingly add AI clauses to outside counsel guidelines requiring all AI processing on firm-controlled infrastructure
+- **Malpractice insurer issued AI guidance** — carriers like CNA, AIG are flagging firms that send client data to OpenAI/Anthropic
+- **Internal security review failed Harvey/CoCounsel** — IT or compliance rejected cloud AI tools because data leaves firm control
+- **State bar ethics opinions are strict** — California, New York, Florida bar opinions require "reasonable efforts" to protect confidentiality (ABA Model Rule 1.6), and cloud AI is a grey area
+- **Practice areas involve trade secrets** — M&A, IP litigation, private equity due diligence — where exposure of deal terms could be catastrophic
+
+### How to find them
+
+| Signal | Where to look |
+|--------|--------------|
+| Firm has **financial services clients** (banks, PE funds) | AmLaw directories filtered by practice area |
+| Firm handles **government/defense contracts** (ITAR, CMMC) | SAM.gov contractor lists, DFARS compliance firms |
+| Firm does **healthcare M&A** (HIPAA) | Health law practice group directories |
+| Firm's **outside counsel guidelines** mention AI restrictions | Ask during discovery call: "Have any of your clients updated their OCGs regarding AI?" |
+| Firm's **malpractice carrier** issued AI bulletin | Ask: "Has your carrier provided guidance on AI tool usage?" |
+| **State bar** issued strict AI ethics opinion | Target firms in CA, NY, FL, TX where opinions are strictest |
+| Firm **evaluated Harvey but didn't adopt** | Ask: "Have you looked at AI contract tools? What stopped you?" |
+
+### The buying conversation
+
+This is NOT a technology purchase. It's a **risk mitigation purchase.**
+
+- **Budget line:** Risk/compliance, not IT
+- **Decision maker:** Managing partner or risk/compliance partner, not IT director
+- **Comparison:** Not "us vs Harvey" but "us vs the $5-50M malpractice claim if client data leaks through a cloud AI tool"
+- **Urgency:** Every month without compliant AI = associates billing $18-24k in manual contract review that AI does in minutes
+
+> "Your top client just added an AI clause to their outside counsel guidelines. They require all AI processing to stay on firm-controlled infrastructure. Harvey can't do that. We can."
 
 ---
 
