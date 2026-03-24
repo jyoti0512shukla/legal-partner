@@ -296,6 +296,26 @@ Law firms don't trust vendor promises. They trust controls they can verify thems
 
 The strongest trust builder for the first client: **give them SSH access**. Let their IT person poke around for a week. That's more convincing than any SOC 2 badge or marketing page.
 
+### Certification Roadmap
+
+| When | Certification | Cost | What it gives us |
+|------|--------------|------|-----------------|
+| **Now** | Pentest report | ~$2,000 | Professional vulnerability assessment. Shareable report + verifiable certificate badge for website. 2-3 weeks. |
+| **After 3-5 clients** | SOC 2 Type I | $10-20k | Point-in-time security controls audit. Use Vanta/Drata to automate. 2-3 months. |
+| **After 12 months** | SOC 2 Type II | $20-50k | Continuous security controls audit over 6-12 months. Enterprise procurement requirement. |
+
+<!-- INTERNAL NOTE — do not share with clients
+Pentest vendor shortlist (India, budget ~$2k):
+- Astra Security (Bangalore) — $1,999/app, gives verifiable certificate badge, 2-3 weeks. Best option. astra.security
+- Breachlock (Delhi/US) — $1,995, has US presence which looks good. Hybrid automated + manual.
+- Securelayer7 (Pune) — $1,000-2,000, focused on app pentesting.
+- Indusface (Vadodara) — $1,500-2,500, CERT-In empanelled.
+- WeSecureApp (Hyderabad) — $1,500-2,500, CERT-In empanelled.
+
+What to get tested: deployed app, API auth/authz, OAuth flows, encryption at rest, matter isolation.
+Astra gives a badge like "Penetration tested — No critical vulnerabilities found" — put on website + sales deck.
+-->
+
 ---
 
 ## Key Metrics to Track
