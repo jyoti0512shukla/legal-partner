@@ -92,9 +92,14 @@ legalpartner:
   lockout:
     max-attempts: 5
     lock-duration-minutes: 15
-  # Optional: When set, use OpenAI-compatible API (e.g. Colab/ngrok) for chat instead of Ollama
+  # LLM provider: "vllm" (default) or "gemini"
+  chat-provider: ${LEGALPARTNER_CHAT_PROVIDER:vllm}
+  # vLLM / OpenAI-compatible (when chat-provider=vllm)
   chat-api-url: ${LEGALPARTNER_CHAT_API_URL:}
   chat-api-model: ${LEGALPARTNER_CHAT_API_MODEL:mistralai/Mistral-7B-Instruct-v0.2}
+  # Google Gemini (when chat-provider=gemini)
+  gemini-api-key: ${LEGALPARTNER_GEMINI_API_KEY:}
+  gemini-model: ${LEGALPARTNER_GEMINI_MODEL:gemini-2.5-flash}
   # Optional: When set, use OpenAI-compatible embedding API (e.g. Colab Flask) instead of Ollama. For low-resource dev.
   embedding-api-url: ${LEGALPARTNER_EMBEDDING_API_URL:}
   embedding-api-model: ${LEGALPARTNER_EMBEDDING_API_MODEL:all-MiniLM-L6-v2}
