@@ -122,8 +122,28 @@ Paste the following content, then press `Ctrl+X` → `Y` → Enter to save:
 ```
 DB_PASSWORD=your-secure-password
 ENCRYPTION_KEY=your-encryption-key
+
+# LLM — fine-tuned model via Colab + ngrok
 LEGALPARTNER_CHAT_API_URL=https://YOUR-COLAB-NGROK-URL.ngrok-free.app/v1
-LEGALPARTNER_CHAT_API_MODEL=mistralai/Mistral-7B-Instruct-v0.2
+LEGALPARTNER_CHAT_API_MODEL=jyoti0512shuklaorg/saul-legal-v3
+
+# URLs — use static IP (34.9.252.242)
+LEGALPARTNER_CLOUD_FRONTEND_URL=http://34.9.252.242.nip.io:3000
+LEGALPARTNER_CLOUD_BACKEND_URL=http://34.9.252.242.nip.io:8080
+
+# Google Drive (optional — set up at console.cloud.google.com/apis/credentials)
+LEGALPARTNER_GOOGLE_DRIVE_ENABLED=false
+LEGALPARTNER_GOOGLE_DRIVE_CLIENT_ID=
+LEGALPARTNER_GOOGLE_DRIVE_CLIENT_SECRET=
+
+# DocuSign (optional — set up at developers.docusign.com)
+LEGALPARTNER_DOCUSIGN_ENABLED=false
+LEGALPARTNER_DOCUSIGN_CLIENT_ID=
+LEGALPARTNER_DOCUSIGN_CLIENT_SECRET=
+LEGALPARTNER_DOCUSIGN_ENV=demo
+
+# Slack (optional)
+LEGALPARTNER_SLACK_ENABLED=false
 ```
 
 > **Note:** Include `/v1` at the end of the ngrok URL. No trailing slash after `/v1`.
@@ -145,6 +165,26 @@ docker-compose -f docker-compose.oci.yml --env-file .env up -d
 
 ---
 
+## Step 5b: Reserve Static IP (one-time)
+
+Prevents IP from changing on stop/start. Already done — IP is `34.9.252.242`.
+
+```bash
+# Reserve a static IP
+gcloud compute addresses create legal-partner-ip --region=us-central1
+
+# Get the reserved IP
+gcloud compute addresses describe legal-partner-ip --region=us-central1 --format='value(address)'
+
+# Remove current ephemeral IP and assign static
+gcloud compute instances delete-access-config legal-partner-vm --zone=us-central1-a --access-config-name="external-nat"
+gcloud compute instances add-access-config legal-partner-vm --zone=us-central1-a --address=34.9.252.242
+```
+
+> **Cost:** ~$3/month when VM is stopped (free while running).
+
+---
+
 ## Step 6: Start/Stop On Demand
 
 ```bash
@@ -155,12 +195,10 @@ gcloud compute instances stop legal-partner-vm --zone=us-central1-a
 gcloud compute instances start legal-partner-vm --zone=us-central1-a
 ```
 
-> **After start:** Wait ~30 seconds before SSH — the VM needs time to boot. IP may change after each stop/start.
+> **After start:** Wait ~30 seconds before SSH. IP is static (`34.9.252.242`) — no longer changes.
 
-Get current IP after start:
 ```bash
-gcloud compute instances describe legal-partner-vm --zone=us-central1-a \
-  --format='get(networkInterfaces[0].accessConfigs[0].natIP)'
+gcloud compute ssh legal-partner-vm --zone=us-central1-a
 ```
 
 ---
@@ -187,9 +225,13 @@ gcloud compute instances create legal-partner-vm \
 | **Project** | legal-partner-489422 |
 | **VM Name** | legal-partner-vm |
 | **Zone** | us-central1-a |
-| **VM IP** | 34.28.67.220 (dynamic — changes after stop/start; run `curl ifconfig.me` on VM to get current) |
-| **Backend URL** | http://34.28.67.220:8080 |
-| **Login** | admin / admin123 |
+| **Static IP** | `34.9.252.242` (reserved, does not change on stop/start) |
+| **Frontend URL** | http://34.9.252.242:3000 |
+| **Backend URL** | http://34.9.252.242:8080 |
+| **OAuth-friendly URL** | http://34.9.252.242.nip.io:3000 (use for Google/DocuSign OAuth) |
+| **Login** | admin@legalpartner.local / Admin123! |
+| **SSH** | `gcloud compute ssh legal-partner-vm --zone=us-central1-a` |
+| **Fine-tuned model** | `jyoti0512shuklaorg/saul-legal-v3` |
 
 ---
 
@@ -246,6 +288,46 @@ docker exec legal-partner_postgres_1 psql -U legalpartner -d legalpartner -c "SE
 ```
 
 Encrypted = base64-like (xY7kL2mN...). Plain = readable contract text.
+
+---
+
+## OAuth Integration Setup
+
+### Google Drive
+
+1. Go to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
+2. Create OAuth 2.0 Client ID (Web application)
+3. Add redirect URI: `http://34.9.252.242.nip.io:8080/api/v1/cloud-storage/callback`
+4. Add authorized JS origin: `http://34.9.252.242.nip.io:3000`
+5. Update `.env` on VM:
+   ```
+   LEGALPARTNER_GOOGLE_DRIVE_ENABLED=true
+   LEGALPARTNER_GOOGLE_DRIVE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+   LEGALPARTNER_GOOGLE_DRIVE_CLIENT_SECRET=your-secret
+   ```
+6. Restart backend: `docker-compose -f docker-compose.oci.yml --env-file .env up -d`
+
+### DocuSign
+
+1. Go to [DocuSign Developer](https://developers.docusign.com) → Create app
+2. Add redirect URI: `http://34.9.252.242.nip.io:8080/api/v1/integrations/callback`
+3. Update `.env`:
+   ```
+   LEGALPARTNER_DOCUSIGN_ENABLED=true
+   LEGALPARTNER_DOCUSIGN_CLIENT_ID=your-integration-key
+   LEGALPARTNER_DOCUSIGN_CLIENT_SECRET=your-secret
+   LEGALPARTNER_DOCUSIGN_ENV=demo
+   ```
+4. Restart backend
+
+### Slack
+
+1. Create Incoming Webhook at [api.slack.com/messaging/webhooks](https://api.slack.com/messaging/webhooks)
+2. Update `.env`: `LEGALPARTNER_SLACK_ENABLED=true`
+3. Restart backend
+4. Go to Settings → Integrations → paste webhook URL
+
+> **nip.io note:** `34.9.252.242.nip.io` resolves to `34.9.252.242`. Google/DocuSign require a domain (not bare IP) for OAuth redirect URIs. When you have a real domain (e.g., `legal-ai.studio`), update the redirect URIs and env vars.
 
 ---
 
