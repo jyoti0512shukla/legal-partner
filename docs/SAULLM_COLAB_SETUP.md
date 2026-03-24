@@ -1,6 +1,11 @@
 # SaulLM Colab Setup
 
-**Model:** `Equall/Saul-Instruct-v1` — 7B parameter legal LLM trained on 30B tokens of English legal text.
+## Models
+
+| Model | Description | Use |
+|-------|-------------|-----|
+| `jyoti0512shuklaorg/saul-legal-v3` | **Fine-tuned (recommended)** — Saul-7B + QLoRA trained on 1,827 examples across 5 tasks: drafting, risk assessment, extraction, checklist, redline. Outputs clean JSON for structured tasks. | Production |
+| `Equall/Saul-Instruct-v1` | Base Saul-7B — general legal knowledge, no task-specific training. Needs guided_json for structured output. | Fallback / comparison |
 
 **GPU required:** A100 40GB (Colab Pro) or T4 16GB (free tier with `--max-model-len 4096`).
 
@@ -46,7 +51,7 @@ print("outlines: OK")
 
 ```python
 import os
-os.environ["HUGGING_FACE_HUB_TOKEN"] = "hf_YOUR_TOKEN_HERE"
+os.environ["HUGGING_FACE_HUB_TOKEN"] = "hf_YOUR_TOKEN_HERE"  # Required — v3 model is private
 ```
 
 Get your token from https://huggingface.co/settings/tokens
@@ -81,11 +86,13 @@ Saul is based on Mistral and needs this chat template. Without it you get garbag
 
 ### Cell 7 — Start vLLM server
 
+#### Option A: Fine-tuned v3 model (recommended)
+
 **For A100 (40GB):**
 
 ```python
 !python -m vllm.entrypoints.openai.api_server \
-    --model Equall/Saul-Instruct-v1 \
+    --model jyoti0512shuklaorg/saul-legal-v3 \
     --host 0.0.0.0 \
     --port 8000 \
     --max-model-len 8192 \
@@ -99,10 +106,24 @@ Saul is based on Mistral and needs this chat template. Without it you get garbag
 
 ```python
 !python -m vllm.entrypoints.openai.api_server \
-    --model Equall/Saul-Instruct-v1 \
+    --model jyoti0512shuklaorg/saul-legal-v3 \
     --host 0.0.0.0 \
     --port 8000 \
     --max-model-len 4096 \
+    --dtype half \
+    --gpu-memory-utilization 0.95 \
+    --trust-remote-code \
+    --chat-template /tmp/mistral.jinja
+```
+
+#### Option B: Base Saul model (for comparison)
+
+```python
+!python -m vllm.entrypoints.openai.api_server \
+    --model Equall/Saul-Instruct-v1 \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --max-model-len 8192 \
     --dtype half \
     --gpu-memory-utilization 0.95 \
     --trust-remote-code \
@@ -123,15 +144,17 @@ First run downloads ~14GB model weights (~5 min).
 ```python
 import requests
 
+MODEL = "jyoti0512shuklaorg/saul-legal-v3"  # match Cell 7
+
 resp = requests.post(
     VLLM_URL + "/v1/chat/completions",
     headers={"Authorization": "Bearer no-op"},
     json={
-        "model": "Equall/Saul-Instruct-v1",
+        "model": MODEL,
         "messages": [
-            {"role": "user", "content": "What is a limitation of liability clause? One sentence."}
+            {"role": "user", "content": "Draft a Termination clause for a Master Services Agreement."}
         ],
-        "max_tokens": 80
+        "max_tokens": 512
     }
 )
 print(resp.json()["choices"][0]["message"]["content"])
@@ -139,31 +162,45 @@ print(resp.json()["choices"][0]["message"]["content"])
 
 ---
 
-### Cell 9 — Test structured JSON (guided_json)
+### Cell 9 — Test all 5 tasks (v3 model)
+
+The fine-tuned model outputs clean JSON without needing `guided_json`.
 
 ```python
 import json
 
-resp = requests.post(
-    VLLM_URL + "/v1/chat/completions",
-    headers={"Authorization": "Bearer no-op"},
-    json={
-        "model": "Equall/Saul-Instruct-v1",
-        "messages": [
-            {"role": "user", "content": "Rate the overall contract risk."}
-        ],
-        "max_tokens": 20,
-        "guided_json": {
-            "type": "object",
-            "properties": {
-                "risk": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]}
-            },
-            "required": ["risk"]
-        }
-    }
-)
-print(resp.json()["choices"][0]["message"]["content"])
-# Expected: {"risk": "HIGH"} or similar valid JSON
+MODEL = "jyoti0512shuklaorg/saul-legal-v3"
+
+tests = [
+    ("Drafting", "Draft a Confidentiality clause for a Non-Disclosure Agreement."),
+    ("Risk", "Assess the risk level of this LIABILITY clause:\n\nThe Provider shall not be liable for any damages."),
+    ("Extraction", "Extract key terms from this contract:\n\nThis Agreement is between Acme Corp and Beta Inc, effective March 1, 2024, governed by California law, valued at $250,000."),
+    ("Checklist", "Check this contract for 12 standard clauses:\n\nThis MSA between PartyA and PartyB includes payment terms, confidentiality, and termination for convenience."),
+    ("Redline", "This PAYMENT clause needs improvement. Suggest better language:\n\nPayment shall be made when convenient for the Client."),
+]
+
+for task, prompt in tests:
+    resp = requests.post(
+        VLLM_URL + "/v1/chat/completions",
+        headers={"Authorization": "Bearer no-op"},
+        json={"model": MODEL, "messages": [{"role": "user", "content": prompt}], "max_tokens": 1024}
+    )
+    output = resp.json()["choices"][0]["message"]["content"]
+
+    # Check if structured tasks produce valid JSON
+    is_json_task = task in ("Risk", "Extraction", "Checklist", "Redline")
+    if is_json_task:
+        try:
+            json.loads(output)
+            status = "PASS (valid JSON)"
+        except:
+            status = "FAIL (invalid JSON)"
+    else:
+        status = "PASS" if len(output.split()) > 50 else "FAIL (too short)"
+
+    print(f"[{status}] {task}")
+    print(f"  {output[:150]}...")
+    print()
 ```
 
 ---
@@ -191,7 +228,7 @@ Set these in your `.env` file on the GCP VM:
 
 ```env
 LEGALPARTNER_CHAT_API_URL=https://YOUR-NGROK-URL-HERE/v1
-LEGALPARTNER_CHAT_API_MODEL=Equall/Saul-Instruct-v1
+LEGALPARTNER_CHAT_API_MODEL=jyoti0512shuklaorg/saul-legal-v3
 ```
 
 **The model name must exactly match** what you passed to `--model` in Cell 7.
@@ -207,7 +244,7 @@ docker compose down && docker compose up -d
 
 | Error | Fix |
 |-------|-----|
-| `The model Equall/Saul-Instruct-v1 does not exist` | Model name in `.env` doesn't match `--model` in Cell 7. They must be identical. |
+| `The model ... does not exist` | Model name in `.env` doesn't match `--model` in Cell 7. They must be identical. For v3 model, ensure HF token is set (Cell 4) since the repo is private. |
 | `Conversation roles must alternate` | Cell 6 (chat template) didn't run, or `--chat-template /tmp/mistral.jinja` missing from Cell 7. |
 | `LLM endpoint returned an error page (HTTP 404)` | ngrok tunnel died. Re-run Cell 5, update `.env` with new URL, restart backend. |
 | `guided_json returned no categories` | Outlines not installed. Re-run Cell 2, restart runtime, verify Cell 3. |
@@ -215,9 +252,21 @@ docker compose down && docker compose up -d
 
 ---
 
-## Switching to AALAP (Indian Legal)
+## Model Comparison
 
-Same setup, different model. Change Cell 7 and `.env`:
+| Model | Drafting | Risk (JSON) | Extraction (JSON) | Checklist (JSON) | Redline (JSON) |
+|-------|----------|-------------|-------------------|------------------|----------------|
+| **saul-legal-v3** | 8/8 pass | Clean JSON, no guided_json needed | Clean JSON | Clean JSON | Clean JSON |
+| Saul-Instruct-v1 (base) | OK | Needs guided_json, unreliable | Needs guided_json | Needs guided_json | Needs guided_json |
+| AALAP-Mistral-7B | OK | JSON output broken | JSON output broken | JSON output broken | JSON output broken |
+
+**Recommendation:** Use `jyoti0512shuklaorg/saul-legal-v3` for production. The base Saul model requires `guided_json` for every structured task and still fails often. AALAP cannot produce reliable JSON.
+
+---
+
+## Switching to AALAP (Indian Legal — not recommended)
+
+AALAP has Indian legal knowledge but cannot reliably output structured JSON. Only use for comparison/testing.
 
 **Cell 7:**
 ```python
