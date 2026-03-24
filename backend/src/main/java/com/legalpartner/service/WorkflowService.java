@@ -218,6 +218,20 @@ public class WorkflowService implements ApplicationRunner {
         return export;
     }
 
+    public WorkflowRunDto cancelRun(UUID id, String username) {
+        WorkflowRun run = runRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Run not found"));
+        if (!run.getUsername().equals(username)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your run");
+        }
+        if (run.getStatus() == WorkflowStatus.RUNNING || run.getStatus() == WorkflowStatus.PENDING) {
+            run.setStatus(WorkflowStatus.CANCELLED);
+            run.setCompletedAt(java.time.Instant.now());
+            runRepo.save(run);
+        }
+        return toRunDto(run);
+    }
+
     public WorkflowRunDto associateMatter(UUID id, String matterRef, String username) {
         WorkflowRun run = runRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Run not found"));

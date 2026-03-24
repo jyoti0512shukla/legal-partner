@@ -459,6 +459,9 @@ export default function WorkflowRunPage() {
       setOverallStatus('error');
       setError(data.error);
       addLog(`Failed: ${data.error}`);
+    } else if (event === 'workflow_cancelled') {
+      setOverallStatus('cancelled');
+      addLog(`Cancelled: ${data.reason || 'by user'}`);
     }
   }
 
@@ -491,6 +494,22 @@ export default function WorkflowRunPage() {
     }
   };
 
+  const [cancelling, setCancelling] = useState(false);
+
+  const handleCancel = async () => {
+    if (!runId || cancelling) return;
+    setCancelling(true);
+    try {
+      await api.post(`/workflows/runs/${runId}/cancel`);
+      setOverallStatus('cancelled');
+      addLog('Cancelled by user');
+    } catch (e) {
+      // ignore — might already be done
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const doneCount = Object.values(stepStatuses).filter(s => s === 'done').length;
   const progressPct = steps.length === 0 ? 0 : Math.round(doneCount / steps.length * 100);
 
@@ -507,6 +526,7 @@ export default function WorkflowRunPage() {
             {overallStatus === 'running' && 'Running…'}
             {overallStatus === 'done' && 'Completed successfully'}
             {overallStatus === 'error' && 'Failed'}
+            {overallStatus === 'cancelled' && 'Cancelled'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -515,9 +535,17 @@ export default function WorkflowRunPage() {
               <Download className="w-3.5 h-3.5" /> Export JSON
             </button>
           )}
+          {overallStatus === 'running' && (
+            <button onClick={handleCancel} disabled={cancelling}
+              className="btn-secondary text-xs text-danger flex items-center gap-1.5">
+              {cancelling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+              {cancelling ? 'Cancelling...' : 'Cancel'}
+            </button>
+          )}
           {overallStatus === 'running' && <Loader2 className="w-6 h-6 text-warning animate-spin" />}
           {overallStatus === 'done' && <CheckCircle2 className="w-6 h-6 text-success" />}
           {overallStatus === 'error' && <XCircle className="w-6 h-6 text-danger" />}
+          {overallStatus === 'cancelled' && <XCircle className="w-6 h-6 text-text-muted" />}
         </div>
       </div>
 

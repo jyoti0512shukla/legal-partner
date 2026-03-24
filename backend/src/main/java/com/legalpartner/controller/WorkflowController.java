@@ -85,6 +85,12 @@ public class WorkflowController {
         return workflowService.exportRun(id, auth.getName());
     }
 
+    @PostMapping("/runs/{id}/cancel")
+    public WorkflowRunDto cancelRun(@PathVariable UUID id, Authentication auth) {
+        checkEnabled();
+        return workflowService.cancelRun(id, auth.getName());
+    }
+
     @PatchMapping("/runs/{id}/matter")
     public WorkflowRunDto associateMatter(
             @PathVariable UUID id,

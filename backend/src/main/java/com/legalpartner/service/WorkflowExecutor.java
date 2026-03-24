@@ -117,6 +117,13 @@ public class WorkflowExecutor {
                           UUID runId, DocumentMetadata docMeta, SseEmitter emitter,
                           Map<String, String> draftContext, String extraFeedback) throws Exception {
         for (int i = 0; i < steps.size(); i++) {
+            // Check if run was cancelled by user
+            if (isRunCancelled(runId)) {
+                send(emitter, "workflow_cancelled", Map.of("reason", "Cancelled by user"));
+                log.info("Workflow {}: cancelled by user at step {}", runId, i);
+                return;
+            }
+
             WorkflowStepConfig step = steps.get(i);
 
             if (!evaluateCondition(step.getCondition(), results)) {
@@ -329,6 +336,12 @@ public class WorkflowExecutor {
     }
 
     // ── Persistence helpers ───────────────────────────────────────────────────
+
+    private boolean isRunCancelled(UUID runId) {
+        return runRepo.findById(runId)
+                .map(r -> r.getStatus() == WorkflowStatus.CANCELLED)
+                .orElse(false);
+    }
 
     private void updateStatus(UUID runId, WorkflowStatus status, int currentStep,
                               Map<String, Object> results, List<Integer> skipped) {
