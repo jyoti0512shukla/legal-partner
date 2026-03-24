@@ -77,11 +77,59 @@ But they can't use Harvey or CoCounsel because their compliance team won't appro
 
 ## What the $1,000/Month Retainer Covers
 
-- GPU + VM hosting (dedicated, not shared)
-- Software updates and new features
-- Quarterly model retraining as firm adds more contracts
-- Email and Slack support
-- Infrastructure monitoring and uptime
+### Included in retainer
+
+| Category | What's included | Limit |
+|----------|----------------|-------|
+| **Hosting** | Dedicated GPU + VM, 99.5% uptime, daily backups | Unlimited usage |
+| **Software updates** | Bug fixes, security patches, new features as we ship them | Automatic — no action needed |
+| **RAG indexing** | Upload unlimited contracts, auto-indexed into vector DB | Unlimited documents |
+| **Clause library management** | Add/update golden clauses, firm templates | Unlimited |
+| **Support** | Email + Slack, response within 24 hours (business days) | Reasonable volume |
+| **Infrastructure monitoring** | Uptime monitoring, disk/GPU alerts, log review | Continuous |
+| **Minor configuration** | Adjust workflow settings, update integration credentials, add users | Up to 2 hours/month |
+
+### NOT included (paid add-ons)
+
+| Add-on | What it is | Price |
+|--------|-----------|-------|
+| **Model fine-tuning** | Retrain the model on the firm's 300-500+ contracts. Learns their specific drafting style, risk thresholds, and clause preferences. Recommended after 6 months of use. | $5,000 per retrain |
+| **Custom workflows** | Build bespoke multi-step workflows beyond the 6 predefined ones (e.g., "M&A due diligence with custom checklist + board memo") | $2,000-5,000 per workflow |
+| **New integrations** | Connect to firm-specific systems not in our standard set (e.g., custom DMS, billing system, internal portal) | $3,000-8,000 per integration |
+| **Custom clause templates** | Build firm-specific clause libraries with jurisdiction variants, partner-approved language for each clause type | $1,500-3,000 per library |
+| **Training sessions** | Additional onboarding sessions beyond the initial 2-week period (new hires, new practice groups) | $500 per session |
+| **Priority support** | 4-hour SLA, dedicated Slack channel, monthly check-in call | +$500/month |
+
+### RAG vs Fine-tuning — When to Recommend Each
+
+The base product uses RAG (retrieval-augmented generation) — the model reads the firm's contracts as context without being retrained. This works on day one and handles 80% of use cases.
+
+| Task | RAG (included) | Fine-tuning (add-on) | Recommendation |
+|------|---------------|---------------------|----------------|
+| **Risk assessment** | Good — sees similar clauses from their past contracts | Marginal improvement | RAG is enough |
+| **Extraction** | Not needed — extraction is mechanical | No improvement | RAG is enough |
+| **Checklist** | Slightly helpful | No improvement | RAG is enough |
+| **Redline** | Good — suggests language from firm precedents | Better — learns preferred phrasing | Offer fine-tuning after 6 months |
+| **Drafting** | Good — pulls golden clauses as context | **High impact** — model generates their firm's style by default | Offer fine-tuning after 6 months |
+
+**When to pitch fine-tuning:**
+- After 6 months of usage (enough data collected)
+- When partners are heavily editing AI drafts (model hasn't learned their style)
+- When the firm does 20+ drafts per month (ROI is clear)
+- Position it as "Level 2": "You've seen RAG work. Now the model learns your voice."
+
+### Service Boundaries — What We Don't Do
+
+To keep the retainer sustainable, clearly define what's outside scope:
+
+| Outside scope | Why | Alternative |
+|--------------|-----|-------------|
+| Unlimited custom development | We're a product company, not a consulting firm | Paid add-ons above |
+| Legal advice on AI output | We're technologists, not lawyers | Firm's own review process |
+| Data migration from other systems | Complex, firm-specific, unpredictable scope | One-time project quote |
+| On-site visits | Remote-first model | Video call support included |
+| SLA guarantees on free tier | Retainer covers best-effort uptime | Priority support add-on for SLA |
+| Regulatory compliance consulting | GDPR, ABA compliance is firm's responsibility | We provide the technical controls, they handle the legal interpretation |
 
 ---
 
