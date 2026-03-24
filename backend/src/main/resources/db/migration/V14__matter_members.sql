@@ -1,4 +1,4 @@
-CREATE TABLE matter_members (
+CREATE TABLE IF NOT EXISTS matter_members (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     matter_id   UUID NOT NULL REFERENCES matters(id) ON DELETE CASCADE,
     user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -10,9 +10,9 @@ CREATE TABLE matter_members (
     CONSTRAINT uq_matter_member_external UNIQUE (matter_id, email)
 );
 
-CREATE INDEX idx_matter_members_matter ON matter_members(matter_id);
-CREATE INDEX idx_matter_members_user   ON matter_members(user_id);
-CREATE INDEX idx_matter_members_email  ON matter_members(email);
+CREATE INDEX IF NOT EXISTS idx_matter_members_matter ON matter_members(matter_id);
+CREATE INDEX IF NOT EXISTS idx_matter_members_user   ON matter_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_matter_members_email  ON matter_members(email);
 
-ALTER TABLE workflow_runs ADD COLUMN matter_id UUID REFERENCES matters(id);
-CREATE INDEX idx_workflow_runs_matter ON workflow_runs(matter_id);
+ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS matter_id UUID REFERENCES matters(id);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_matter ON workflow_runs(matter_id);
