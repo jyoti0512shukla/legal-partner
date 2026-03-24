@@ -23,6 +23,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Instant;
+import com.legalpartner.audit.AuditEvent;
+import com.legalpartner.model.enums.AuditActionType;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,6 +45,7 @@ public class ConnectorService {
     private final IntegrationConnectionRepository integrationRepo;
     private final UserRepository userRepo;
     private final MatterMemberRepository matterMemberRepo;
+    private final AuditService auditService;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -54,7 +58,8 @@ public class ConnectorService {
                             MicrosoftTeamsProvider teamsProvider,
                             IntegrationConnectionRepository integrationRepo,
                             UserRepository userRepo,
-                            MatterMemberRepository matterMemberRepo) {
+                            MatterMemberRepository matterMemberRepo,
+                            AuditService auditService) {
         this.mailSender = mailSender;
         this.mailProps = mailProps;
         this.objectMapper = objectMapper;
@@ -63,6 +68,7 @@ public class ConnectorService {
         this.teamsProvider = teamsProvider;
         this.integrationRepo = integrationRepo;
         this.userRepo = userRepo;
+        this.auditService = auditService;
         this.matterMemberRepo = matterMemberRepo;
     }
 
@@ -87,10 +93,12 @@ public class ConnectorService {
                 };
                 logEntry.put("status", "SUCCESS");
                 logEntry.putAll(details);
+                auditConnector(run, connector, true, details);
             } catch (Exception e) {
                 log.error("Connector {} failed for run {}: {}", connector.getType(), run.getId(), e.getMessage());
                 logEntry.put("status", "FAILED");
                 logEntry.put("error", e.getMessage() != null ? e.getMessage() : "Unknown error");
+                auditConnector(run, connector, false, Map.of("error", e.getMessage() != null ? e.getMessage() : "Unknown"));
             }
 
             logs.add(logEntry);
@@ -335,5 +343,25 @@ public class ConnectorService {
 
         teamsProvider.sendNotification(webhookUrl, title, text);
         log.info("Teams notification sent for run {}", run.getId());
+    }
+
+    // ── Audit helper ──────────────────────────────────────────────────────────
+
+    private void auditConnector(WorkflowRun run, WorkflowConnector connector, boolean success, Map<String, Object> details) {
+        AuditActionType action = switch (connector.getType()) {
+            case EMAIL -> success ? AuditActionType.CONNECTOR_EMAIL_SENT : AuditActionType.CONNECTOR_EMAIL_FAILED;
+            case SLACK -> success ? AuditActionType.CONNECTOR_SLACK_SENT : AuditActionType.CONNECTOR_SLACK_FAILED;
+            case MICROSOFT_TEAMS -> success ? AuditActionType.CONNECTOR_TEAMS_SENT : AuditActionType.CONNECTOR_TEAMS_FAILED;
+            case WEBHOOK -> success ? AuditActionType.CONNECTOR_WEBHOOK_SENT : AuditActionType.CONNECTOR_WEBHOOK_FAILED;
+        };
+        String detailStr = details != null ? details.toString() : "";
+        auditService.publish(AuditEvent.builder()
+                .username(run.getUsername())
+                .action(action)
+                .endpoint("workflow-run/" + run.getId())
+                .queryText(detailStr)
+                .success(success)
+                .errorMessage(success ? null : detailStr)
+                .build());
     }
 }

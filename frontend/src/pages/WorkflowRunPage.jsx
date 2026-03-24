@@ -464,6 +464,16 @@ export default function WorkflowRunPage() {
     } else if (event === 'workflow_complete') {
       setOverallStatus('done');
       addLog('Workflow completed');
+      // Fetch run details after delay to pick up async connector logs (connectors fire after SSE closes)
+      const rid = data?.runId || runId;
+      if (rid) {
+        setTimeout(() => {
+          api.get(`/workflows/runs/${rid}`).then(r => {
+            if (r.data.connectorLogs) setConnectorLogs(r.data.connectorLogs);
+            if (r.data.connectors) setConnectors(r.data.connectors);
+          }).catch(() => {});
+        }, 3000);
+      }
     } else if (event === 'workflow_error') {
       setOverallStatus('error');
       setError(data.error);

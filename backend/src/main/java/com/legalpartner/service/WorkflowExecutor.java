@@ -2,9 +2,11 @@ package com.legalpartner.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.legalpartner.audit.AuditEvent;
 import com.legalpartner.model.dto.*;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.model.entity.WorkflowRun;
+import com.legalpartner.model.enums.AuditActionType;
 import com.legalpartner.model.enums.WorkflowStatus;
 import com.legalpartner.model.enums.WorkflowStepType;
 import com.legalpartner.repository.DocumentMetadataRepository;
@@ -33,6 +35,7 @@ public class WorkflowExecutor {
     private final WorkflowQualityScorer qualityScorer;
     private final WorkflowContextService workflowContextService;
     private final DocumentMetadataRepository documentMetadataRepository;
+    private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
     public SseEmitter execute(WorkflowRun run, List<WorkflowStepConfig> steps, String workflowName) {
@@ -87,6 +90,11 @@ public class WorkflowExecutor {
                 }
 
                 updateStatus(runId, WorkflowStatus.COMPLETED, steps.size(), results, skippedIndices);
+                auditService.publish(AuditEvent.builder()
+                        .username(username).action(AuditActionType.WORKFLOW_COMPLETED)
+                        .endpoint("workflow-run/" + runId)
+                        .queryText(workflowName + " — " + steps.size() + " steps")
+                        .documentId(docId).success(true).build());
                 send(emitter, "workflow_complete", Map.of(
                         "runId", runId.toString(),
                         "results", results,
@@ -102,6 +110,11 @@ public class WorkflowExecutor {
             } catch (Exception e) {
                 log.error("Workflow run {} failed: {}", runId, e.getMessage(), e);
                 persistFailure(runId, e.getMessage(), results, skippedIndices);
+                auditService.publish(AuditEvent.builder()
+                        .username(username).action(AuditActionType.WORKFLOW_FAILED)
+                        .endpoint("workflow-run/" + runId)
+                        .queryText(workflowName).documentId(docId)
+                        .success(false).errorMessage(e.getMessage()).build());
                 try { send(emitter, "workflow_error", Map.of("error", e.getMessage() != null ? e.getMessage() : "Unknown error")); }
                 catch (Exception ignored) {}
                 emitter.completeWithError(e);
