@@ -27,6 +27,7 @@ public class WorkflowExecutor {
 
     private final AiService aiService;
     private final ContractReviewService contractReviewService;
+    private final DraftService draftService;
     private final WorkflowRunRepository runRepo;
     private final ConnectorService connectorService;
     private final WorkflowQualityScorer qualityScorer;
@@ -272,7 +273,27 @@ public class WorkflowExecutor {
                 Map<String, String> mergedParams = new HashMap<>();
                 if (step.getParams() != null) mergedParams.putAll(step.getParams());
                 if (draftContext != null) mergedParams.putAll(draftContext);
-                yield aiService.draftClauseForWorkflow(docId, mergedParams, username, ragContext, feedbackContext);
+
+                String mode = mergedParams.getOrDefault("mode", "clause");
+                if ("agreement".equalsIgnoreCase(mode)) {
+                    // Full agreement — use DraftService (same as /api/v1/ai/draft)
+                    var req = new com.legalpartner.model.dto.DraftRequest();
+                    req.setContractTypeName(mergedParams.getOrDefault("contractTypeName", "Master Services Agreement"));
+                    req.setPartyA(mergedParams.getOrDefault("partyA", ""));
+                    req.setPartyB(mergedParams.getOrDefault("partyB", ""));
+                    req.setJurisdiction(mergedParams.getOrDefault("jurisdiction", ""));
+                    req.setDealBrief(mergedParams.getOrDefault("dealBrief", ""));
+                    req.setDraftStance(mergedParams.getOrDefault("draftStance", "BALANCED"));
+                    var draftResponse = draftService.generateDraft(req, username);
+                    yield Map.of(
+                        "mode", "agreement",
+                        "draftHtml", draftResponse.getDraftHtml() != null ? draftResponse.getDraftHtml() : "",
+                        "suggestions", draftResponse.getSuggestions() != null ? draftResponse.getSuggestions() : List.of()
+                    );
+                } else {
+                    // Single clause (default)
+                    yield aiService.draftClauseForWorkflow(docId, mergedParams, username, ragContext, feedbackContext);
+                }
             }
             case SEND_FOR_SIGNATURE -> Map.of(
                     "status", "pending",

@@ -49,8 +49,8 @@ const STEP_DEFS = [
   },
   {
     type: 'DRAFT_CLAUSE',
-    label: 'Draft Clause',
-    description: 'Drafts a specific clause type using corpus precedents + firm golden clauses. Set clauseType param (e.g. LIABILITY).',
+    label: 'Draft',
+    description: 'Draft a single clause or a full agreement. Choose mode below.',
     icon: PenLine,
     color: 'text-gold',
     bg: 'bg-gold/10',
@@ -168,17 +168,32 @@ function WorkflowStep({ step, index, onRemove, onUpdate, isLast }) {
             </select>
           </div>
           {step.type === 'DRAFT_CLAUSE' && (
-            <div className="flex items-center gap-2">
-              <label className="text-[10px] text-text-muted font-medium">Clause type:</label>
-              <select
-                value={(step.params && step.params.clauseType) || 'LIABILITY'}
-                onChange={e => onUpdate({ ...step, params: { ...(step.params || {}), clauseType: e.target.value } })}
-                className="text-xs bg-surface border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-primary"
-              >
-                {['LIABILITY', 'TERMINATION', 'CONFIDENTIALITY', 'IP_RIGHTS', 'PAYMENT', 'GOVERNING_LAW', 'FORCE_MAJEURE', 'INDEMNITY'].map(t => (
-                  <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
-                ))}
-              </select>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] text-text-muted font-medium">Mode:</label>
+                <select
+                  value={(step.params && step.params.mode) || 'clause'}
+                  onChange={e => onUpdate({ ...step, params: { ...(step.params || {}), mode: e.target.value } })}
+                  className="text-xs bg-surface border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-primary"
+                >
+                  <option value="clause">Single Clause</option>
+                  <option value="agreement">Full Agreement</option>
+                </select>
+              </div>
+              {(!step.params?.mode || step.params.mode === 'clause') && (
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] text-text-muted font-medium">Clause type:</label>
+                  <select
+                    value={(step.params && step.params.clauseType) || 'LIABILITY'}
+                    onChange={e => onUpdate({ ...step, params: { ...(step.params || {}), clauseType: e.target.value } })}
+                    className="text-xs bg-surface border border-border rounded px-2 py-1 text-text-primary focus:outline-none focus:border-primary"
+                  >
+                    {['LIABILITY', 'TERMINATION', 'CONFIDENTIALITY', 'IP_RIGHTS', 'PAYMENT', 'GOVERNING_LAW', 'FORCE_MAJEURE', 'INDEMNITY', 'DATA_PROTECTION', 'SERVICES', 'DEFINITIONS', 'REPRESENTATIONS_WARRANTIES'].map(t => (
+                      <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
         </div>
