@@ -3,8 +3,12 @@ package com.legalpartner.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.config.MailProperties;
+import com.legalpartner.integration.SlackWebhookProvider;
 import com.legalpartner.model.dto.WorkflowConnector;
+import com.legalpartner.model.entity.IntegrationConnection;
 import com.legalpartner.model.entity.WorkflowRun;
+import com.legalpartner.repository.IntegrationConnectionRepository;
+import com.legalpartner.repository.UserRepository;
 import com.legalpartner.repository.WorkflowRunRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +35,9 @@ public class ConnectorService {
     private final MailProperties mailProps;
     private final ObjectMapper objectMapper;
     private final WorkflowRunRepository runRepo;
+    private final SlackWebhookProvider slackProvider;
+    private final IntegrationConnectionRepository integrationRepo;
+    private final UserRepository userRepo;
 
     private final RestTemplate restTemplate = new RestTemplate();
 
@@ -38,11 +45,17 @@ public class ConnectorService {
     public ConnectorService(@Nullable JavaMailSender mailSender,
                             MailProperties mailProps,
                             ObjectMapper objectMapper,
-                            WorkflowRunRepository runRepo) {
+                            WorkflowRunRepository runRepo,
+                            SlackWebhookProvider slackProvider,
+                            IntegrationConnectionRepository integrationRepo,
+                            UserRepository userRepo) {
         this.mailSender = mailSender;
         this.mailProps = mailProps;
         this.objectMapper = objectMapper;
         this.runRepo = runRepo;
+        this.slackProvider = slackProvider;
+        this.integrationRepo = integrationRepo;
+        this.userRepo = userRepo;
     }
 
     @Async
@@ -61,6 +74,7 @@ public class ConnectorService {
                 switch (connector.getType()) {
                     case WEBHOOK -> fireWebhook(connector, run, results, workflowName);
                     case EMAIL   -> fireEmail(connector, run, results, workflowName);
+                    case SLACK   -> fireSlack(run, workflowName);
                 }
                 logEntry.put("status", "SUCCESS");
             } catch (Exception e) {
@@ -208,5 +222,39 @@ public class ConnectorService {
                 </body>
                 </html>
                 """.formatted(workflowName, docInfo, duration, steps, deepLink);
+    }
+
+    // ── Slack ──────────────────────────────────────────────────────────────────
+
+    private void fireSlack(WorkflowRun run, String workflowName) {
+        // Look up the user's Slack webhook from their integration connection
+        var user = userRepo.findByEmail(run.getUsername());
+        if (user.isEmpty()) {
+            log.warn("Slack connector: user not found for run {}", run.getId());
+            return;
+        }
+        var conn = integrationRepo.findByUserIdAndProvider(user.get().getId(), "SLACK");
+        if (conn.isEmpty()) {
+            log.warn("Slack not configured for user {} — skipping", run.getUsername());
+            return;
+        }
+
+        String webhookUrl = null;
+        try {
+            var config = objectMapper.readTree(conn.get().getConfig());
+            webhookUrl = config.has("webhookUrl") ? config.get("webhookUrl").asText() : null;
+        } catch (Exception ignored) {}
+
+        if (webhookUrl == null || webhookUrl.isBlank()) {
+            log.warn("Slack webhook URL not found for user {}", run.getUsername());
+            return;
+        }
+
+        String status = run.getStatus() != null ? run.getStatus().name() : "COMPLETED";
+        String message = String.format("*%s* — %s\nRun: `%s`\nUser: %s",
+                workflowName, status, run.getId(), run.getUsername());
+
+        slackProvider.sendNotification(webhookUrl, message);
+        log.info("Slack notification sent for run {}", run.getId());
     }
 }
