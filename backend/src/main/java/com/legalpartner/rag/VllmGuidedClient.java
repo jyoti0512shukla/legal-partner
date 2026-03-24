@@ -4,10 +4,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import dev.langchain4j.model.chat.ChatLanguageModel;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
@@ -39,13 +42,16 @@ public class VllmGuidedClient {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final String baseUrl;
     private final String modelName;
+    @Nullable
+    private final ChatLanguageModel jsonChatModel;
 
     // Matches the outermost JSON object in a string (handles prose wrapping)
     private static final Pattern JSON_OBJECT = Pattern.compile("\\{[\\s\\S]*}", Pattern.DOTALL);
 
     public VllmGuidedClient(
             @Value("${legalpartner.chat-api-url:}") String chatApiUrl,
-            @Value("${legalpartner.chat-api-model:mistralai/Mistral-7B-Instruct-v0.2}") String modelName) {
+            @Value("${legalpartner.chat-api-model:mistralai/Mistral-7B-Instruct-v0.2}") String modelName,
+            @Qualifier("jsonChatModel") @Nullable ChatLanguageModel jsonChatModel) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(30_000);
         factory.setReadTimeout(300_000);
@@ -53,6 +59,7 @@ public class VllmGuidedClient {
         this.baseUrl = chatApiUrl.isBlank() ? ""
                 : (chatApiUrl.endsWith("/v1") ? chatApiUrl : chatApiUrl + "/v1");
         this.modelName = modelName;
+        this.jsonChatModel = jsonChatModel;
     }
 
     public JsonNode generateStructured(
@@ -62,7 +69,7 @@ public class VllmGuidedClient {
             int maxTokens) {
 
         if (baseUrl.isBlank()) {
-            throw new IllegalStateException("legalpartner.chat-api-url not configured");
+            return fallbackToLangChain(systemPrompt, userPrompt);
         }
 
         // ── Attempt 1: guided_json (vLLM >= 0.4 + outlines) ──────────────────
@@ -149,7 +156,7 @@ public class VllmGuidedClient {
     public String generateText(String systemPrompt, String userPrompt,
                                 String responsePrefix, int maxTokens) {
         if (baseUrl.isBlank()) {
-            throw new IllegalStateException("legalpartner.chat-api-url not configured");
+            return fallbackToLangChainText(systemPrompt, userPrompt, responsePrefix);
         }
         // Mistral instruct template: <s>[INST] {instruction} [/INST]
         // Prepend system content inside the [INST] block (Mistral has no separate <<SYS>> tag).
@@ -290,5 +297,46 @@ public class VllmGuidedClient {
     private String preview(String s) {
         if (s == null) return "null";
         return s.substring(0, Math.min(150, s.length())).replace('\n', ' ');
+    }
+
+    // ── Fallback: use LangChain4j ChatLanguageModel when vLLM URL is not set (e.g. Gemini) ──
+
+    private JsonNode fallbackToLangChain(String systemPrompt, String userPrompt) {
+        if (jsonChatModel == null) {
+            log.error("No LLM configured — neither vLLM URL nor Gemini API key set");
+            return objectMapper.createObjectNode();
+        }
+        log.debug("Using LangChain4j fallback for structured generation");
+        try {
+            String combined = systemPrompt.trim() + "\n\n" + userPrompt.trim()
+                    + "\n\nRespond ONLY with valid JSON.";
+            String response = jsonChatModel.generate(combined);
+            JsonNode result = tryParse(response);
+            if (result != null) return result;
+            result = extractJson(response);
+            if (result != null) return result;
+            log.warn("LangChain4j fallback response was not JSON: {}", preview(response));
+        } catch (Exception e) {
+            log.error("LangChain4j fallback failed: {}", e.getMessage());
+        }
+        return objectMapper.createObjectNode();
+    }
+
+    private String fallbackToLangChainText(String systemPrompt, String userPrompt, String responsePrefix) {
+        if (jsonChatModel == null) {
+            log.error("No LLM configured — neither vLLM URL nor Gemini API key set");
+            return "";
+        }
+        log.debug("Using LangChain4j fallback for text generation");
+        try {
+            String combined = systemPrompt.trim() + "\n\n" + userPrompt.trim();
+            if (responsePrefix != null && !responsePrefix.isBlank()) {
+                combined += "\n\nStart your response with: " + responsePrefix;
+            }
+            return jsonChatModel.generate(combined);
+        } catch (Exception e) {
+            log.error("LangChain4j text fallback failed: {}", e.getMessage());
+            return "";
+        }
     }
 }
