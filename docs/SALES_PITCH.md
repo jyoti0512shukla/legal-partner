@@ -77,6 +77,23 @@ But they can't use Harvey or CoCounsel because their compliance team won't appro
 
 ## What the $1,000/Month Retainer Covers
 
+> **"$1,000/month is not hosting. Hosting is $400. The other $600 is insurance — insurance that when a partner uploads a contract at 11pm before a deal closes, the system works. That when Google changes their OAuth API next quarter, your Drive integration doesn't break. That when you need a new workflow configured on Friday afternoon, someone responds within 24 hours."**
+
+### What they see vs what's actually happening
+
+| What the firm sees | What we're doing behind the scenes |
+|-------------------|-----------------------------------|
+| "It just works" | Monitoring GPU memory, disk usage, DB health, embedding quality, API uptime — continuous |
+| "New features appeared" | Shipping product updates (new workflows, integrations, UI improvements) — they get everything for free |
+| "The model still works after 6 months" | Ensuring compatibility with new document formats, patching dependencies, security updates |
+| "Our DocuSign/Drive still connects" | OAuth APIs change 2-3x per year. We handle the breaking changes before they notice. |
+| "Our data is safe" | Daily automated backups, tested recovery, encryption key rotation guidance |
+| "Support was fast" | Dedicated support channel, 24-hour response SLA on business days |
+
+### Annual prepaid option
+
+**$10,000/year** (prepaid) instead of $1,000/month — saves the firm $2,000 and gives you upfront cash.
+
 ### Included in retainer
 
 | Category | What's included | Limit |
