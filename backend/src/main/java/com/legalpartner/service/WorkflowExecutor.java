@@ -80,7 +80,7 @@ public class WorkflowExecutor {
                     // Clear downstream results so steps re-run cleanly
                     for (int i = draftStepIdx; i < steps.size(); i++) {
                         results.remove(steps.get(i).getType().name());
-                        skippedIndices.remove(i);
+                        skippedIndices.remove(Integer.valueOf(i));
                     }
                     runSteps(steps.subList(draftStepIdx, steps.size()), docId, username, results,
                             skippedIndices, runId, docMeta, emitter, draftContext, riskFeedback);
