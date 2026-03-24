@@ -4,7 +4,7 @@ import {
   CheckCircle2, XCircle, Loader2, Clock, ChevronDown, ChevronUp,
   ArrowLeft, ShieldAlert, Key, ClipboardList, Workflow, FileText,
   Sparkles, Download, Briefcase, SkipForward, RefreshCw, PenLine,
-  Globe, Mail, Zap, AlertTriangle
+  Globe, Mail, Zap, AlertTriangle, MessageSquare
 } from 'lucide-react';
 import api from '../api/client';
 
@@ -211,7 +211,7 @@ function ResultPreview({ type, result }) {
   return <pre className="text-xs text-text-muted overflow-auto max-h-40">{JSON.stringify(result, null, 2)}</pre>;
 }
 
-const CONNECTOR_ICONS = { WEBHOOK: Globe, EMAIL: Mail };
+const CONNECTOR_ICONS = { WEBHOOK: Globe, EMAIL: Mail, SLACK: MessageSquare };
 
 function ConnectorStatusPanel({ connectors, connectorLogs, overallStatus }) {
   if (!connectors || connectors.length === 0) return null;
@@ -273,9 +273,18 @@ function ConnectorStatusPanel({ connectors, connectorLogs, overallStatus }) {
                   </p>
                 )}
                 {log?.firedAt && log?.status === 'SUCCESS' && (
-                  <p className="text-[10px] text-text-muted mt-0.5">
-                    {new Date(log.firedAt).toLocaleTimeString()}
-                  </p>
+                  <div className="text-[10px] text-text-muted mt-0.5">
+                    <span>{new Date(log.firedAt).toLocaleTimeString()}</span>
+                    {log.recipients && (
+                      <span> — sent to {Array.isArray(log.recipients) ? log.recipients.join(', ') : log.recipients}</span>
+                    )}
+                    {log.from && (
+                      <span> (from: {log.from})</span>
+                    )}
+                    {log.url && (
+                      <span> — {log.url}</span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

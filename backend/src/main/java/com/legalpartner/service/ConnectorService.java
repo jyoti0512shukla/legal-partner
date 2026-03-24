@@ -75,12 +75,13 @@ public class ConnectorService {
             logEntry.put("firedAt", Instant.now().toString());
 
             try {
-                switch (connector.getType()) {
-                    case WEBHOOK -> fireWebhook(connector, run, results, workflowName);
-                    case EMAIL   -> fireEmail(connector, run, results, workflowName);
-                    case SLACK   -> fireSlack(run, workflowName);
-                }
+                Map<String, Object> details = switch (connector.getType()) {
+                    case WEBHOOK -> { fireWebhook(connector, run, results, workflowName); yield Map.of("url", connector.getConfig().getOrDefault("url", "")); }
+                    case EMAIL   -> fireEmailWithDetails(connector, run, results, workflowName);
+                    case SLACK   -> { fireSlack(run, workflowName); yield Map.of("channel", "slack"); }
+                };
                 logEntry.put("status", "SUCCESS");
+                logEntry.putAll(details);
             } catch (Exception e) {
                 log.error("Connector {} failed for run {}: {}", connector.getType(), run.getId(), e.getMessage());
                 logEntry.put("status", "FAILED");
@@ -196,6 +197,19 @@ public class ConnectorService {
         mailSender.send(message);
 
         log.info("Email sent for run {} to {} recipient(s)", run.getId(), recipients.length);
+    }
+
+    private Map<String, Object> fireEmailWithDetails(WorkflowConnector connector, WorkflowRun run,
+                                                      Map<String, Object> results, String workflowName) throws Exception {
+        String recipientsStr = connector.getConfig().getOrDefault("recipients", "");
+        fireEmail(connector, run, results, workflowName);
+        String[] sent = recipientsStr.split("[,;\\s]+");
+        return Map.of(
+                "recipients", List.of(sent),
+                "subject", connector.getConfig().getOrDefault("subject",
+                        "Legal Partner — " + workflowName + " completed"),
+                "from", mailProps.getFrom()
+        );
     }
 
     private String buildEmailHtml(WorkflowRun run, Map<String, Object> results, String workflowName) {
