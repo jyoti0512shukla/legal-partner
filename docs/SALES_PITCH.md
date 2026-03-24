@@ -195,7 +195,8 @@ Law firms don't trust vendor promises. They trust controls they can verify thems
 | Control | What it proves | Can we fake it? |
 |---------|---------------|-----------------|
 | **VPN-only access** | Only their office IPs can reach the VM | No — firewall rule they control |
-| **Client-managed encryption keys** | They hold the AES-256 key. We can't read their data even with full server access. | No — without the key, data is ciphertext |
+| **AES-256 encryption at rest** | All documents and embeddings encrypted on disk. Even if someone copies the database file, it's unreadable. | No — industry-standard encryption |
+| **Client-managed encryption keys** | They hold the AES-256 key, not us. We can't read their data even with full server access. | No — without the key, data is ciphertext |
 | **Full audit trail** | Every AI query, document access, workflow run — timestamped and exportable as JSON | No — immutable database log |
 | **No SSH without approval** | We can't access their VM without their firewall rule. They grant access for maintenance windows only. | No — their infrastructure, their rules |
 | **Matter-based ethical walls** | Data from Matter A is invisible to users not on Matter A's team | No — enforced at database query level |
