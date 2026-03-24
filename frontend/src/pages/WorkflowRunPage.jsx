@@ -308,12 +308,13 @@ export default function WorkflowRunPage() {
   const [connectorLogs, setConnectorLogs] = useState([]);   // fire results from run
   const [refinementInfo, setRefinementInfo] = useState(null); // {reason, draftStepIndex}
 
-  const definitionId = searchParams.get('definitionId');
-  const documentId   = searchParams.get('documentId');
-  const partyA       = searchParams.get('partyA');
-  const partyB       = searchParams.get('partyB');
-  const jurisdiction = searchParams.get('jurisdiction');
-  const dealBrief    = searchParams.get('dealBrief');
+  const definitionId      = searchParams.get('definitionId');
+  const documentId        = searchParams.get('documentId');
+  const partyA            = searchParams.get('partyA');
+  const partyB            = searchParams.get('partyB');
+  const jurisdiction      = searchParams.get('jurisdiction');
+  const dealBrief         = searchParams.get('dealBrief');
+  const runtimeConnectors = searchParams.get('runtimeConnectors');
 
   const addLog = (msg) => setLogs(l => [...l, { ts: new Date().toLocaleTimeString(), msg }]);
 
@@ -364,11 +365,12 @@ export default function WorkflowRunPage() {
     const controller = new AbortController();
 
     const runParams = new URLSearchParams({ definitionId });
-    if (documentId)   runParams.set('documentId',   documentId);
-    if (partyA)       runParams.set('partyA',        partyA);
-    if (partyB)       runParams.set('partyB',        partyB);
-    if (jurisdiction) runParams.set('jurisdiction',  jurisdiction);
-    if (dealBrief)    runParams.set('dealBrief',     dealBrief);
+    if (documentId)        runParams.set('documentId',        documentId);
+    if (partyA)            runParams.set('partyA',             partyA);
+    if (partyB)            runParams.set('partyB',             partyB);
+    if (jurisdiction)      runParams.set('jurisdiction',       jurisdiction);
+    if (dealBrief)         runParams.set('dealBrief',          dealBrief);
+    if (runtimeConnectors) runParams.set('runtimeConnectors',  runtimeConnectors);
 
     fetch(`/api/v1/workflows/runs?${runParams.toString()}`, {
       method: 'POST',
@@ -412,7 +414,7 @@ export default function WorkflowRunPage() {
     });
 
     return () => controller.abort();
-  }, [definitionId, documentId, partyA, partyB, jurisdiction, dealBrief, id]);
+  }, [definitionId, documentId, partyA, partyB, jurisdiction, dealBrief, runtimeConnectors, id]);
 
   function handleEvent(event, data) {
     if (event === 'workflow_start') {

@@ -102,6 +102,7 @@ public class WorkflowController {
             @RequestParam(required = false) String partyB,
             @RequestParam(required = false) String jurisdiction,
             @RequestParam(required = false) String dealBrief,
+            @RequestParam(required = false) String runtimeConnectors,
             Authentication auth) {
         checkEnabled();
         Map<String, String> draftContext = new java.util.LinkedHashMap<>();
@@ -109,8 +110,20 @@ public class WorkflowController {
         if (partyB     != null) draftContext.put("partyB",      partyB);
         if (jurisdiction != null) draftContext.put("jurisdiction", jurisdiction);
         if (dealBrief  != null) draftContext.put("dealBrief",   dealBrief);
+
+        // Parse runtime connectors (JSON array passed as query param)
+        List<com.legalpartner.model.dto.WorkflowConnector> extraConnectors = List.of();
+        if (runtimeConnectors != null && !runtimeConnectors.isBlank()) {
+            try {
+                extraConnectors = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readValue(runtimeConnectors, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            } catch (Exception e) {
+                // ignore malformed connectors
+            }
+        }
+
         return workflowService.executeWorkflow(definitionId, documentId, auth.getName(),
-                draftContext.isEmpty() ? null : draftContext);
+                draftContext.isEmpty() ? null : draftContext, extraConnectors);
     }
 
     // ── Analytics ─────────────────────────────────────────────────────────────

@@ -229,11 +229,17 @@ public class WorkflowService implements ApplicationRunner {
     }
 
     public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username) {
-        return executeWorkflow(definitionId, documentId, username, null);
+        return executeWorkflow(definitionId, documentId, username, null, List.of());
     }
 
     public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username,
                                       Map<String, String> draftContext) {
+        return executeWorkflow(definitionId, documentId, username, draftContext, List.of());
+    }
+
+    public SseEmitter executeWorkflow(UUID definitionId, UUID documentId, String username,
+                                      Map<String, String> draftContext,
+                                      List<WorkflowConnector> runtimeConnectors) {
         WorkflowDefinition def = definitionRepo.findById(definitionId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found"));
         List<WorkflowStepConfig> steps;
@@ -242,8 +248,12 @@ public class WorkflowService implements ApplicationRunner {
             steps = objectMapper.readValue(def.getSteps(), new TypeReference<>() {});
             String connectorsJson = def.getConnectors();
             connectors = (connectorsJson != null && !connectorsJson.isBlank())
-                    ? objectMapper.readValue(connectorsJson, new TypeReference<>() {})
-                    : List.of();
+                    ? new java.util.ArrayList<>(objectMapper.readValue(connectorsJson, new TypeReference<List<WorkflowConnector>>() {}))
+                    : new java.util.ArrayList<>();
+            // Merge runtime connectors (from the Run modal)
+            if (runtimeConnectors != null && !runtimeConnectors.isEmpty()) {
+                connectors.addAll(runtimeConnectors);
+            }
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Invalid workflow definition");
         }

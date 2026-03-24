@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Workflow, Play, Clock, CheckCircle2, XCircle, Loader2, Plus, ChevronRight, BarChart3, Users, Trash2, Zap, Search, X } from 'lucide-react';
+import { Workflow, Play, Clock, CheckCircle2, XCircle, Loader2, Plus, ChevronRight, BarChart3, Users, Trash2, Zap, Search, X, Bell, Mail, Globe, MessageSquare, ChevronDown } from 'lucide-react';
 import api from '../api/client';
 
 const STATUS_STYLES = {
@@ -33,9 +33,29 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
   const [draft, setDraft] = useState({ partyA: '', partyB: '', jurisdiction: 'California, United States', dealBrief: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showConnectors, setShowConnectors] = useState(false);
+  const [connectors, setConnectors] = useState({
+    email: { enabled: false, recipients: '' },
+    webhook: { enabled: false, url: '' },
+    slack: { enabled: false },
+  });
 
   const selectedDef = definitions.find(d => d.id === defId);
   const isDraftWorkflow = selectedDef?.steps?.some(s => s.type === 'DRAFT_CLAUSE');
+
+  const buildRuntimeConnectors = () => {
+    const result = [];
+    if (connectors.email.enabled && connectors.email.recipients.trim()) {
+      result.push({ type: 'EMAIL', config: { recipients: connectors.email.recipients.trim() } });
+    }
+    if (connectors.webhook.enabled && connectors.webhook.url.trim()) {
+      result.push({ type: 'WEBHOOK', config: { url: connectors.webhook.url.trim() } });
+    }
+    if (connectors.slack.enabled) {
+      result.push({ type: 'SLACK', config: {} });
+    }
+    return result;
+  };
 
   const handleRun = async () => {
     if (!defId) { setError('Select a workflow'); return; }
@@ -43,7 +63,7 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
     if (isDraftWorkflow && !draft.partyA.trim()) { setError('Enter Party A name'); return; }
     if (isDraftWorkflow && !draft.partyB.trim()) { setError('Enter Party B name'); return; }
     setLoading(true); setError('');
-    try { await onStarted(defId, docId || null, isDraftWorkflow ? draft : null); }
+    try { await onStarted(defId, docId || null, isDraftWorkflow ? draft : null, buildRuntimeConnectors()); }
     catch (e) { setError(e.message || 'Failed to start'); setLoading(false); }
   };
 
@@ -133,6 +153,82 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
             ))}
           </div>
         )}
+
+        {/* Notification connectors — collapsible */}
+        <div className="border border-border rounded-lg">
+          <button
+            type="button"
+            onClick={() => setShowConnectors(!showConnectors)}
+            className="w-full flex items-center justify-between px-3 py-2 text-sm text-text-secondary hover:text-text-primary"
+          >
+            <span className="flex items-center gap-2">
+              <Bell className="w-4 h-4" /> Notifications
+              {(connectors.email.enabled || connectors.webhook.enabled || connectors.slack.enabled) && (
+                <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">
+                  {[connectors.email.enabled, connectors.webhook.enabled, connectors.slack.enabled].filter(Boolean).length}
+                </span>
+              )}
+            </span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showConnectors ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showConnectors && (
+            <div className="border-t border-border px-3 py-3 space-y-3">
+              {/* Email */}
+              <label className="flex items-start gap-2">
+                <input type="checkbox" checked={connectors.email.enabled}
+                  onChange={e => setConnectors(p => ({ ...p, email: { ...p.email, enabled: e.target.checked } }))}
+                  className="mt-1" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
+                    <Mail className="w-3.5 h-3.5" /> Email notification
+                  </div>
+                  {connectors.email.enabled && (
+                    <input
+                      type="text"
+                      placeholder="user@firm.com, partner@firm.com"
+                      value={connectors.email.recipients}
+                      onChange={e => setConnectors(p => ({ ...p, email: { ...p.email, recipients: e.target.value } }))}
+                      className="input-field w-full text-xs mt-1.5"
+                    />
+                  )}
+                </div>
+              </label>
+
+              {/* Webhook */}
+              <label className="flex items-start gap-2">
+                <input type="checkbox" checked={connectors.webhook.enabled}
+                  onChange={e => setConnectors(p => ({ ...p, webhook: { ...p.webhook, enabled: e.target.checked } }))}
+                  className="mt-1" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
+                    <Globe className="w-3.5 h-3.5" /> Webhook
+                  </div>
+                  {connectors.webhook.enabled && (
+                    <input
+                      type="url"
+                      placeholder="https://your-endpoint.com/callback"
+                      value={connectors.webhook.url}
+                      onChange={e => setConnectors(p => ({ ...p, webhook: { ...p.webhook, url: e.target.value } }))}
+                      className="input-field w-full text-xs mt-1.5"
+                    />
+                  )}
+                </div>
+              </label>
+
+              {/* Slack */}
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={connectors.slack.enabled}
+                  onChange={e => setConnectors(p => ({ ...p, slack: { ...p.slack, enabled: e.target.checked } }))}
+                />
+                <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
+                  <MessageSquare className="w-3.5 h-3.5" /> Slack
+                </div>
+                <span className="text-[10px] text-text-muted">(configure webhook in Settings)</span>
+              </label>
+            </div>
+          )}
+        </div>
 
         {error && <p className="text-danger text-sm">{error}</p>}
 
@@ -241,7 +337,7 @@ export default function WorkflowsPage() {
     if (!loading) fetchRuns(matterFilter);
   }, [matterFilter, loading, fetchRuns]);
 
-  const handleStarted = async (defId, docId, draftContext) => {
+  const handleStarted = async (defId, docId, draftContext, runtimeConnectors) => {
     setShowModal(false);
     const params = new URLSearchParams({ definitionId: defId });
     if (docId) params.set('documentId', docId);
@@ -249,6 +345,7 @@ export default function WorkflowsPage() {
     if (draftContext?.partyB)       params.set('partyB',       draftContext.partyB);
     if (draftContext?.jurisdiction) params.set('jurisdiction', draftContext.jurisdiction);
     if (draftContext?.dealBrief)    params.set('dealBrief',    draftContext.dealBrief);
+    if (runtimeConnectors?.length)  params.set('runtimeConnectors', JSON.stringify(runtimeConnectors));
     navigate(`/workflows/run?${params.toString()}`);
   };
 
