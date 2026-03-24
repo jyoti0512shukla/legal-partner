@@ -14,6 +14,9 @@ public class IntegrationProperties {
 
     private Docusign docusign = new Docusign();
     private Slack slack = new Slack();
+    private NetDocuments netDocuments = new NetDocuments();
+    private IManage iManage = new IManage();
+    private MicrosoftTeams microsoftTeams = new MicrosoftTeams();
 
     @Data
     public static class Docusign {
@@ -26,6 +29,26 @@ public class IntegrationProperties {
 
     @Data
     public static class Slack {
+        private boolean enabled = false;
+    }
+
+    @Data
+    public static class NetDocuments {
+        private boolean enabled = false;
+        private String clientId = "";
+        private String clientSecret = "";
+    }
+
+    @Data
+    public static class IManage {
+        private boolean enabled = false;
+        private String clientId = "";
+        private String clientSecret = "";
+        private String server = "";  // e.g. cloudimanage.com or firm's own server
+    }
+
+    @Data
+    public static class MicrosoftTeams {
         private boolean enabled = false;
     }
 }

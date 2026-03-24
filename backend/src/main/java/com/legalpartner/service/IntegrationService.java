@@ -87,10 +87,12 @@ public class IntegrationService {
 
     @Transactional
     public void saveWebhookConfig(UUID userId, String providerId, String webhookUrl) {
-        if (!"SLACK".equals(providerId))
-            throw new IllegalArgumentException("Webhook config only for Slack");
-        if (webhookUrl == null || !webhookUrl.startsWith("https://hooks.slack.com/"))
+        if (!"SLACK".equals(providerId) && !"MICROSOFT_TEAMS".equals(providerId))
+            throw new IllegalArgumentException("Webhook config only for Slack or Microsoft Teams");
+        if ("SLACK".equals(providerId) && (webhookUrl == null || !webhookUrl.startsWith("https://hooks.slack.com/")))
             throw new IllegalArgumentException("Invalid Slack webhook URL");
+        if ("MICROSOFT_TEAMS".equals(providerId) && (webhookUrl == null || webhookUrl.isBlank()))
+            throw new IllegalArgumentException("Invalid Teams webhook URL");
 
         IntegrationConnection conn = connectionRepository.findByUserIdAndProvider(userId, providerId)
                 .orElse(IntegrationConnection.builder()
@@ -145,6 +147,9 @@ public class IntegrationService {
         return switch (providerId) {
             case "DOCUSIGN" -> properties.getDocusign().isEnabled();
             case "SLACK" -> properties.getSlack().isEnabled();
+            case "NETDOCUMENTS" -> properties.getNetDocuments().isEnabled();
+            case "IMANAGE" -> properties.getIManage().isEnabled();
+            case "MICROSOFT_TEAMS" -> properties.getMicrosoftTeams().isEnabled();
             default -> false;
         };
     }
@@ -153,6 +158,9 @@ public class IntegrationService {
         return switch (providerId) {
             case "DOCUSIGN" -> "Send contracts for electronic signature";
             case "SLACK" -> "Receive workflow notifications";
+            case "NETDOCUMENTS" -> "Legal document management system";
+            case "IMANAGE" -> "Enterprise document management";
+            case "MICROSOFT_TEAMS" -> "Receive workflow notifications via Teams";
             default -> "";
         };
     }

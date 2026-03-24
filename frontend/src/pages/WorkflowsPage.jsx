@@ -38,6 +38,7 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
     email: { enabled: false, recipients: '' },
     webhook: { enabled: false, url: '' },
     slack: { enabled: false },
+    teams: { enabled: false },
   });
 
   const selectedDef = definitions.find(d => d.id === defId);
@@ -53,6 +54,9 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
     }
     if (connectors.slack.enabled) {
       result.push({ type: 'SLACK', config: {} });
+    }
+    if (connectors.teams.enabled) {
+      result.push({ type: 'MICROSOFT_TEAMS', config: {} });
     }
     return result;
   };
@@ -163,9 +167,9 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
           >
             <span className="flex items-center gap-2">
               <Bell className="w-4 h-4" /> Notifications
-              {(connectors.email.enabled || connectors.webhook.enabled || connectors.slack.enabled) && (
+              {(connectors.email.enabled || connectors.webhook.enabled || connectors.slack.enabled || connectors.teams.enabled) && (
                 <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-medium">
-                  {[connectors.email.enabled, connectors.webhook.enabled, connectors.slack.enabled].filter(Boolean).length}
+                  {[connectors.email.enabled, connectors.webhook.enabled, connectors.slack.enabled, connectors.teams.enabled].filter(Boolean).length}
                 </span>
               )}
             </span>
@@ -223,6 +227,17 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
                 />
                 <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
                   <MessageSquare className="w-3.5 h-3.5" /> Slack
+                </div>
+                <span className="text-[10px] text-text-muted">(configure webhook in Settings)</span>
+              </label>
+
+              {/* Microsoft Teams */}
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={connectors.teams.enabled}
+                  onChange={e => setConnectors(p => ({ ...p, teams: { ...p.teams, enabled: e.target.checked } }))}
+                />
+                <div className="flex items-center gap-1.5 text-sm font-medium text-text-primary">
+                  <MessageSquare className="w-3.5 h-3.5" /> Microsoft Teams
                 </div>
                 <span className="text-[10px] text-text-muted">(configure webhook in Settings)</span>
               </label>

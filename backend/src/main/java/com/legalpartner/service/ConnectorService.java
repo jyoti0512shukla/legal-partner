@@ -3,6 +3,7 @@ package com.legalpartner.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.config.MailProperties;
+import com.legalpartner.integration.MicrosoftTeamsProvider;
 import com.legalpartner.integration.SlackWebhookProvider;
 import com.legalpartner.model.dto.WorkflowConnector;
 import com.legalpartner.model.entity.IntegrationConnection;
@@ -37,6 +38,7 @@ public class ConnectorService {
     private final ObjectMapper objectMapper;
     private final WorkflowRunRepository runRepo;
     private final SlackWebhookProvider slackProvider;
+    private final MicrosoftTeamsProvider teamsProvider;
     private final IntegrationConnectionRepository integrationRepo;
     private final UserRepository userRepo;
     private final MatterMemberRepository matterMemberRepo;
@@ -49,6 +51,7 @@ public class ConnectorService {
                             ObjectMapper objectMapper,
                             WorkflowRunRepository runRepo,
                             SlackWebhookProvider slackProvider,
+                            MicrosoftTeamsProvider teamsProvider,
                             IntegrationConnectionRepository integrationRepo,
                             UserRepository userRepo,
                             MatterMemberRepository matterMemberRepo) {
@@ -57,6 +60,7 @@ public class ConnectorService {
         this.objectMapper = objectMapper;
         this.runRepo = runRepo;
         this.slackProvider = slackProvider;
+        this.teamsProvider = teamsProvider;
         this.integrationRepo = integrationRepo;
         this.userRepo = userRepo;
         this.matterMemberRepo = matterMemberRepo;
@@ -79,6 +83,7 @@ public class ConnectorService {
                     case WEBHOOK -> { fireWebhook(connector, run, results, workflowName); yield Map.of("url", connector.getConfig().getOrDefault("url", "")); }
                     case EMAIL   -> fireEmailWithDetails(connector, run, results, workflowName);
                     case SLACK   -> { fireSlack(run, workflowName); yield Map.of("channel", "slack"); }
+                    case MICROSOFT_TEAMS -> { fireTeams(run, workflowName); yield Map.of("channel", "teams"); }
                 };
                 logEntry.put("status", "SUCCESS");
                 logEntry.putAll(details);
@@ -297,5 +302,38 @@ public class ConnectorService {
 
         slackProvider.sendNotification(webhookUrl, message);
         log.info("Slack notification sent for run {}", run.getId());
+    }
+
+    // ── Microsoft Teams ───────────────────────────────────────────────────────
+
+    private void fireTeams(WorkflowRun run, String workflowName) {
+        var user = userRepo.findByEmail(run.getUsername());
+        if (user.isEmpty()) {
+            log.warn("Teams connector: user not found for run {}", run.getId());
+            return;
+        }
+        var conn = integrationRepo.findByUserIdAndProvider(user.get().getId(), "MICROSOFT_TEAMS");
+        if (conn.isEmpty()) {
+            log.warn("Teams not configured for user {} — skipping", run.getUsername());
+            return;
+        }
+
+        String webhookUrl = null;
+        try {
+            var config = objectMapper.readTree(conn.get().getConfig());
+            webhookUrl = config.has("webhookUrl") ? config.get("webhookUrl").asText() : null;
+        } catch (Exception ignored) {}
+
+        if (webhookUrl == null || webhookUrl.isBlank()) {
+            log.warn("Teams webhook URL not found for user {}", run.getUsername());
+            return;
+        }
+
+        String status = run.getStatus() != null ? run.getStatus().name() : "COMPLETED";
+        String title = workflowName + " — " + status;
+        String text = String.format("Run: %s<br>User: %s", run.getId(), run.getUsername());
+
+        teamsProvider.sendNotification(webhookUrl, title, text);
+        log.info("Teams notification sent for run {}", run.getId());
     }
 }

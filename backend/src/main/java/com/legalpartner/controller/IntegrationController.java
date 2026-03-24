@@ -58,6 +58,16 @@ public class IntegrationController {
         integrationService.saveWebhookConfig(userId, "SLACK", request.webhookUrl());
     }
 
+    @PostMapping("/teams/configure")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void configureTeams(
+            @RequestBody TeamsConfigRequest request,
+            Authentication auth
+    ) {
+        UUID userId = getUserId(auth);
+        integrationService.saveWebhookConfig(userId, "MICROSOFT_TEAMS", request.webhookUrl());
+    }
+
     @DeleteMapping("/disconnect")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void disconnect(
@@ -76,4 +86,5 @@ public class IntegrationController {
 
     public record AuthUrlResponse(String url) {}
     public record SlackConfigRequest(String webhookUrl) {}
+    public record TeamsConfigRequest(String webhookUrl) {}
 }

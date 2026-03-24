@@ -113,6 +113,17 @@ legalpartner:
       environment: ${LEGALPARTNER_DOCUSIGN_ENV:demo}
     slack:
       enabled: ${LEGALPARTNER_SLACK_ENABLED:false}
+    net-documents:
+      enabled: ${LEGALPARTNER_NETDOCUMENTS_ENABLED:false}
+      client-id: ${LEGALPARTNER_NETDOCUMENTS_CLIENT_ID:}
+      client-secret: ${LEGALPARTNER_NETDOCUMENTS_CLIENT_SECRET:}
+    imanage:
+      enabled: ${LEGALPARTNER_IMANAGE_ENABLED:false}
+      client-id: ${LEGALPARTNER_IMANAGE_CLIENT_ID:}
+      client-secret: ${LEGALPARTNER_IMANAGE_CLIENT_SECRET:}
+      server: ${LEGALPARTNER_IMANAGE_SERVER:}
+    microsoft-teams:
+      enabled: ${LEGALPARTNER_TEAMS_ENABLED:false}
   cloud:
     frontend-url: ${LEGALPARTNER_CLOUD_FRONTEND_URL:http://localhost:5173}
     backend-url: ${LEGALPARTNER_CLOUD_BACKEND_URL:http://localhost:8080}

@@ -4,3 +4,4 @@ export const getIntegrationConnections = () => api.get('/integrations/connection
 export const getIntegrationAuthUrl = (provider) => api.get(`/integrations/auth-url?provider=${provider}`);
 export const disconnectIntegration = (provider) => api.delete(`/integrations/disconnect?provider=${provider}`);
 export const configureSlackWebhook = (webhookUrl) => api.post('/integrations/slack/configure', { webhookUrl });
+export const configureTeamsWebhook = (webhookUrl) => api.post('/integrations/teams/configure', { webhookUrl });
