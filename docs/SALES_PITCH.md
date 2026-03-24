@@ -48,21 +48,76 @@ This is NOT a technology purchase. It's a **risk mitigation purchase.**
 
 ---
 
-## Pricing
+## Pricing — Three Tiers
 
-| Component | Cost | What they get |
-|-----------|------|---------------|
-| **Setup fee** | $30,000 one-time | Dedicated GPU + VM, model fine-tuned on their clause library, integrations configured, 2-week onboarding |
-| **Monthly retainer** | $1,000/month | Infrastructure hosting, software updates, quarterly model retraining, support |
+### Lite — Small firms (10-20 attorneys)
 
-### 3-Year Total Cost Comparison
+| | Details |
+|--|--------|
+| **Setup** | $5,000 |
+| **Monthly** | $500/month |
+| **GPU** | Shared GPU across 5-10 firms (isolated databases) |
+| **Privacy** | Firm's own VM + database. Model is stateless — reads contract, returns analysis, forgets. No data shared between firms. |
+| **Includes** | 5 AI tasks, Google Drive integration, email notifications, 3 onboarding calls |
+| **Pitch** | "AI contract review at 1/10th the cost of another associate. Your documents stay on your server." |
+| **Decision maker** | Managing partner |
+| **Your cost** | ~$80/firm/month |
 
-| Vendor | Year 1 | Year 2 | Year 3 | **3-Year Total** |
-|--------|--------|--------|--------|-----------------|
-| **Legal Partner** | $42,000 | $12,000 | $12,000 | **$66,000** |
-| Harvey AI (50 users) | $60,000 | $60,000 | $60,000 | $180,000 |
-| CoCounsel | $48,000 | $48,000 | $48,000 | $144,000 |
-| Kira/Luminance | $75,000 | $75,000 | $75,000 | $225,000 |
+**3-year cost: $23,000** vs Harvey at $24,000/year ($72k over 3 years)
+
+---
+
+### Standard — Mid-size firms (20-100 attorneys)
+
+| | Details |
+|--|--------|
+| **Setup** | $30,000 |
+| **Monthly** | $1,000/month |
+| **GPU** | Dedicated A6000 (48GB) — handles 10-15 concurrent users comfortably |
+| **Privacy** | Fully isolated. Dedicated VM + dedicated GPU. Zero external API calls. |
+| **Includes** | 5 AI tasks, all integrations (Drive, DocuSign, Slack, NetDocuments), matter access control, 2-week onboarding, clause library seeding |
+| **Pitch** | "Your data never touches a third-party server. Not OpenAI, not Google, not us. And the model is trained on YOUR contracts." |
+| **Decision maker** | Managing partner or risk/compliance partner |
+| **Your cost** | ~$450/month |
+
+**3-year cost: $66,000** vs Harvey at $60,000/year for 50 users ($180k over 3 years)
+
+---
+
+### Enterprise — Large firms (100-200+ attorneys)
+
+| | Details |
+|--|--------|
+| **Setup** | $50,000 |
+| **Monthly** | $2,000/month |
+| **GPU** | A100 80GB or 2x A6000 — handles 25-50 concurrent users |
+| **Privacy** | Full isolation + redundancy. Failover GPU, daily backups, 99.5% SLA. |
+| **Includes** | Everything in Standard + custom model fine-tuning on firm's contracts, priority support (4hr SLA), dedicated Slack channel, quarterly model retraining, custom workflow development |
+| **Pitch** | "Your competitor uses Harvey — same generic GPT-4 as everyone else. Your model is trained on 500 of YOUR contracts. Your drafts sound like your firm wrote them." |
+| **Decision maker** | General Counsel or Managing Partner — triggered by client OCG requiring firm-controlled AI |
+| **Your cost** | ~$800/month |
+
+**3-year cost: $122,000** vs Harvey at $180,000/year for 150 users ($540k over 3 years)
+
+---
+
+### Cost Comparison Across All Tiers
+
+| | Lite (15 users) | Standard (50 users) | Enterprise (150 users) |
+|--|----------------|--------------------|-----------------------|
+| **Legal Partner — Year 1** | $11,000 | $42,000 | $74,000 |
+| **Legal Partner — Year 2+** | $6,000 | $12,000 | $24,000 |
+| **Legal Partner — 3yr total** | **$23,000** | **$66,000** | **$122,000** |
+| Harvey — 3yr total | $54,000 | $180,000 | $540,000 |
+| **Savings vs Harvey** | **57%** | **63%** | **77%** |
+
+### Why each tier wins over Harvey
+
+**Lite wins on price:** $500/month vs $1,500/month for Harvey. Same AI tasks. Small firms don't need dedicated GPU — the shared model is stateless and isolated by database.
+
+**Standard wins on privacy:** These firms have clients (banks, pharma) whose outside counsel guidelines prohibit cloud AI. Harvey fails the compliance review. Legal Partner is the only option that passes.
+
+**Enterprise wins on everything:** 77% cheaper over 3 years, custom model trained on their contracts, data ownership, no vendor lock-in. And when their biggest client asks "where does our data go when you use AI?" — they have an answer that holds up in court.
 
 ---
 
