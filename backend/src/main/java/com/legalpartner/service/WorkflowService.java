@@ -99,7 +99,7 @@ public class WorkflowService implements ApplicationRunner {
                         step(WorkflowStepType.GENERATE_SUMMARY,   "Executive Memo", null, 1)
                 ));
 
-        // ── New: Draft & Assess Loop — draft a clause, assess, refine ────────────
+        // ── Draft & Assess Loop — draft a clause, assess, refine ────────────
         seedIfAbsent("Draft & Assess Loop",
                 "Draft a clause using corpus + firm library → assess risk → refine redlines → summary. Each step iterates until quality passes.",
                 List.of(
@@ -108,6 +108,17 @@ public class WorkflowService implements ApplicationRunner {
                         step(WorkflowStepType.REDLINE_SUGGESTIONS,    "Refine with Firm Playbook",
                                 new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "in", "HIGH,MEDIUM"), 2),
                         step(WorkflowStepType.GENERATE_SUMMARY,       "Draft Summary", null, 1)
+                ));
+
+        // ── Draft Full Agreement — generates all 12 clause sections ────────────
+        seedIfAbsent("Draft Full Agreement",
+                "Draft a complete contract with all sections → assess risk → refine weak clauses → executive summary.",
+                List.of(
+                        stepWithParams(WorkflowStepType.DRAFT_CLAUSE, "Draft Full Agreement", null, 1, Map.of("mode", "agreement")),
+                        step(WorkflowStepType.RISK_ASSESSMENT,        "Assess Agreement",     null, 2),
+                        step(WorkflowStepType.REDLINE_SUGGESTIONS,    "Redline Weak Clauses",
+                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "in", "HIGH,MEDIUM"), 2),
+                        step(WorkflowStepType.GENERATE_SUMMARY,       "Executive Summary", null, 1)
                 ));
     }
 
