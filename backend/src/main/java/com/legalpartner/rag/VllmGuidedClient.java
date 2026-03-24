@@ -309,12 +309,35 @@ public class VllmGuidedClient {
         log.debug("Using LangChain4j fallback for structured generation");
         try {
             String combined = systemPrompt.trim() + "\n\n" + userPrompt.trim()
-                    + "\n\nRespond ONLY with valid JSON.";
+                    + "\n\nRespond ONLY with valid JSON object (not an array). Wrap arrays in an object.";
             String response = jsonChatModel.generate(combined);
             JsonNode result = tryParse(response);
-            if (result != null) return result;
+            if (result != null) {
+                // If Gemini returned a JSON array, wrap it in an object
+                // e.g., checklist returns [{...}] but we need {"clauses": [{...}]}
+                if (result.isArray()) {
+                    ObjectNode wrapper = objectMapper.createObjectNode();
+                    wrapper.set("clauses", result);
+                    return wrapper;
+                }
+                return result;
+            }
             result = extractJson(response);
             if (result != null) return result;
+            // Last resort: try to find a JSON array in the response
+            String trimmed = response.trim();
+            int arrStart = trimmed.indexOf('[');
+            int arrEnd = trimmed.lastIndexOf(']');
+            if (arrStart >= 0 && arrEnd > arrStart) {
+                try {
+                    JsonNode arr = objectMapper.readTree(trimmed.substring(arrStart, arrEnd + 1));
+                    if (arr.isArray()) {
+                        ObjectNode wrapper = objectMapper.createObjectNode();
+                        wrapper.set("clauses", arr);
+                        return wrapper;
+                    }
+                } catch (Exception ignored) {}
+            }
             log.warn("LangChain4j fallback response was not JSON: {}", preview(response));
         } catch (Exception e) {
             log.error("LangChain4j fallback failed: {}", e.getMessage());
