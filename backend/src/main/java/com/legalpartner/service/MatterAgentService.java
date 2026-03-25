@@ -94,7 +94,7 @@ public class MatterAgentService {
                     List.of(FindingType.PLAYBOOK_DEVIATION, FindingType.PLAYBOOK_NON_NEGOTIABLE));
 
             // Re-analyze each document
-            List<DocumentMetadata> docs = docRepo.findByMatterId(matterId);
+            List<DocumentMetadata> docs = docRepo.findAllByMatterId(matterId);
             for (DocumentMetadata doc : docs) {
                 analyzeDocument(matterId, doc.getId(), username);
             }

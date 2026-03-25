@@ -22,7 +22,7 @@ public class CrossDocConflictDetector {
     private final DocumentMetadataRepository docRepo;
 
     public List<MatterFinding> detectConflicts(Matter matter, DocumentMetadata newDoc) {
-        List<DocumentMetadata> otherDocs = docRepo.findByMatterId(matter.getId()).stream()
+        List<DocumentMetadata> otherDocs = docRepo.findAllByMatterId(matter.getId()).stream()
                 .filter(d -> !d.getId().equals(newDoc.getId()))
                 .filter(d -> "INDEXED".equals(d.getProcessingStatus() != null ? d.getProcessingStatus().name() : ""))
                 .toList();
