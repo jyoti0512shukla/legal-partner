@@ -4,10 +4,12 @@ import { useAuth } from '../hooks/useAuth';
 import { setupMfa, verifyMfa, disableMfa } from '../api/auth';
 import { AlertCircle } from 'lucide-react';
 import IntegrationsTab from '../components/IntegrationsTab';
+import AgentConfigTab from '../components/AgentConfigTab';
 
 const TABS = [
   { id: 'profile', label: 'Profile' },
   { id: 'integrations', label: 'Integrations' },
+  { id: 'agent', label: 'Deal Intelligence' },
 ];
 
 export default function SettingsPage() {
@@ -168,6 +170,11 @@ export default function SettingsPage() {
       {/* Integrations Tab */}
       {activeTab === 'integrations' && (
         <IntegrationsTab />
+      )}
+
+      {/* Deal Intelligence Tab */}
+      {activeTab === 'agent' && (
+        <AgentConfigTab />
       )}
     </div>
   );

@@ -20,6 +20,7 @@ import WorkflowBuilderPage from './pages/WorkflowBuilderPage';
 import WorkflowAnalyticsPage from './pages/WorkflowAnalyticsPage';
 import ClauseLibraryPage from './pages/ClauseLibraryPage';
 import EdgarImportPage from './pages/EdgarImportPage';
+import PlaybooksPage from './pages/PlaybooksPage';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -63,6 +64,7 @@ export default function App() {
         <Route path="/workflows/builder" element={<WorkflowBuilderPage />} />
         <Route path="/workflows/analytics" element={<WorkflowAnalyticsPage />} />
         <Route path="/clause-library" element={<ClauseLibraryPage />} />
+        {isPartnerOrAdmin && <Route path="/playbooks" element={<PlaybooksPage />} />}
         {isPartnerOrAdmin && <Route path="/edgar-import" element={<EdgarImportPage />} />}
         {isPartnerOrAdmin && <Route path="/audit" element={<AuditLogPage />} />}
         <Route path="/settings" element={<SettingsPage />} />

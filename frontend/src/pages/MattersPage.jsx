@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, Plus, X, FileText, ChevronRight, Brain, Workflow, CheckCircle2, XCircle, Clock, Loader2 } from 'lucide-react';
+import { Briefcase, Plus, X, FileText, ChevronRight, Brain, Workflow, CheckCircle2, XCircle, Clock, Loader2, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
+import MatterFindingsPanel from '../components/MatterFindingsPanel';
 
 const STATUSES = { ACTIVE: 'success', CLOSED: 'text-muted', ARCHIVED: 'text-muted' };
 const PRACTICE_AREAS = ['CORPORATE', 'LITIGATION', 'IP', 'TAX', 'REAL_ESTATE', 'LABOR', 'BANKING', 'REGULATORY', 'OTHER'];
@@ -233,7 +234,7 @@ export default function MattersPage() {
               {expanded === m.id && (
                 <div className="mt-4 pt-4 border-t border-border">
                   {m.description && <p className="text-sm text-text-secondary mb-3">{m.description}</p>}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
                       <p className="text-xs font-medium text-text-muted mb-1">Documents</p>
                       <MatterDocuments matterId={m.id} />
@@ -241,6 +242,12 @@ export default function MattersPage() {
                     <div>
                       <p className="text-xs font-medium text-text-muted mb-1">Workflow Runs</p>
                       <MatterWorkflowRuns matterRef={m.matterRef} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-text-muted mb-1 flex items-center gap-1">
+                        <Shield className="w-3.5 h-3.5" /> Deal Intelligence
+                      </p>
+                      <MatterFindingsPanel matterId={m.id} />
                     </div>
                   </div>
                 </div>

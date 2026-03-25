@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../hooks/useAuth';
-import { LayoutDashboard, Brain, FileText, FileEdit, GitCompare, ClipboardList, ScrollText, LogOut, Scale, Settings, Briefcase, Key, Workflow, BookOpen, DatabaseZap } from 'lucide-react';
+import { LayoutDashboard, Brain, FileText, FileEdit, GitCompare, ClipboardList, ScrollText, LogOut, Scale, Settings, Briefcase, Key, Workflow, BookOpen, DatabaseZap, Shield } from 'lucide-react';
 
 const NAV_ITEMS = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -75,6 +75,21 @@ export default function Sidebar() {
           >
             <DatabaseZap className="w-5 h-5" />
             Seed Corpus
+          </NavLink>
+        )}
+        {isPartnerOrAdmin && (
+          <NavLink
+            to="/playbooks"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-text-muted hover:text-text-primary hover:bg-surface-el'
+              }`
+            }
+          >
+            <Shield className="w-5 h-5" />
+            Playbooks
           </NavLink>
         )}
         {isPartnerOrAdmin && (
