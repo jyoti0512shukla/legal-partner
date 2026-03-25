@@ -1,5 +1,6 @@
 package com.legalpartner.service;
 
+import com.legalpartner.audit.AuditEvent;
 import com.legalpartner.model.dto.matter.MatterMemberRequest;
 import com.legalpartner.model.dto.matter.MatterMemberResponse;
 import com.legalpartner.model.dto.matter.MatterRequest;
@@ -40,6 +41,7 @@ public class MatterService {
     private final UserRepository userRepository;
     private final PlaybookRepository playbookRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final AuditService auditService;
 
     public MatterResponse createMatter(MatterRequest request, String username) {
         if (matterRepository.findByMatterRef(request.matterRef()).isPresent()) {
@@ -73,6 +75,11 @@ public class MatterService {
             log.info("Auto-added {} as LEAD_PARTNER on matter {}", username, matter.getMatterRef());
         }
 
+        auditService.publish(AuditEvent.builder()
+                .username(username).action(com.legalpartner.model.enums.AuditActionType.MATTER_CREATED)
+                .endpoint("/matters").queryText(matter.getMatterRef() + " — " + matter.getName())
+                .success(true).build());
+
         return MatterResponse.from(matter, 0);
     }
 
@@ -98,6 +105,11 @@ public class MatterService {
                     matter.getId(), null, "PLAYBOOK_CHANGED", username));
             log.info("Playbook changed on matter {} — triggering re-analysis", matter.getMatterRef());
         }
+
+        auditService.publish(AuditEvent.builder()
+                .username(username).action(com.legalpartner.model.enums.AuditActionType.MATTER_UPDATED)
+                .endpoint("/matters/" + id).queryText(matter.getName())
+                .success(true).build());
 
         int docCount = documentRepository.countByMatterUuid(id);
         return MatterResponse.from(matter, docCount);
@@ -142,6 +154,10 @@ public class MatterService {
         matter.setStatus(MatterStatus.valueOf(status.toUpperCase()));
         matter = matterRepository.save(matter);
         log.info("Matter {} status updated to {} by {}", matter.getMatterRef(), status, username);
+        auditService.publish(AuditEvent.builder()
+                .username(username).action(com.legalpartner.model.enums.AuditActionType.MATTER_STATUS_CHANGED)
+                .endpoint("/matters/" + id + "/status").queryText(status)
+                .success(true).build());
         return MatterResponse.from(matter, documentRepository.countByMatterUuid(id));
     }
 
@@ -186,6 +202,10 @@ public class MatterService {
 
         MatterMember saved = matterMemberRepository.save(builder.build());
         log.info("Added member {} ({}) to matter {} by {}", req.email(), role, matterId, actingUserId);
+        auditService.publish(AuditEvent.builder()
+                .username(actingUserId.toString()).action(com.legalpartner.model.enums.AuditActionType.MATTER_MEMBER_ADDED)
+                .endpoint("/matters/" + matterId + "/team").queryText(req.email() + " as " + role)
+                .success(true).build());
         return toResponse(saved);
     }
 
@@ -197,6 +217,10 @@ public class MatterService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Member not found on this matter"));
         matterMemberRepository.delete(member);
         log.info("Removed member {} from matter {} by {}", targetUserId, matterId, actingUserId);
+        auditService.publish(AuditEvent.builder()
+                .username(actingUserId.toString()).action(com.legalpartner.model.enums.AuditActionType.MATTER_MEMBER_REMOVED)
+                .endpoint("/matters/" + matterId + "/team/" + targetUserId)
+                .queryText(member.getEmail()).success(true).build());
     }
 
     public List<MatterMemberResponse> listMembers(UUID matterId) {

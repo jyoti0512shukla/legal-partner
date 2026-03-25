@@ -10,7 +10,33 @@ const ROLES = [
   { value: 'ROLE_ASSOCIATE', label: 'Associate' },
 ];
 
-const ACTION_TYPES = ['DOCUMENT_UPLOAD', 'DOCUMENT_VIEW', 'DOCUMENT_DELETE', 'AI_QUERY', 'AI_COMPARE', 'RISK_ASSESSMENT', 'AUDIT_VIEW', 'AUDIT_EXPORT', 'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'PASSWORD_CHANGED', 'MFA_ENABLED', 'MFA_DISABLED', 'ACCOUNT_LOCKED'];
+const ACTION_TYPES = [
+  'DOCUMENT_UPLOAD', 'DOCUMENT_VIEW', 'DOCUMENT_DELETE',
+  'AI_QUERY', 'AI_COMPARE', 'RISK_ASSESSMENT',
+  'WORKFLOW_STARTED', 'WORKFLOW_COMPLETED', 'WORKFLOW_FAILED', 'WORKFLOW_CANCELLED',
+  'CONNECTOR_EMAIL_SENT', 'CONNECTOR_SLACK_SENT', 'CONNECTOR_TEAMS_SENT', 'CONNECTOR_WEBHOOK_SENT',
+  'AGENT_ANALYSIS_TRIGGERED', 'AGENT_ANALYSIS_COMPLETED', 'AGENT_FINDING_REVIEWED',
+  'MATTER_CREATED', 'MATTER_UPDATED', 'MATTER_STATUS_CHANGED',
+  'MATTER_MEMBER_ADDED', 'MATTER_MEMBER_REMOVED',
+  'PLAYBOOK_CREATED', 'PLAYBOOK_UPDATED', 'PLAYBOOK_DELETED',
+  'INTEGRATION_CONNECTED', 'INTEGRATION_DISCONNECTED',
+  'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT',
+  'PASSWORD_CHANGED', 'MFA_ENABLED', 'MFA_DISABLED', 'ACCOUNT_LOCKED',
+  'AUDIT_VIEW', 'AUDIT_EXPORT',
+];
+
+function getRelativeDate(offset) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  return d.toISOString().split('T')[0];
+}
+const QUICK_FILTERS = [
+  { label: 'Today', from: () => getRelativeDate(0), to: () => getRelativeDate(0) },
+  { label: 'Yesterday', from: () => getRelativeDate(-1), to: () => getRelativeDate(-1) },
+  { label: 'Last 7 days', from: () => getRelativeDate(-7), to: () => getRelativeDate(0) },
+  { label: 'Last 30 days', from: () => getRelativeDate(-30), to: () => getRelativeDate(0) },
+  { label: 'All time', from: () => '', to: () => '' },
+];
 
 function toInstantParam(dateStr) {
   if (!dateStr) return null;
@@ -151,6 +177,22 @@ export default function AuditLogPage() {
               <option value="">All Actions</option>
               {ACTION_TYPES.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
             </select>
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Quick filter</label>
+            <div className="flex gap-1">
+              {QUICK_FILTERS.map(qf => (
+                <button key={qf.label}
+                  onClick={() => { setFromDate(qf.from()); setToDate(qf.to()); setPage(0); }}
+                  className={`text-[10px] px-2 py-1 rounded-full border transition-colors ${
+                    fromDate === qf.from() && toDate === qf.to()
+                      ? 'bg-primary/10 border-primary/30 text-primary'
+                      : 'border-border text-text-muted hover:border-primary/30 hover:text-text-primary'
+                  }`}>
+                  {qf.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div>
             <label className="text-xs text-text-muted mb-1 block">From</label>

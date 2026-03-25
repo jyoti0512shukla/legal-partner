@@ -68,6 +68,11 @@ public class WorkflowExecutor {
                         "workflowName", workflowName,
                         "totalSteps", steps.size()
                 ));
+                auditService.publish(AuditEvent.builder()
+                        .username(username).action(AuditActionType.WORKFLOW_STARTED)
+                        .endpoint("workflow-run/" + runId)
+                        .queryText(workflowName + " — " + steps.size() + " steps")
+                        .documentId(docId).success(true).build());
 
                 runSteps(steps, docId, username, results, skippedIndices, runId, docMeta, emitter, draftContext, null);
 

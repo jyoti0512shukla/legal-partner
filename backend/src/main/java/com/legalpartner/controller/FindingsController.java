@@ -1,6 +1,9 @@
 package com.legalpartner.controller;
 
+import com.legalpartner.audit.AuditEvent;
 import com.legalpartner.model.dto.agent.FindingReviewRequest;
+import com.legalpartner.model.enums.AuditActionType;
+import com.legalpartner.service.AuditService;
 import com.legalpartner.model.dto.agent.FindingSummaryDto;
 import com.legalpartner.model.dto.agent.MatterFindingDto;
 import com.legalpartner.model.entity.MatterFinding;
@@ -26,6 +29,7 @@ public class FindingsController {
 
     private final MatterFindingRepository findingRepo;
     private final UserRepository userRepo;
+    private final AuditService auditService;
 
     @GetMapping
     public List<MatterFindingDto> list(
@@ -73,6 +77,11 @@ public class FindingsController {
         finding.setStatus(FindingStatus.valueOf(req.status()));
         finding.setReviewedBy(userId);
         finding.setReviewedAt(Instant.now());
+        auditService.publish(AuditEvent.builder()
+                .username(auth.getName()).action(AuditActionType.AGENT_FINDING_REVIEWED)
+                .endpoint("/matters/" + matterId + "/findings/" + findingId)
+                .queryText(finding.getTitle() + " → " + req.status())
+                .success(true).build());
         return toDto(findingRepo.save(finding));
     }
 
