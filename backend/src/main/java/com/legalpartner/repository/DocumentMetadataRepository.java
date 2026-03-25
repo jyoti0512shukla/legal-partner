@@ -35,6 +35,8 @@ public interface DocumentMetadataRepository extends JpaRepository<DocumentMetada
 
     Page<DocumentMetadata> findByMatter_Id(UUID matterUuid, Pageable pageable);
 
+    List<DocumentMetadata> findByMatterId(UUID matterId);
+
     Page<DocumentMetadata> findByMatter_IdAndConfidentialFalse(UUID matterUuid, Pageable pageable);
 
     @Query("SELECT COUNT(d) FROM DocumentMetadata d WHERE d.matter.id = :matterUuid")

@@ -1,5 +1,6 @@
 package com.legalpartner.service;
 
+import com.legalpartner.agent.MatterDocumentEvent;
 import com.legalpartner.event.DocumentIndexedEvent;
 import com.legalpartner.model.dto.DocumentDetail;
 import com.legalpartner.model.dto.DocumentStats;
@@ -156,6 +157,12 @@ public class DocumentService {
 
             log.info("Document {} indexed: {} segments", doc.getFileName(), chunks.size());
             eventPublisher.publishEvent(new DocumentIndexedEvent(doc.getId(), doc.getUploadedBy(), doc.getFileName()));
+
+            // Trigger Deal Intelligence Agent if document is linked to a matter
+            if (doc.getMatter() != null) {
+                eventPublisher.publishEvent(new MatterDocumentEvent(
+                        doc.getMatter().getId(), doc.getId(), "LINKED", doc.getUploadedBy()));
+            }
         } catch (Exception e) {
             log.error("Failed to process document {}: {}", doc.getFileName(), e.getMessage(), e);
             doc.setProcessingStatus(ProcessingStatus.FAILED);

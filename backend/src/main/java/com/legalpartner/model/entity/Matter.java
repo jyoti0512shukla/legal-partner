@@ -46,6 +46,13 @@ public class Matter {
     @Builder.Default
     private Instant createdAt = Instant.now();
 
+    @Column(name = "deal_type", length = 50)
+    private String dealType;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "default_playbook_id")
+    private Playbook defaultPlaybook;
+
     @UpdateTimestamp
     private Instant updatedAt;
 }
