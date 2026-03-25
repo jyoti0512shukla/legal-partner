@@ -56,15 +56,19 @@ export default function MatterDetailPage() {
   }, [id, user]);
 
   useEffect(() => {
-    Promise.all([
-      api.get(`/matters/${id}`),
-      api.get(`/matters/${id}/team`),
-    ]).then(([matterRes, teamRes]) => {
-      setMatter(matterRes.data);
-      setTeam(teamRes.data || []);
-      const me = (teamRes.data || []).find(m => m.email === user?.email || m.userId === user?.id);
-      setMyRole(me ? me.matterRole : null);
-    }).catch(() => navigate('/matters'))
+    api.get(`/matters/${id}`)
+      .then(r => {
+        setMatter(r.data);
+        // Team fetch is separate — don't fail the whole page if team endpoint errors
+        api.get(`/matters/${id}/team`)
+          .then(teamRes => {
+            setTeam(teamRes.data || []);
+            const me = (teamRes.data || []).find(m => m.email === user?.email || m.userId === user?.id);
+            setMyRole(me ? me.matterRole : null);
+          })
+          .catch(() => setTeam([]));
+      })
+      .catch(() => navigate('/matters'))
       .finally(() => setLoading(false));
   }, [id, user, navigate]);
 
