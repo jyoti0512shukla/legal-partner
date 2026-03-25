@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Briefcase, Plus, X, FileText, ChevronRight, Brain, Workflow, CheckCircle2, XCircle, Clock, Loader2, Shield } from 'lucide-react';
+import { Briefcase, Plus, X, FileText, ChevronRight, Brain, Workflow, CheckCircle2, XCircle, Clock, Loader2, Shield, Edit2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import MatterFindingsPanel from '../components/MatterFindingsPanel';
@@ -147,6 +147,92 @@ function MatterWorkflowRuns({ matterRef }) {
   );
 }
 
+function EditMatterModal({ matter, onClose, onUpdated }) {
+  const [form, setForm] = useState({
+    name: matter.name, matterRef: matter.matterRef, clientName: matter.clientName,
+    practiceArea: matter.practiceArea || 'CORPORATE', description: matter.description || '',
+    dealType: matter.dealType || '', defaultPlaybookId: matter.defaultPlaybookId || '',
+  });
+  const [playbooks, setPlaybooks] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/playbooks').then(r => setPlaybooks(r.data || [])).catch(() => {});
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true); setError('');
+    try {
+      await api.put(`/matters/${matter.id}`, form);
+      onUpdated();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to update matter');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="glass rounded-xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-semibold">Edit Matter</h2>
+          <button onClick={onClose} className="text-text-muted hover:text-text-primary"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Matter Name *</label>
+            <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
+              className="input-field w-full text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Client Name *</label>
+            <input required value={form.clientName} onChange={e => setForm({ ...form, clientName: e.target.value })}
+              className="input-field w-full text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Practice Area</label>
+            <select value={form.practiceArea} onChange={e => setForm({ ...form, practiceArea: e.target.value })} className="input-field w-full text-sm">
+              {PRACTICE_AREAS.map(p => <option key={p} value={p}>{p.replace('_', ' ')}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-text-muted mb-1 block">Description</label>
+            <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
+              rows={2} className="input-field w-full text-sm resize-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Deal Type</label>
+              <select value={form.dealType} onChange={e => setForm({ ...form, dealType: e.target.value, defaultPlaybookId: '' })} className="input-field w-full text-sm">
+                <option value="">None</option>
+                {DEAL_TYPES.filter(Boolean).map(d => <option key={d} value={d}>{d.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Playbook</label>
+              <select value={form.defaultPlaybookId} onChange={e => setForm({ ...form, defaultPlaybookId: e.target.value })} className="input-field w-full text-sm">
+                <option value="">None</option>
+                {playbooks
+                  .filter(p => !form.dealType || p.dealType === form.dealType)
+                  .map(p => <option key={p.id} value={p.id}>{p.name} ({p.positionCount} pos)</option>)}
+              </select>
+            </div>
+          </div>
+          {error && <p className="text-danger text-sm">{error}</p>}
+          <div className="flex justify-end gap-3 pt-1">
+            <button type="button" onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+            <button type="submit" disabled={saving} className="btn-primary text-sm flex items-center gap-2">
+              {saving && <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function MatterDocuments({ matterId }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -177,6 +263,7 @@ function MatterDocuments({ matterId }) {
 export default function MattersPage() {
   const [matters, setMatters] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [editMatter, setEditMatter] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const navigate = useNavigate();
 
@@ -203,6 +290,14 @@ export default function MattersPage() {
         <CreateMatterModal
           onClose={() => setShowCreate(false)}
           onCreated={() => { load(); setShowCreate(false); }}
+        />
+      )}
+
+      {editMatter && (
+        <EditMatterModal
+          matter={editMatter}
+          onClose={() => setEditMatter(null)}
+          onUpdated={() => { load(); setEditMatter(null); }}
         />
       )}
 
@@ -238,6 +333,13 @@ export default function MattersPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={e => { e.stopPropagation(); setEditMatter(m); }}
+                    className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary px-2 py-1"
+                    title="Edit matter"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     onClick={e => { e.stopPropagation(); navigate(`/intelligence?matterId=${m.id}`); }}
                     className="flex items-center gap-1.5 text-xs text-primary hover:underline px-2 py-1"

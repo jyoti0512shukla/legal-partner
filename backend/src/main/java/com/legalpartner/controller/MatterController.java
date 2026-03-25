@@ -66,6 +66,16 @@ public class MatterController {
                 id, PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "uploadedAt")));
     }
 
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PARTNER')")
+    public MatterResponse update(@PathVariable UUID id,
+                                  @Valid @RequestBody MatterRequest request,
+                                  Authentication auth) {
+        User user = matterAccessService.resolveUser(auth);
+        matterAccessService.requireMembership(id, user.getId(), user.getRole());
+        return matterService.updateMatter(id, request, auth.getName());
+    }
+
     @PatchMapping("/{id}/status")
     public MatterResponse updateStatus(
             @PathVariable UUID id,

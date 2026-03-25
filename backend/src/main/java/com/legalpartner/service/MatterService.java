@@ -11,12 +11,15 @@ import com.legalpartner.model.enums.MatterMemberRole;
 import com.legalpartner.model.enums.MatterStatus;
 import com.legalpartner.model.enums.PracticeArea;
 import com.legalpartner.model.enums.UserRole;
+import com.legalpartner.agent.MatterDocumentEvent;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.MatterMemberRepository;
 import com.legalpartner.repository.MatterRepository;
+import com.legalpartner.repository.PlaybookRepository;
 import com.legalpartner.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -35,6 +38,8 @@ public class MatterService {
     private final MatterMemberRepository matterMemberRepository;
     private final MatterAccessService matterAccessService;
     private final UserRepository userRepository;
+    private final PlaybookRepository playbookRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     public MatterResponse createMatter(MatterRequest request, String username) {
         if (matterRepository.findByMatterRef(request.matterRef()).isPresent()) {
@@ -46,6 +51,9 @@ public class MatterService {
                 .clientName(request.clientName())
                 .practiceArea(parsePracticeArea(request.practiceArea()))
                 .description(request.description())
+                .dealType(request.dealType())
+                .defaultPlaybook(request.defaultPlaybookId() != null
+                        ? playbookRepository.findById(request.defaultPlaybookId()).orElse(null) : null)
                 .createdBy(username)
                 .build();
         matter = matterRepository.save(matter);
@@ -66,6 +74,33 @@ public class MatterService {
         }
 
         return MatterResponse.from(matter, 0);
+    }
+
+    public MatterResponse updateMatter(UUID id, MatterRequest request, String username) {
+        Matter matter = matterRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Matter not found"));
+
+        UUID oldPlaybookId = matter.getDefaultPlaybook() != null ? matter.getDefaultPlaybook().getId() : null;
+
+        matter.setName(request.name());
+        matter.setClientName(request.clientName());
+        matter.setPracticeArea(parsePracticeArea(request.practiceArea()));
+        matter.setDescription(request.description());
+        matter.setDealType(request.dealType());
+        matter.setDefaultPlaybook(request.defaultPlaybookId() != null
+                ? playbookRepository.findById(request.defaultPlaybookId()).orElse(null) : null);
+        matter = matterRepository.save(matter);
+
+        // If playbook changed, trigger re-analysis
+        UUID newPlaybookId = matter.getDefaultPlaybook() != null ? matter.getDefaultPlaybook().getId() : null;
+        if (!java.util.Objects.equals(oldPlaybookId, newPlaybookId) && newPlaybookId != null) {
+            eventPublisher.publishEvent(new MatterDocumentEvent(
+                    matter.getId(), null, "PLAYBOOK_CHANGED", username));
+            log.info("Playbook changed on matter {} — triggering re-analysis", matter.getMatterRef());
+        }
+
+        int docCount = documentRepository.countByMatterUuid(id);
+        return MatterResponse.from(matter, docCount);
     }
 
     public List<MatterResponse> listMatters(UUID userId, UserRole systemRole) {
