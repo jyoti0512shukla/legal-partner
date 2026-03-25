@@ -15,6 +15,9 @@ export default function UserManagementTab() {
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
   const [configSuccess, setConfigSuccess] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newUser, setNewUser] = useState({ email: '', displayName: '', role: 'ASSOCIATE', sendInvite: true });
+  const [creating, setCreating] = useState(false);
 
   const fetchData = () => {
     Promise.all([
@@ -50,6 +53,26 @@ export default function UserManagementTab() {
     } catch (e) { alert(e.response?.data?.message || 'Failed to resend invite'); }
   };
 
+  const handleCreateUser = async () => {
+    if (!newUser.email.trim()) return;
+    setCreating(true);
+    try {
+      await api.post('/admin/users', newUser);
+      setNewUser({ email: '', displayName: '', role: 'ASSOCIATE', sendInvite: true });
+      setShowCreate(false);
+      fetchData();
+    } catch (e) { alert(e.response?.data?.message || 'Failed to create user'); }
+    finally { setCreating(false); }
+  };
+
+  const handleDeleteUser = async (userId, email) => {
+    if (!confirm(`Delete user ${email}? This cannot be undone.`)) return;
+    try {
+      await api.delete(`/admin/users/${userId}`);
+      fetchData();
+    } catch (e) { alert(e.response?.data?.message || 'Failed to delete user'); }
+  };
+
   const handleSaveConfig = async () => {
     setSavingConfig(true); setConfigSuccess(false);
     try {
@@ -67,12 +90,57 @@ export default function UserManagementTab() {
     <div className="space-y-6">
       {/* Users list */}
       <div>
-        <h2 className="text-lg font-semibold text-text-primary mb-1">Users</h2>
-        <p className="text-sm text-text-muted mb-4">{users.length} users. Change roles, disable accounts, resend invites.</p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">Users</h2>
+            <p className="text-sm text-text-muted">{users.length} users</p>
+          </div>
+          <button onClick={() => setShowCreate(!showCreate)} className="btn-primary text-sm flex items-center gap-1.5">
+            <UserPlus className="w-4 h-4" /> Create User
+          </button>
+        </div>
+
+        {/* Create user form */}
+        {showCreate && (
+          <div className="card p-4 mb-4 border-primary/30">
+            <p className="text-xs font-medium text-text-muted mb-3">New User</p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <label className="text-xs text-text-muted mb-1 block">Email *</label>
+                <input type="email" value={newUser.email} onChange={e => setNewUser({ ...newUser, email: e.target.value })}
+                  placeholder="user@firm.com" className="input-field w-full text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-text-muted mb-1 block">Display Name</label>
+                <input value={newUser.displayName} onChange={e => setNewUser({ ...newUser, displayName: e.target.value })}
+                  placeholder="Jane Smith" className="input-field w-full text-sm" />
+              </div>
+              <div>
+                <label className="text-xs text-text-muted mb-1 block">Role</label>
+                <select value={newUser.role} onChange={e => setNewUser({ ...newUser, role: e.target.value })} className="input-field w-full text-sm">
+                  {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <div className="flex items-end pb-1">
+                <label className="flex items-center gap-2 text-sm text-text-primary">
+                  <input type="checkbox" checked={newUser.sendInvite} onChange={e => setNewUser({ ...newUser, sendInvite: e.target.checked })} className="w-4 h-4" />
+                  Send invite email
+                </label>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={handleCreateUser} disabled={creating || !newUser.email.trim()} className="btn-primary text-sm flex items-center gap-1.5">
+                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                {creating ? 'Creating...' : 'Create & Invite'}
+              </button>
+              <button onClick={() => setShowCreate(false)} className="btn-secondary text-sm">Cancel</button>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-2">
           {users.map(u => (
-            <div key={u.id} className="card p-3 flex items-center justify-between">
+            <div key={u.id} className="card p-3 flex items-center justify-between group">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-medium">
                   {(u.displayName || u.email || '?')[0].toUpperCase()}
@@ -126,6 +194,10 @@ export default function UserManagementTab() {
                     <Ban className="w-3.5 h-3.5" />
                   </button>
                 )}
+                <button onClick={() => handleDeleteUser(u.id, u.email)}
+                  className="text-text-muted hover:text-danger hover:bg-danger/10 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity" title="Delete user">
+                  <span className="text-[10px]">×</span>
+                </button>
               </div>
             </div>
           ))}

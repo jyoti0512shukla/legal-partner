@@ -29,6 +29,36 @@ public class UserAdminController {
         return userRepo.findAll().stream().map(this::toDto).toList();
     }
 
+    public record CreateUserRequest(String email, String displayName, String role, boolean sendInvite) {}
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserAdminDto createUser(@RequestBody CreateUserRequest req) {
+        UserRole role;
+        try { role = UserRole.valueOf(req.role().toUpperCase()); }
+        catch (Exception e) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid role: " + req.role()); }
+
+        User user = inviteService.createInvitedUser(req.email(), role, "ADMIN");
+        if (req.displayName() != null && !req.displayName().isBlank()) {
+            user.setDisplayName(req.displayName());
+            user = userRepo.save(user);
+        }
+
+        if (req.sendInvite()) {
+            String token = inviteService.generateInviteToken(user);
+            inviteService.sendInviteEmail(user, token, null);
+        }
+        return toDto(user);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteUser(@PathVariable UUID id) {
+        User user = userRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        userRepo.delete(user);
+    }
+
     @PatchMapping("/{id}/role")
     public UserAdminDto changeRole(@PathVariable UUID id, @RequestParam String role) {
         User user = userRepo.findById(id)
