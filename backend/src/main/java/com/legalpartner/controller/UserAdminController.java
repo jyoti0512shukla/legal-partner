@@ -106,6 +106,8 @@ public class UserAdminController {
         User user = userRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         user.setEnabled(enabled);
+        if (!enabled) user.setAccountStatus("DISABLED");
+        else if ("DISABLED".equals(user.getAccountStatus())) user.setAccountStatus("ACTIVE");
         audit(enabled ? AuditActionType.USER_ENABLED : AuditActionType.USER_DISABLED, user.getEmail(), auth);
         return toDto(userRepo.save(user));
     }
@@ -137,8 +139,10 @@ public class UserAdminController {
     }
 
     private UserAdminDto toDto(User u) {
+        String status = u.getAccountStatus();
+        if (!u.isEnabled() && !"INVITED".equals(status)) status = "DISABLED";
         return new UserAdminDto(u.getId(), u.getEmail(), u.getDisplayName(),
-                u.getRole().name(), u.isEnabled() ? "ACTIVE" : "DISABLED",
+                u.getRole().name(), status,
                 u.isEnabled(), u.isMfaEnabled(), u.getLastLoginAt(), u.getCreatedAt());
     }
 }

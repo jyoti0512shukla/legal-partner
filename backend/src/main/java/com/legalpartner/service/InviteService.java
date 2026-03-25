@@ -73,6 +73,7 @@ public class InviteService {
                 .passwordHash("INVITED_NO_PASSWORD")
                 .role(role)
                 .enabled(false)
+                .accountStatus("INVITED")
                 .build();
         user = userRepo.save(user);
         log.info("Created invited user: {} (role: {}) by {}", email, role, invitedBy);
@@ -131,6 +132,7 @@ public class InviteService {
         User user = authToken.getUser();
         user.setPasswordHash(passwordEncoder.encode(password));
         user.setEnabled(true);
+        user.setAccountStatus("ACTIVE");
         if (displayName != null && !displayName.isBlank()) user.setDisplayName(displayName);
         user.setPasswordChangedAt(Instant.now());
         userRepo.save(user);

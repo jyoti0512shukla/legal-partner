@@ -60,6 +60,10 @@ public class User {
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
+    @Column(name = "account_status", nullable = false, length = 20)
+    @Builder.Default
+    private String accountStatus = "ACTIVE";
+
     @Column(name = "created_at", nullable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
