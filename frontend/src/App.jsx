@@ -37,6 +37,21 @@ export default function App() {
     );
   }
 
+  // These routes work regardless of auth state (invite, reset password)
+  const publicRoutes = (
+    <Routes>
+      <Route path="/invite/:token" element={<AcceptInvitePage />} />
+      <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+    </Routes>
+  );
+
+  // Check if current path is a public route
+  const path = window.location.pathname;
+  if (path.startsWith('/invite/') || path.startsWith('/reset-password/') || path === '/forgot-password') {
+    return publicRoutes;
+  }
+
   if (!user) {
     return (
       <Routes>
