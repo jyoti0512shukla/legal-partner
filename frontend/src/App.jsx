@@ -21,6 +21,7 @@ import WorkflowAnalyticsPage from './pages/WorkflowAnalyticsPage';
 import ClauseLibraryPage from './pages/ClauseLibraryPage';
 import EdgarImportPage from './pages/EdgarImportPage';
 import PlaybooksPage from './pages/PlaybooksPage';
+import MatterDetailPage from './pages/MatterDetailPage';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="/draft" element={<DraftPage />} />
         <Route path="/compare" element={<ComparePage />} />
         <Route path="/matters" element={<MattersPage />} />
+        <Route path="/matters/:id" element={<MatterDetailPage />} />
         <Route path="/extraction" element={<ExtractionPage />} />
         <Route path="/review" element={<ContractReviewPage />} />
         <Route path="/risk" element={<ContractReviewPage />} />

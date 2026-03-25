@@ -313,15 +313,18 @@ export default function MattersPage() {
       ) : (
         <div className="space-y-3">
           {matters.map(m => (
-            <div key={m.id} className="card">
-              <div
-                className="flex items-center gap-4 cursor-pointer"
-                onClick={() => toggleExpand(m.id)}
-              >
+            <div key={m.id} className="card cursor-pointer hover:border-primary/30 transition-colors"
+              onClick={() => navigate(`/matters/${m.id}`)}>
+              <div className="flex items-center gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="font-semibold text-text-primary truncate">{m.name}</span>
                     <StatusBadge status={m.status} />
+                    {m.dealType && (
+                      <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                        {m.dealType.replace(/_/g, ' ')}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-text-muted">
                     <span>{m.matterRef}</span>
@@ -330,58 +333,15 @@ export default function MattersPage() {
                     {m.practiceArea && <><span>·</span><span>{m.practiceArea.replace('_', ' ')}</span></>}
                     <span>·</span>
                     <span>{m.documentCount} doc{m.documentCount !== 1 ? 's' : ''}</span>
+                    {m.findingCount > 0 && (
+                      <span className="flex items-center gap-1 text-warning">
+                        <Shield className="w-3 h-3" /> {m.findingCount} findings
+                      </span>
+                    )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={e => { e.stopPropagation(); setEditMatter(m); }}
-                    className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-primary px-2 py-1"
-                    title="Edit matter"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); navigate(`/intelligence?matterId=${m.id}`); }}
-                    className="flex items-center gap-1.5 text-xs text-primary hover:underline px-2 py-1"
-                    title="Analyse this matter in Intelligence"
-                  >
-                    <Brain className="w-3.5 h-3.5" /> Analyse
-                  </button>
-                  <select
-                    value={m.status}
-                    onClick={e => e.stopPropagation()}
-                    onChange={e => handleStatusChange(m.id, e.target.value)}
-                    className="text-xs bg-surface-el border border-border rounded px-2 py-1"
-                  >
-                    <option value="ACTIVE">Active</option>
-                    <option value="CLOSED">Closed</option>
-                    <option value="ARCHIVED">Archived</option>
-                  </select>
-                  <ChevronRight className={`w-4 h-4 text-text-muted transition-transform ${expanded === m.id ? 'rotate-90' : ''}`} />
-                </div>
+                <ChevronRight className="w-4 h-4 text-text-muted" />
               </div>
-
-              {expanded === m.id && (
-                <div className="mt-4 pt-4 border-t border-border">
-                  {m.description && <p className="text-sm text-text-secondary mb-3">{m.description}</p>}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div>
-                      <p className="text-xs font-medium text-text-muted mb-1">Documents</p>
-                      <MatterDocuments matterId={m.id} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-text-muted mb-1">Workflow Runs</p>
-                      <MatterWorkflowRuns matterRef={m.matterRef} />
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-text-muted mb-1 flex items-center gap-1">
-                        <Shield className="w-3.5 h-3.5" /> Deal Intelligence
-                      </p>
-                      <MatterFindingsPanel matterId={m.id} />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           ))}
         </div>
