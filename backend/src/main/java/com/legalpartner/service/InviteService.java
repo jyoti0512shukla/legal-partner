@@ -123,6 +123,12 @@ public class InviteService {
         }
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public String validateTokenAndGetEmail(String token, String type) {
+        AuthToken authToken = validateToken(token, type);
+        return authToken.getUser().getEmail();
+    }
+
     public AuthToken validateToken(String token, String type) {
         AuthToken authToken = tokenRepo.findByToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid token"));
@@ -135,6 +141,7 @@ public class InviteService {
         return authToken;
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public User acceptInvite(String token, String password, String displayName) {
         AuthToken authToken = tokenRepo.findByToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid invite token"));
@@ -188,6 +195,7 @@ public class InviteService {
                 .success(true).build());
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public void resetPassword(String token, String newPassword) {
         AuthToken authToken = tokenRepo.findByToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid reset token"));

@@ -158,8 +158,8 @@ public class AuthController {
 
     @GetMapping("/validate-token")
     public java.util.Map<String, String> validateToken(@RequestParam String token, @RequestParam String type) {
-        var authToken = inviteService.validateToken(token, type);
-        return java.util.Map.of("email", authToken.getUser().getEmail(), "valid", "true");
+        String email = inviteService.validateTokenAndGetEmail(token, type);
+        return java.util.Map.of("email", email, "valid", "true");
     }
 
     // ── Forgot Password ───────────────────────────────────────────────────

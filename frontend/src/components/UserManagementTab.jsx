@@ -6,6 +6,15 @@ const ROLES = ['ADMIN', 'PARTNER', 'ASSOCIATE'];
 const ROLE_COLORS = { ADMIN: 'bg-danger/10 text-danger', PARTNER: 'bg-primary/10 text-primary', ASSOCIATE: 'bg-warning/10 text-warning' };
 const STATUS_COLORS = { ACTIVE: 'bg-success/10 text-success', INVITED: 'bg-warning/10 text-warning', DISABLED: 'bg-danger/10 text-danger' };
 
+function friendlyError(e) {
+  const raw = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Something went wrong';
+  // Strip HTTP status codes and Spring error prefixes
+  return raw
+    .replace(/^\d{3}\s+[A-Z_]+\s+"?/, '')
+    .replace(/"$/, '')
+    .replace(/^[A-Z_]+\s+"/, '');
+}
+
 export default function UserManagementTab() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,7 +36,7 @@ export default function UserManagementTab() {
     return (u.email || '').toLowerCase().includes(q) || (u.displayName || '').toLowerCase().includes(q) || (u.role || '').toLowerCase().includes(q);
   });
 
-  const handleAction = async (fn) => { try { await fn(); fetchUsers(); } catch (e) { alert(e.response?.data?.message || 'Failed'); } };
+  const handleAction = async (fn) => { try { await fn(); fetchUsers(); } catch (e) { alert(friendlyError(e)); } };
 
   const handleCreateUser = async () => {
     if (!newUser.email.trim()) return;
@@ -178,8 +187,14 @@ function UserSidePanel({ user: u, onClose, onAction, onRefresh }) {
     }).catch(() => setLoadingTeams(false));
   }, [u.id]);
 
-  const action = async (fn) => {
-    try { await fn(); onRefresh(u.id); } catch (e) { alert(e.response?.data?.message || 'Failed'); }
+  const [actionMsg, setActionMsg] = useState(null);
+
+  const action = async (fn, successMsg) => {
+    try {
+      await fn();
+      onRefresh(u.id);
+      if (successMsg) { setActionMsg(successMsg); setTimeout(() => setActionMsg(null), 3000); }
+    } catch (e) { alert(friendlyError(e)); }
   };
 
   return (
@@ -208,6 +223,11 @@ function UserSidePanel({ user: u, onClose, onAction, onRefresh }) {
             <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_COLORS[u.accountStatus] || ''}`}>{u.accountStatus}</span>
             {u.mfaEnabled && <span className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary flex items-center gap-1"><Shield className="w-3 h-3" /> MFA</span>}
           </div>
+
+          {/* Success message */}
+          {actionMsg && (
+            <div className="bg-success/10 text-success text-sm px-3 py-2 rounded-lg mb-4">{actionMsg}</div>
+          )}
 
           {/* Details */}
           <div className="space-y-2 mb-6 text-sm">
@@ -257,13 +277,13 @@ function UserSidePanel({ user: u, onClose, onAction, onRefresh }) {
           {/* Actions */}
           <div className="space-y-2">
             {(u.accountStatus === 'INVITED' || !u.enabled) && (
-              <button onClick={() => action(() => api.post(`/admin/users/${u.id}/resend-invite`))}
+              <button onClick={() => action(() => api.post(`/admin/users/${u.id}/resend-invite`), 'Invite email sent successfully')}
                 className="btn-secondary w-full text-sm flex items-center justify-center gap-2">
                 <Mail className="w-4 h-4" /> Resend Invite Email
               </button>
             )}
             {u.enabled && u.accountStatus === 'ACTIVE' && (
-              <button onClick={() => action(() => api.post(`/admin/users/${u.id}/reset-password`))}
+              <button onClick={() => action(() => api.post(`/admin/users/${u.id}/reset-password`), 'Password reset email sent')}
                 className="btn-secondary w-full text-sm flex items-center justify-center gap-2">
                 <Key className="w-4 h-4" /> Send Password Reset
               </button>
