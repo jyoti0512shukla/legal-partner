@@ -31,10 +31,12 @@ public class TeamService {
     private final UserRepository userRepo;
     private final AuditService auditService;
 
+    @Transactional(readOnly = true)
     public List<TeamDto> listTeams() {
         return teamRepo.findAllByOrderByNameAsc().stream().map(this::toDto).toList();
     }
 
+    @Transactional(readOnly = true)
     public TeamDto getTeam(UUID id) {
         return toDto(teamRepo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Team not found")));
@@ -63,6 +65,7 @@ public class TeamService {
         teamRepo.deleteById(id);
     }
 
+    @Transactional(readOnly = true)
     public List<TeamMemberDto> listMembers(UUID teamId) {
         return memberRepo.findByTeamId(teamId).stream().map(this::toMemberDto).toList();
     }
