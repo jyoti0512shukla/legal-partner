@@ -12,10 +12,17 @@ function StatusBadge({ status }) {
   return <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${color}`}>{status}</span>;
 }
 
+const DEAL_TYPES = ['', 'SAAS_ACQUISITION', 'M_AND_A', 'NDA', 'COMMERCIAL_LEASE', 'FINANCING', 'IP_LICENSE', 'EMPLOYMENT', 'GENERAL'];
+
 function CreateMatterModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ name: '', matterRef: '', clientName: '', practiceArea: 'CORPORATE', description: '' });
+  const [form, setForm] = useState({ name: '', matterRef: '', clientName: '', practiceArea: 'CORPORATE', description: '', dealType: '', defaultPlaybookId: '' });
+  const [playbooks, setPlaybooks] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get('/playbooks').then(r => setPlaybooks(r.data || [])).catch(() => {});
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -61,6 +68,27 @@ function CreateMatterModal({ onClose, onCreated }) {
             <label className="text-xs text-text-muted mb-1 block">Description</label>
             <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
               rows={2} placeholder="Brief description of the matter..." className="input-field w-full text-sm resize-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Deal Type</label>
+              <select value={form.dealType} onChange={e => setForm({ ...form, dealType: e.target.value, defaultPlaybookId: '' })} className="input-field w-full text-sm">
+                <option value="">None</option>
+                {DEAL_TYPES.filter(Boolean).map(d => <option key={d} value={d}>{d.replace(/_/g, ' ')}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Playbook</label>
+              <select value={form.defaultPlaybookId} onChange={e => setForm({ ...form, defaultPlaybookId: e.target.value })} className="input-field w-full text-sm">
+                <option value="">None — no auto-analysis</option>
+                {playbooks
+                  .filter(p => !form.dealType || p.dealType === form.dealType)
+                  .map(p => <option key={p.id} value={p.id}>{p.name} ({p.positionCount} positions)</option>)}
+              </select>
+              {!form.defaultPlaybookId && form.dealType && (
+                <p className="text-[10px] text-text-muted mt-1">Select a playbook to enable auto-analysis when documents are uploaded</p>
+              )}
+            </div>
           </div>
           {error && <p className="text-danger text-sm">{error}</p>}
           <div className="flex justify-end gap-3 pt-1">
