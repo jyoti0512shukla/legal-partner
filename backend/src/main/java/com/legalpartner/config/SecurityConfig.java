@@ -70,6 +70,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/forgot-password").permitAll()
                         .requestMatchers("/api/v1/auth/reset-password").permitAll()
                         .requestMatchers("/api/v1/auth/accept-invite").permitAll()
+                        .requestMatchers("/api/v1/auth/validate-token").permitAll()
                         .requestMatchers("/api/v1/auth/logout").permitAll()
                         .requestMatchers("/api/v1/cloud-storage/callback").permitAll()
                         .requestMatchers("/api/v1/integrations/callback").permitAll()

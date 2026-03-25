@@ -123,6 +123,18 @@ public class InviteService {
         }
     }
 
+    public AuthToken validateToken(String token, String type) {
+        AuthToken authToken = tokenRepo.findByToken(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid token"));
+        if (!authToken.getTokenType().equals(type))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid token type");
+        if (authToken.isExpired())
+            throw new ResponseStatusException(HttpStatus.GONE, "This link has expired. Please request a new one.");
+        if (authToken.isUsed())
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This link has already been used.");
+        return authToken;
+    }
+
     public User acceptInvite(String token, String password, String displayName) {
         AuthToken authToken = tokenRepo.findByToken(token)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid invite token"));

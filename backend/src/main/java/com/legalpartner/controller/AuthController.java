@@ -154,6 +154,14 @@ public class AuthController {
         return ResponseEntity.ok().build();
     }
 
+    // ── Token Validation ────────────────────────────────────────────────
+
+    @GetMapping("/validate-token")
+    public java.util.Map<String, String> validateToken(@RequestParam String token, @RequestParam String type) {
+        var authToken = inviteService.validateToken(token, type);
+        return java.util.Map.of("email", authToken.getUser().getEmail(), "valid", "true");
+    }
+
     // ── Forgot Password ───────────────────────────────────────────────────
 
     @PostMapping("/forgot-password")
