@@ -17,6 +17,7 @@ import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.MatterMemberRepository;
 import com.legalpartner.repository.MatterRepository;
 import com.legalpartner.repository.PlaybookRepository;
+import com.legalpartner.repository.TeamMemberRepository;
 import com.legalpartner.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,7 @@ public class MatterService {
     private final PlaybookRepository playbookRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final AuditService auditService;
+    private final TeamMemberRepository teamMemberRepository;
 
     public MatterResponse createMatter(MatterRequest request, String username) {
         if (matterRepository.findByMatterRef(request.matterRef()).isPresent()) {
@@ -227,6 +229,50 @@ public class MatterService {
         return matterMemberRepository.findByMatterId(matterId).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    public List<MatterMemberResponse> addTeamToMatter(UUID matterId, UUID teamId, String matterRoleStr,
+                                                       UUID actingUserId, com.legalpartner.model.enums.UserRole actingRole) {
+        if (!matterAccessService.canManageTeam(matterId, actingUserId, actingRole)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only LEAD_PARTNER or ADMIN can manage team");
+        }
+        Matter matter = requireMatter(matterId);
+        User actingUser = userRepository.findById(actingUserId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+
+        MatterMemberRole role;
+        try { role = MatterMemberRole.valueOf(matterRoleStr.toUpperCase()); }
+        catch (Exception e) { role = MatterMemberRole.ASSOCIATE; }
+
+        // Get all user IDs in the team
+        List<UUID> teamUserIds = matterMemberRepository.findByMatterId(matterId).stream()
+                .filter(m -> m.getUser() != null)
+                .map(m -> m.getUser().getId())
+                .toList();
+
+        List<MatterMemberResponse> added = new java.util.ArrayList<>();
+        List<UUID> teamUserIds2 = teamMemberRepository.findUserIdsByTeamId(teamId);
+        for (UUID userId : teamUserIds2) {
+            // Skip if already a member
+            if (teamUserIds.contains(userId) || matterMemberRepository.existsByMatterIdAndUserId(matterId, userId)) continue;
+
+            User user = userRepository.findById(userId).orElse(null);
+            if (user == null) continue;
+
+            MatterMember member = MatterMember.builder()
+                    .matter(matter).user(user).email(user.getEmail())
+                    .matterRole(role).addedBy(actingUser).build();
+            added.add(toResponse(matterMemberRepository.save(member)));
+        }
+
+        log.info("Added {} members from team {} to matter {} by {}", added.size(), teamId, matterId, actingUserId);
+        auditService.publish(com.legalpartner.audit.AuditEvent.builder()
+                .username(actingUserId.toString()).action(com.legalpartner.model.enums.AuditActionType.MATTER_MEMBER_ADDED)
+                .endpoint("/matters/" + matterId + "/team/add-team")
+                .queryText("Team " + teamId + " → " + added.size() + " members as " + role)
+                .success(true).build());
+
+        return added;
     }
 
     private MatterMemberResponse toResponse(MatterMember m) {

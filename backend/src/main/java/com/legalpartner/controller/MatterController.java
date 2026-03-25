@@ -103,6 +103,16 @@ public class MatterController {
         return matterService.addMember(id, request, user.getId(), user.getRole());
     }
 
+    @PostMapping("/{id}/team/add-team")
+    public List<MatterMemberResponse> addTeamToMatter(
+            @PathVariable UUID id,
+            @RequestParam UUID teamId,
+            @RequestParam(defaultValue = "ASSOCIATE") String matterRole,
+            Authentication auth) {
+        User user = matterAccessService.resolveUser(auth);
+        return matterService.addTeamToMatter(id, teamId, matterRole, user.getId(), user.getRole());
+    }
+
     @DeleteMapping("/{id}/team/{memberId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeTeamMember(

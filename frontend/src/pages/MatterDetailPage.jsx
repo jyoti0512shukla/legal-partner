@@ -316,23 +316,50 @@ function WorkflowsTab({ matterId, matterRef, matterName }) {
 // ── Team Tab ──────────────────────────────────────────────────────────
 
 function TeamTab({ matterId, team, canManage, onTeamChanged }) {
-  const [email, setEmail] = useState('');
   const [role, setRole] = useState('ASSOCIATE');
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState(null);
+  const [userSearch, setUserSearch] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [selectedTeam, setSelectedTeam] = useState('');
+  const [addingTeam, setAddingTeam] = useState(false);
 
-  const handleAdd = async () => {
-    if (!email.trim()) return;
+  useEffect(() => {
+    if (canManage) api.get('/teams').then(r => setTeams(r.data || [])).catch(() => {});
+  }, [canManage]);
+
+  const handleSearchUsers = async (q) => {
+    setUserSearch(q);
+    if (q.length < 2) { setSearchResults([]); return; }
+    try {
+      const res = await api.get(`/admin/users/search?q=${encodeURIComponent(q)}`);
+      setSearchResults(res.data || []);
+    } catch { setSearchResults([]); }
+  };
+
+  const handleAddUser = async (userResult) => {
     setAdding(true);
     try {
-      await api.post(`/matters/${matterId}/team`, { email: email.trim(), matterRole: role });
-      setEmail('');
+      await api.post(`/matters/${matterId}/team`, { email: userResult.email, matterRole: role, userId: userResult.id });
+      setUserSearch('');
+      setSearchResults([]);
       onTeamChanged();
     } catch (e) {
       alert(e.response?.data?.message || 'Failed to add member');
-    } finally {
-      setAdding(false);
-    }
+    } finally { setAdding(false); }
+  };
+
+  const handleAddTeam = async () => {
+    if (!selectedTeam) return;
+    setAddingTeam(true);
+    try {
+      await api.post(`/matters/${matterId}/team/add-team?teamId=${selectedTeam}&matterRole=${role}`);
+      setSelectedTeam('');
+      onTeamChanged();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to add team');
+    } finally { setAddingTeam(false); }
   };
 
   const handleRemove = async (memberId) => {
@@ -343,29 +370,60 @@ function TeamTab({ matterId, team, canManage, onTeamChanged }) {
       onTeamChanged();
     } catch (e) {
       alert(e.response?.data?.message || 'Failed to remove member');
-    } finally {
-      setRemoving(null);
-    }
+    } finally { setRemoving(null); }
   };
 
   return (
     <div className="space-y-4">
-      {/* Add member form */}
       {canManage && (
-        <div className="card p-4">
-          <p className="text-xs font-medium text-text-muted mb-2">Add Team Member</p>
-          <div className="flex gap-2">
-            <input type="email" placeholder="email@firm.com" value={email}
-              onChange={e => setEmail(e.target.value)}
-              className="input-field flex-1 text-sm" />
-            <select value={role} onChange={e => setRole(e.target.value)} className="input-field text-sm">
+        <div className="card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-text-muted">Add Members</p>
+            <select value={role} onChange={e => setRole(e.target.value)} className="input-field text-xs py-1">
               {MEMBER_ROLES.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
             </select>
-            <button onClick={handleAdd} disabled={adding || !email.trim()} className="btn-primary text-sm flex items-center gap-1.5">
-              {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-              Add
-            </button>
           </div>
+
+          {/* Search users */}
+          <div className="relative">
+            <input type="text" placeholder="Search users by email or name..."
+              value={userSearch} onChange={e => handleSearchUsers(e.target.value)}
+              className="input-field w-full text-sm pl-3" />
+            {searchResults.length > 0 && (
+              <div className="absolute z-10 top-full left-0 right-0 mt-1 border border-border rounded-lg bg-surface divide-y divide-border max-h-40 overflow-y-auto shadow-lg">
+                {searchResults.map(u => {
+                  const alreadyMember = team.some(m => m.email === u.email);
+                  return (
+                    <div key={u.id} className="flex items-center justify-between px-3 py-2 hover:bg-surface-el">
+                      <span className="text-sm text-text-primary">{u.displayName || u.email}
+                        {u.displayName && <span className="text-text-muted ml-1 text-xs">{u.email}</span>}
+                      </span>
+                      {alreadyMember ? (
+                        <span className="text-[10px] text-text-muted">Already added</span>
+                      ) : (
+                        <button onClick={() => handleAddUser(u)} disabled={adding}
+                          className="btn-primary text-[10px] px-2 py-0.5">+ Add</button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Add entire team */}
+          {teams.length > 0 && (
+            <div className="flex gap-2 items-center">
+              <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)} className="input-field flex-1 text-sm">
+                <option value="">Add entire team...</option>
+                {teams.map(t => <option key={t.id} value={t.id}>{t.name} ({t.memberCount} members)</option>)}
+              </select>
+              <button onClick={handleAddTeam} disabled={addingTeam || !selectedTeam} className="btn-secondary text-sm flex items-center gap-1">
+                {addingTeam ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Users className="w-3.5 h-3.5" />}
+                Add Team
+              </button>
+            </div>
+          )}
         </div>
       )}
 

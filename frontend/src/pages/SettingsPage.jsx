@@ -6,6 +6,7 @@ import { AlertCircle } from 'lucide-react';
 import IntegrationsTab from '../components/IntegrationsTab';
 import AgentConfigTab from '../components/AgentConfigTab';
 import UserManagementTab from '../components/UserManagementTab';
+import TeamsManagementTab from '../components/TeamsManagementTab';
 
 const BASE_TABS = [
   { id: 'profile', label: 'Profile' },
@@ -85,7 +86,7 @@ export default function SettingsPage() {
 
       {/* Tab Navigation */}
       <div className="flex gap-6 border-b border-border mb-6">
-        {[...BASE_TABS, ...(user?.role === 'ROLE_ADMIN' ? [{ id: 'users', label: 'Users' }] : [])].map(tab => (
+        {[...BASE_TABS, ...(user?.role === 'ROLE_ADMIN' ? [{ id: 'users', label: 'Users' }, { id: 'teams', label: 'Teams' }] : [])].map(tab => (
           <button
             key={tab.id}
             onClick={() => handleTabChange(tab.id)}
@@ -181,6 +182,11 @@ export default function SettingsPage() {
       {/* Users Tab (ADMIN only) */}
       {activeTab === 'users' && user?.role === 'ROLE_ADMIN' && (
         <UserManagementTab />
+      )}
+
+      {/* Teams Tab (ADMIN only) */}
+      {activeTab === 'teams' && user?.role === 'ROLE_ADMIN' && (
+        <TeamsManagementTab />
       )}
     </div>
   );

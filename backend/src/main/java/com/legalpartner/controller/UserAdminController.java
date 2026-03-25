@@ -36,7 +36,11 @@ public class UserAdminController {
     }
 
     @GetMapping
-    public List<UserAdminDto> listUsers() {
+    public List<UserAdminDto> listUsers(@RequestParam(required = false) String search) {
+        if (search != null && !search.isBlank()) {
+            return userRepo.findByEmailContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(search, search)
+                    .stream().map(this::toDto).toList();
+        }
         return userRepo.findAll().stream().map(this::toDto).toList();
     }
 
@@ -105,6 +109,16 @@ public class UserAdminController {
     @PutMapping("/config")
     public AuthConfigDto updateConfig(@RequestBody AuthConfigDto dto) {
         return inviteService.toDto(inviteService.updateConfig(dto));
+    }
+
+    // Public user search (for matter team member picker) — any authenticated user can search
+    // This is separate from the admin list — returns minimal info
+    @GetMapping("/search")
+    @PreAuthorize("isAuthenticated()")
+    public List<UserAdminDto> searchUsers(@RequestParam String q) {
+        if (q == null || q.length() < 2) return List.of();
+        return userRepo.findByEmailContainingIgnoreCaseOrDisplayNameContainingIgnoreCase(q, q)
+                .stream().limit(10).map(this::toDto).toList();
     }
 
     private UserAdminDto toDto(User u) {
