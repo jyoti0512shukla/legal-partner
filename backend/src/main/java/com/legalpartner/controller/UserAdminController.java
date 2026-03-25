@@ -45,10 +45,11 @@ public class UserAdminController {
     }
 
     public record CreateUserRequest(String email, String displayName, String role, boolean sendInvite) {}
+    public record CreateUserResponse(UserAdminDto user, String warning) {}
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public UserAdminDto createUser(@RequestBody CreateUserRequest req, Authentication auth) {
+    public CreateUserResponse createUser(@RequestBody CreateUserRequest req, Authentication auth) {
         UserRole role;
         try { role = UserRole.valueOf(req.role().toUpperCase()); }
         catch (Exception e) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid role: " + req.role()); }
@@ -59,13 +60,27 @@ public class UserAdminController {
             user = userRepo.save(user);
         }
 
+        String warning = null;
         if (req.sendInvite()) {
-            String token = inviteService.generateInviteToken(user);
-            inviteService.sendInviteEmail(user, token, null);
-            audit(AuditActionType.USER_INVITE_SENT, req.email(), auth);
+            try {
+                String token = inviteService.generateInviteToken(user);
+                inviteService.sendInviteEmail(user, token, null);
+                audit(AuditActionType.USER_INVITE_SENT, req.email(), auth);
+            } catch (Exception e) {
+                warning = "User created but invite email failed: " + e.getMessage();
+            }
         }
         audit(AuditActionType.USER_CREATED, req.email() + " as " + req.role(), auth);
-        return toDto(user);
+        return new CreateUserResponse(toDto(user), warning);
+    }
+
+    @PostMapping("/{id}/reset-password")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void triggerPasswordReset(@PathVariable UUID id, Authentication auth) {
+        User user = userRepo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+        inviteService.requestPasswordReset(user.getEmail());
+        audit(AuditActionType.PASSWORD_RESET_REQUESTED, user.getEmail(), auth);
     }
 
     @DeleteMapping("/{id}")

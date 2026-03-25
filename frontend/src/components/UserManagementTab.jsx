@@ -55,11 +55,21 @@ export default function UserManagementTab() {
     if (!newUser.email.trim()) return;
     setCreating(true);
     try {
-      await api.post('/admin/users', newUser);
+      const res = await api.post('/admin/users', newUser);
+      if (res.data?.warning) {
+        alert('Warning: ' + res.data.warning);
+      }
       setNewUser({ email: '', displayName: '', role: 'ASSOCIATE', sendInvite: true });
       setShowCreate(false); fetchUsers();
-    } catch (e) { alert(e.response?.data?.message || 'Failed'); }
+    } catch (e) { alert(e.response?.data?.message || 'Failed to create user. Please contact admin.'); }
     finally { setCreating(false); }
+  };
+
+  const handleResetPassword = async (userId, email) => {
+    try {
+      await api.post(`/admin/users/${userId}/reset-password`);
+      alert(`Password reset email sent to ${email}`);
+    } catch (e) { alert(e.response?.data?.message || 'Failed to send reset email'); }
   };
 
   if (loading) return <div className="flex items-center gap-2 text-text-muted py-8"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>;
@@ -180,10 +190,17 @@ export default function UserManagementTab() {
                       </select>
                     </div>
 
-                    {u.accountStatus === 'INVITED' && (
+                    {(!u.enabled || u.accountStatus === 'INVITED') && (
                       <button onClick={() => handleResendInvite(u.id)}
                         className="btn-secondary text-xs flex items-center gap-1 mt-4">
                         <Mail className="w-3.5 h-3.5" /> Resend Invite
+                      </button>
+                    )}
+
+                    {u.enabled && u.accountStatus !== 'INVITED' && (
+                      <button onClick={() => handleResetPassword(u.id, u.email)}
+                        className="btn-secondary text-xs flex items-center gap-1 mt-4">
+                        <Mail className="w-3.5 h-3.5" /> Reset Password
                       </button>
                     )}
 
