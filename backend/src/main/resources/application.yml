@@ -175,6 +175,8 @@ legalpartner:
     overlap: 15
   workflows:
     enabled: true
+  agent:
+    max-concurrent: ${LEGALPARTNER_AGENT_MAX_CONCURRENT:3}
   mail:
     enabled: ${LEGALPARTNER_MAIL_ENABLED:false}
     from: ${LEGALPARTNER_MAIL_FROM:noreply@legalpartner.local}

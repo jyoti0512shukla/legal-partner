@@ -7,8 +7,8 @@ import com.legalpartner.model.enums.FindingType;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.MatterFindingRepository;
 import com.legalpartner.repository.MatterRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,9 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class MatterAgentService {
 
@@ -30,9 +30,35 @@ public class MatterAgentService {
     private final DocumentMetadataRepository docRepo;
     private final AuditService auditService;
     private final AgentNotificationService notificationService;
+    private final Semaphore analysisSemaphore;
+
+    public MatterAgentService(AgentConfigService configService,
+                               PlaybookComparisonService playbookComparison,
+                               CrossDocConflictDetector conflictDetector,
+                               MatterFindingRepository findingRepo,
+                               MatterRepository matterRepo,
+                               DocumentMetadataRepository docRepo,
+                               AuditService auditService,
+                               AgentNotificationService notificationService,
+                               @Value("${legalpartner.agent.max-concurrent:3}") int maxConcurrent) {
+        this.configService = configService;
+        this.playbookComparison = playbookComparison;
+        this.conflictDetector = conflictDetector;
+        this.findingRepo = findingRepo;
+        this.matterRepo = matterRepo;
+        this.docRepo = docRepo;
+        this.auditService = auditService;
+        this.notificationService = notificationService;
+        this.analysisSemaphore = new Semaphore(maxConcurrent);
+    }
 
     @Async
     public void analyzeDocument(UUID matterId, UUID documentId, String username) {
+        if (!analysisSemaphore.tryAcquire()) {
+            log.info("Agent: analysis queue full, waiting for slot (matterId={}, docId={})", matterId, documentId);
+            try { analysisSemaphore.acquire(); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+        }
         try {
             AgentConfig config = configService.getConfig();
             Matter matter = matterRepo.findById(matterId).orElse(null);
@@ -82,6 +108,8 @@ public class MatterAgentService {
 
         } catch (Exception e) {
             log.error("Agent analysis failed for doc {} in matter {}: {}", documentId, matterId, e.getMessage(), e);
+        } finally {
+            analysisSemaphore.release();
         }
     }
 
