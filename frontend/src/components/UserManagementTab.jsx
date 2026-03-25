@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, UserPlus, Ban, CheckCircle2, Mail, Search, X, Trash2, ChevronDown } from 'lucide-react';
+import { Loader2, UserPlus, Ban, CheckCircle2, Mail, Search, X, Trash2, Key, Shield } from 'lucide-react';
 import api from '../api/client';
 
 const ROLES = ['ADMIN', 'PARTNER', 'ASSOCIATE'];
@@ -16,7 +16,7 @@ export default function UserManagementTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [newUser, setNewUser] = useState({ email: '', displayName: '', role: 'ASSOCIATE', sendInvite: true });
   const [creating, setCreating] = useState(false);
-  const [expanded, setExpanded] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
 
   const fetchUsers = () => {
     setLoading(true);
@@ -31,23 +31,28 @@ export default function UserManagementTab() {
   });
 
   const handleRoleChange = async (userId, newRole) => {
-    try { await api.patch(`/admin/users/${userId}/role?role=${newRole}`); fetchUsers(); }
+    try { await api.patch(`/admin/users/${userId}/role?role=${newRole}`); fetchUsers(); refreshSelected(userId); }
     catch (e) { alert(e.response?.data?.message || 'Failed'); }
   };
 
   const handleToggleEnabled = async (userId, enabled) => {
-    try { await api.patch(`/admin/users/${userId}/enable?enabled=${enabled}`); fetchUsers(); }
+    try { await api.patch(`/admin/users/${userId}/enable?enabled=${enabled}`); fetchUsers(); refreshSelected(userId); }
     catch (e) { alert(e.response?.data?.message || 'Failed'); }
   };
 
   const handleResendInvite = async (userId) => {
     try { await api.post(`/admin/users/${userId}/resend-invite`); alert('Invite sent'); }
-    catch (e) { alert(e.response?.data?.message || 'Failed'); }
+    catch (e) { alert(e.response?.data?.message || 'Failed to send invite'); }
+  };
+
+  const handleResetPassword = async (userId, email) => {
+    try { await api.post(`/admin/users/${userId}/reset-password`); alert(`Password reset email sent to ${email}`); }
+    catch (e) { alert(e.response?.data?.message || 'Failed to send reset email'); }
   };
 
   const handleDeleteUser = async (userId, email) => {
     if (!confirm(`Delete user ${email}? This cannot be undone.`)) return;
-    try { await api.delete(`/admin/users/${userId}`); fetchUsers(); setExpanded(null); }
+    try { await api.delete(`/admin/users/${userId}`); fetchUsers(); setSelectedUser(null); }
     catch (e) { alert(e.response?.data?.message || 'Failed'); }
   };
 
@@ -56,20 +61,21 @@ export default function UserManagementTab() {
     setCreating(true);
     try {
       const res = await api.post('/admin/users', newUser);
-      if (res.data?.warning) {
-        alert('Warning: ' + res.data.warning);
-      }
+      if (res.data?.warning) alert('Warning: ' + res.data.warning);
       setNewUser({ email: '', displayName: '', role: 'ASSOCIATE', sendInvite: true });
       setShowCreate(false); fetchUsers();
-    } catch (e) { alert(e.response?.data?.message || 'Failed to create user. Please contact admin.'); }
+    } catch (e) { alert(e.response?.data?.message || 'Failed to create user.'); }
     finally { setCreating(false); }
   };
 
-  const handleResetPassword = async (userId, email) => {
-    try {
-      await api.post(`/admin/users/${userId}/reset-password`);
-      alert(`Password reset email sent to ${email}`);
-    } catch (e) { alert(e.response?.data?.message || 'Failed to send reset email'); }
+  const refreshSelected = (userId) => {
+    // After an action, refresh the selected user from the list
+    setTimeout(() => {
+      api.get('/admin/users').then(r => {
+        const updated = (r.data || []).find(u => u.id === userId);
+        if (updated) setSelectedUser(updated);
+      });
+    }, 300);
   };
 
   if (loading) return <div className="flex items-center gap-2 text-text-muted py-8"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div>;
@@ -142,91 +148,155 @@ export default function UserManagementTab() {
       ) : (
         <div className="space-y-1">
           {filtered.map(u => (
-            <div key={u.id} className="card">
-              {/* User row — click to expand */}
-              <div className="p-3 flex items-center justify-between cursor-pointer hover:bg-surface-el/50 rounded-lg transition-colors"
-                onClick={() => setExpanded(expanded === u.id ? null : u.id)}>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-medium">
-                    {(u.displayName || u.email || '?')[0].toUpperCase()}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-text-primary">{u.displayName || u.email}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role] || ''}`}>{u.role}</span>
-                      {!u.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-danger/10 text-danger">DISABLED</span>}
-                      {u.mfaEnabled && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success">MFA</span>}
-                    </div>
-                    <div className="text-[10px] text-text-muted">{u.email}</div>
-                  </div>
+            <div key={u.id}
+              onClick={() => setSelectedUser(u)}
+              className={`card p-3 flex items-center justify-between cursor-pointer transition-colors ${
+                selectedUser?.id === u.id ? 'border-primary/50 bg-primary/5' : 'hover:bg-surface-el/50'
+              }`}>
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-medium">
+                  {(u.displayName || u.email || '?')[0].toUpperCase()}
                 </div>
-                <ChevronDown className={`w-4 h-4 text-text-muted transition-transform ${expanded === u.id ? 'rotate-180' : ''}`} />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-text-primary">{u.displayName || u.email}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${ROLE_COLORS[u.role] || ''}`}>{u.role}</span>
+                    {!u.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-danger/10 text-danger">DISABLED</span>}
+                    {u.mfaEnabled && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-success/10 text-success">MFA</span>}
+                  </div>
+                  <div className="text-[10px] text-text-muted">{u.email}</div>
+                </div>
               </div>
-
-              {/* Expanded edit area */}
-              {expanded === u.id && (
-                <div className="border-t border-border px-4 py-3 space-y-3">
-                  <div className="grid grid-cols-3 gap-3 text-xs">
-                    <div>
-                      <span className="text-text-muted">Email:</span>
-                      <span className="text-text-primary ml-1">{u.email}</span>
-                    </div>
-                    <div>
-                      <span className="text-text-muted">Joined:</span>
-                      <span className="text-text-primary ml-1">{new Date(u.createdAt).toLocaleDateString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-text-muted">Last login:</span>
-                      <span className="text-text-primary ml-1">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : 'Never'}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <label className="text-xs text-text-muted mb-1 block">Role</label>
-                      <select value={u.role} onChange={e => handleRoleChange(u.id, e.target.value)}
-                        className="input-field text-xs py-1">
-                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
-
-                    {(!u.enabled || u.accountStatus === 'INVITED') && (
-                      <button onClick={() => handleResendInvite(u.id)}
-                        className="btn-secondary text-xs flex items-center gap-1 mt-4">
-                        <Mail className="w-3.5 h-3.5" /> Resend Invite
-                      </button>
-                    )}
-
-                    {u.enabled && u.accountStatus !== 'INVITED' && (
-                      <button onClick={() => handleResetPassword(u.id, u.email)}
-                        className="btn-secondary text-xs flex items-center gap-1 mt-4">
-                        <Mail className="w-3.5 h-3.5" /> Reset Password
-                      </button>
-                    )}
-
-                    {u.enabled ? (
-                      <button onClick={() => handleToggleEnabled(u.id, false)}
-                        className="btn-secondary text-xs text-danger flex items-center gap-1 mt-4">
-                        <Ban className="w-3.5 h-3.5" /> Disable
-                      </button>
-                    ) : (
-                      <button onClick={() => handleToggleEnabled(u.id, true)}
-                        className="btn-secondary text-xs text-success flex items-center gap-1 mt-4">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Enable
-                      </button>
-                    )}
-
-                    <button onClick={() => handleDeleteUser(u.id, u.email)}
-                      className="btn-secondary text-xs text-danger flex items-center gap-1 mt-4 ml-auto">
-                      <Trash2 className="w-3.5 h-3.5" /> Delete
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           ))}
         </div>
       )}
+
+      {/* Side panel */}
+      {selectedUser && (
+        <UserSidePanel
+          user={selectedUser}
+          onClose={() => setSelectedUser(null)}
+          onRoleChange={handleRoleChange}
+          onToggleEnabled={handleToggleEnabled}
+          onResendInvite={handleResendInvite}
+          onResetPassword={handleResetPassword}
+          onDelete={handleDeleteUser}
+        />
+      )}
+    </div>
+  );
+}
+
+function UserSidePanel({ user: u, onClose, onRoleChange, onToggleEnabled, onResendInvite, onResetPassword, onDelete }) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/40" />
+
+      {/* Panel */}
+      <div className="relative w-full max-w-md bg-surface border-l border-border shadow-xl overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        <div className="p-6">
+          {/* Header */}
+          <div className="flex items-start justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary text-lg font-semibold">
+                {(u.displayName || u.email || '?')[0].toUpperCase()}
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary">{u.displayName || u.email}</h2>
+                <p className="text-sm text-text-muted">{u.email}</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="text-text-muted hover:text-text-primary p-1">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Status badges */}
+          <div className="flex items-center gap-2 mb-6">
+            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${ROLE_COLORS[u.role] || ''}`}>{u.role}</span>
+            {u.enabled ? (
+              <span className="text-xs px-2.5 py-1 rounded-full bg-success/10 text-success">Active</span>
+            ) : (
+              <span className="text-xs px-2.5 py-1 rounded-full bg-danger/10 text-danger">Disabled</span>
+            )}
+            {u.mfaEnabled && <span className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary flex items-center gap-1"><Shield className="w-3 h-3" /> MFA</span>}
+          </div>
+
+          {/* Details */}
+          <div className="space-y-3 mb-6">
+            <div className="flex justify-between text-sm">
+              <span className="text-text-muted">Joined</span>
+              <span className="text-text-primary">{new Date(u.createdAt).toLocaleDateString()}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-muted">Last login</span>
+              <span className="text-text-primary">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-text-muted">Account status</span>
+              <span className="text-text-primary">{u.accountStatus}</span>
+            </div>
+          </div>
+
+          <hr className="border-border mb-6" />
+
+          {/* Actions */}
+          <div className="space-y-4">
+            {/* Role */}
+            <div>
+              <label className="text-xs text-text-muted mb-1.5 block">Role</label>
+              <select value={u.role} onChange={e => onRoleChange(u.id, e.target.value)}
+                className="input-field w-full text-sm">
+                {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+
+            {/* Action buttons */}
+            <div className="space-y-2">
+              {/* Resend invite (for invited/disabled users) */}
+              {(!u.enabled || u.accountStatus === 'INVITED') && (
+                <button onClick={() => onResendInvite(u.id)}
+                  className="btn-secondary w-full text-sm flex items-center justify-center gap-2">
+                  <Mail className="w-4 h-4" /> Resend Invite Email
+                </button>
+              )}
+
+              {/* Reset password (for active users) */}
+              {u.enabled && u.accountStatus !== 'INVITED' && (
+                <button onClick={() => onResetPassword(u.id, u.email)}
+                  className="btn-secondary w-full text-sm flex items-center justify-center gap-2">
+                  <Key className="w-4 h-4" /> Send Password Reset
+                </button>
+              )}
+
+              {/* Enable / Disable */}
+              {u.enabled ? (
+                <button onClick={() => onToggleEnabled(u.id, false)}
+                  className="btn-secondary w-full text-sm text-warning flex items-center justify-center gap-2">
+                  <Ban className="w-4 h-4" /> Disable Account
+                </button>
+              ) : (
+                <button onClick={() => onToggleEnabled(u.id, true)}
+                  className="btn-secondary w-full text-sm text-success flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" /> Enable Account
+                </button>
+              )}
+            </div>
+
+            {/* Danger zone */}
+            <div className="pt-4 border-t border-border">
+              <p className="text-xs text-text-muted mb-2">Danger Zone</p>
+              <button onClick={() => onDelete(u.id, u.email)}
+                className="btn-secondary w-full text-sm text-danger flex items-center justify-center gap-2 border-danger/30 hover:bg-danger/10">
+                <Trash2 className="w-4 h-4" /> Delete User
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
