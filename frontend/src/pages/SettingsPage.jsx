@@ -5,8 +5,9 @@ import { setupMfa, verifyMfa, disableMfa } from '../api/auth';
 import { AlertCircle } from 'lucide-react';
 import IntegrationsTab from '../components/IntegrationsTab';
 import AgentConfigTab from '../components/AgentConfigTab';
+import UserManagementTab from '../components/UserManagementTab';
 
-const TABS = [
+const BASE_TABS = [
   { id: 'profile', label: 'Profile' },
   { id: 'integrations', label: 'Integrations' },
   { id: 'agent', label: 'Deal Intelligence' },
@@ -84,7 +85,7 @@ export default function SettingsPage() {
 
       {/* Tab Navigation */}
       <div className="flex gap-6 border-b border-border mb-6">
-        {TABS.map(tab => (
+        {[...BASE_TABS, ...(user?.role === 'ROLE_ADMIN' ? [{ id: 'users', label: 'Users' }] : [])].map(tab => (
           <button
             key={tab.id}
             onClick={() => handleTabChange(tab.id)}
@@ -175,6 +176,11 @@ export default function SettingsPage() {
       {/* Deal Intelligence Tab */}
       {activeTab === 'agent' && (
         <AgentConfigTab />
+      )}
+
+      {/* Users Tab (ADMIN only) */}
+      {activeTab === 'users' && user?.role === 'ROLE_ADMIN' && (
+        <UserManagementTab />
       )}
     </div>
   );

@@ -22,6 +22,9 @@ import ClauseLibraryPage from './pages/ClauseLibraryPage';
 import EdgarImportPage from './pages/EdgarImportPage';
 import PlaybooksPage from './pages/PlaybooksPage';
 import MatterDetailPage from './pages/MatterDetailPage';
+import AcceptInvitePage from './pages/AcceptInvitePage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -40,6 +43,9 @@ export default function App() {
         <Route path="/" element={<LoginPage />} />
         <Route path="/signup" element={<SignUpPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+        <Route path="/invite/:token" element={<AcceptInvitePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     );

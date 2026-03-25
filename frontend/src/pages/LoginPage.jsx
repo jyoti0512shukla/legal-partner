@@ -160,6 +160,7 @@ export default function LoginPage() {
             </div>
           )}
           <button type="submit" className="btn-primary w-full">Sign In</button>
+          <Link to="/forgot-password" className="block text-center text-sm text-text-muted hover:text-primary mt-2">Forgot password?</Link>
         </form>
         <p className="mt-4 text-center text-sm text-text-muted">
           Don&apos;t have an account? <Link to="/signup" className="text-primary hover:underline">Sign up</Link>

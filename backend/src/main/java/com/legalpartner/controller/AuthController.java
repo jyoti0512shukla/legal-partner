@@ -25,6 +25,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final MfaService mfaService;
+    private final com.legalpartner.service.InviteService inviteService;
 
     @Value("${legalpartner.jwt.expiration-minutes:60}")
     private int jwtExpirationMinutes;
@@ -150,6 +151,28 @@ public class AuthController {
             throw new IllegalArgumentException("Not authenticated");
         }
         mfaService.disableMfa(userDetails.getUser().getId());
+        return ResponseEntity.ok().build();
+    }
+
+    // ── Forgot Password ───────────────────────────────────────────────────
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Void> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        inviteService.requestPasswordReset(request.email());
+        return ResponseEntity.ok().build();  // Always 200 — don't reveal if email exists
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Void> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        inviteService.resetPassword(request.token(), request.password());
+        return ResponseEntity.ok().build();
+    }
+
+    // ── Accept Invite ─────────────────────────────────────────────────────
+
+    @PostMapping("/accept-invite")
+    public ResponseEntity<Void> acceptInvite(@Valid @RequestBody InviteAcceptRequest request) {
+        inviteService.acceptInvite(request.token(), request.password(), request.displayName());
         return ResponseEntity.ok().build();
     }
 }
