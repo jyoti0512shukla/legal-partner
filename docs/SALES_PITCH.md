@@ -92,10 +92,24 @@ This is NOT a technology purchase. It's a **risk mitigation purchase.**
 | **Monthly** | $2,000/month |
 | **GPU** | A100 80GB or 2x A6000 — handles 25-50 concurrent users |
 | **Privacy** | Full isolation + redundancy. Failover GPU, daily backups, 99.5% SLA. |
-| **Includes** | Everything in Standard + custom model fine-tuning on firm's contracts, priority support (4hr SLA), dedicated Slack channel, quarterly model retraining, custom workflow development |
+| **Includes** | Everything in Standard + all enterprise features below |
 | **Pitch** | "Your competitor uses Harvey — same generic GPT-4 as everyone else. Your model is trained on 500 of YOUR contracts. Your drafts sound like your firm wrote them." |
 | **Decision maker** | General Counsel or Managing Partner — triggered by client OCG requiring firm-controlled AI |
 | **Your cost** | ~$800/month |
+
+**Enterprise-only features:**
+
+| Feature | What it does | Why firms need it |
+|---------|-------------|-------------------|
+| **SSO (Microsoft Entra ID / Okta)** | Partners and associates log in with their firm credentials. No separate password. | Every firm 50+ uses Entra ID or Okta. Without SSO, IT won't approve deployment. |
+| **Auto-provisioning (SCIM)** | New hire joins the firm → automatically gets Legal Partner account with correct role. Leaves → auto-deprovisioned. | 100+ attorneys means constant onboarding/offboarding. Manual account management doesn't scale. |
+| **Custom model fine-tuning** | Retrain the model on the firm's 300-500+ reviewed contracts. Learns their drafting style, risk thresholds, clause preferences. | Drafts sound like their associates wrote them. Competitive moat vs other firms using generic Harvey. |
+| **Priority support (4hr SLA)** | Dedicated Slack channel, 4-hour response for critical issues, monthly check-in call with account manager. | When a partner needs the system at 11pm before a deal closes, "24hr email response" isn't good enough. |
+| **Custom workflows** | Bespoke multi-step workflows tailored to their practice (e.g., "M&A due diligence with custom checklist + board memo + signing"). | Every firm has unique processes. Predefined workflows cover 80%, custom workflows close the gap. |
+| **Quarterly model retraining** | Every 3 months, retrain on their newest contracts so the model stays current with their evolving practice. | Firm style changes. New partners bring new preferences. The model should evolve with the firm. |
+| **GPU failover** | If the primary GPU goes down, auto-switch to backup GPU or Gemini fallback. Zero downtime. | 100+ attorneys can't afford "the AI is down today." |
+| **Full audit trail + compliance reporting** | Every AI action, document access, email notification — logged, exportable as CSV, filterable by user/date/matter. | Compliance team and malpractice carrier need proof of responsible AI use. |
+| **Matter-based ethical walls** | Data from Matter A is invisible to users not on Matter A's team. Enforced at the database level. | Ethical wall violations = malpractice. Not optional for any firm handling opposing parties. |
 
 **3-year cost: $122,000** vs Harvey at $180,000/year for 150 users ($540k over 3 years)
 
