@@ -41,13 +41,22 @@ export default function AcceptInvitePage() {
       // Auto-login with the new credentials
       if (email) {
         try {
-          await apiLogin(email, password);
-          await refreshUser();
-          navigate('/');
+          const result = await apiLogin(email, password);
+          // If MFA required, redirect to login page
+          if (result?.mfaRequired) {
+            window.location.href = '/';
+            return;
+          }
+          // Force full page reload to re-initialize auth context
+          window.location.href = '/';
           return;
-        } catch { /* login failed, show manual login */ }
+        } catch {
+          // Login failed — redirect to login page
+          window.location.href = '/';
+          return;
+        }
       }
-      navigate('/');
+      window.location.href = '/';
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to accept invite. The link may have already been used.');
     } finally { setSaving(false); }
