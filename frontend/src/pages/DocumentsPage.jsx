@@ -102,7 +102,7 @@ export default function DocumentsPage() {
             </select>
             <select value={meta.jurisdiction} onChange={e => setMeta({ ...meta, jurisdiction: e.target.value })} className="input-field text-sm">
               <option value="">Jurisdiction</option>
-              {['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan', 'Supreme Court'].map(j => <option key={j} value={j}>{j}</option>)}
+              {['California', 'New York', 'Delaware', 'Texas', 'Illinois', 'Florida', 'Massachusetts'].map(j => <option key={j} value={j}>{j}</option>)}
             </select>
             <select value={meta.industry} onChange={e => setMeta({ ...meta, industry: e.target.value })} className="input-field text-sm">
               <option value="">Industry (optional)</option>

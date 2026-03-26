@@ -23,8 +23,8 @@ function StatusBadge({ status }) {
 
 const JURISDICTIONS = [
   'California, United States', 'New York, United States', 'Delaware, United States',
-  'England and Wales', 'Singapore', 'India (Maharashtra)', 'India (Delhi)',
-  'Germany', 'France', 'Australia (New South Wales)',
+  'Texas, United States', 'Illinois, United States', 'Florida, United States',
+  'England and Wales', 'Singapore', 'Germany', 'France', 'Australia (New South Wales)',
 ];
 
 function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId }) {

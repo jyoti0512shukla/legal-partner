@@ -82,7 +82,7 @@ function AddClauseModal({ onClose, onSaved }) {
             <div>
               <label className="text-xs text-text-muted mb-1 block">Jurisdiction</label>
               <input value={form.jurisdiction} onChange={e => setForm({ ...form, jurisdiction: e.target.value })}
-                placeholder="e.g. Maharashtra" className="input-field w-full text-sm" />
+                placeholder="e.g. California" className="input-field w-full text-sm" />
             </div>
           </div>
           <div>

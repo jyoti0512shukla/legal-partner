@@ -10,7 +10,7 @@ const PROVIDER_ICONS = {
 
 const DOC_TYPES = ['NDA', 'MSA', 'SOW', 'EMPLOYMENT', 'LEASE', 'MOU', 'NOTICE', 'PETITION', 'VENDOR', 'LOAN', 'OTHER'];
 const PRACTICE_AREAS = ['CORPORATE', 'LITIGATION', 'IP', 'TAX', 'REAL_ESTATE', 'LABOR', 'BANKING', 'REGULATORY', 'OTHER'];
-const JURISDICTIONS = ['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan', 'Supreme Court'];
+const JURISDICTIONS = ['California', 'New York', 'Delaware', 'Texas', 'Illinois', 'Florida', 'Massachusetts'];
 
 const SUPPORTED_EXT = ['.pdf', '.docx', '.html', '.htm'];
 

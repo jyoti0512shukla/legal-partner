@@ -18,7 +18,7 @@ function extractBodyContent(html) {
   return m ? m[1] : html;
 }
 
-const JURISDICTIONS = ['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan', 'Supreme Court', 'India'];
+const JURISDICTIONS = ['California', 'New York', 'Delaware', 'Texas', 'Illinois', 'Florida', 'Massachusetts'];
 
 const CLAUSE_SPECS_LABELS = {
   DEFINITIONS: 'Definitions',
@@ -65,7 +65,7 @@ export default function DraftPage() {
     partyARep: '',
     partyBRep: '',
     effectiveDate: new Date().toISOString().slice(0, 10),
-    jurisdiction: 'Maharashtra',
+    jurisdiction: 'California',
     agreementRef: '',
     termYears: '3',
     noticeDays: '30',
@@ -234,7 +234,7 @@ export default function DraftPage() {
       const res = await api.post('/ai/refine-clause', {
         selectedText: text,
         documentContext: docContext,
-        instruction: 'Improve for clarity, legal precision, and Indian law compliance.',
+        instruction: 'Improve for clarity, legal precision, and US law compliance.',
       });
       const improved = res.data?.improvedText || res.data?.improved_text;
       if (improved) {

@@ -70,7 +70,7 @@ export default function IntelligencePage() {
           </select>
           <select value={jurisdiction} onChange={e => setJurisdiction(e.target.value)} className="input-field text-sm">
             <option value="">All Jurisdictions</option>
-            {['Maharashtra', 'Delhi', 'Karnataka', 'Tamil Nadu', 'Gujarat', 'Rajasthan'].map(j => (
+            {['California', 'New York', 'Delaware', 'Texas', 'Illinois', 'Florida', 'Massachusetts'].map(j => (
               <option key={j} value={j}>{j}</option>
             ))}
           </select>
