@@ -12,18 +12,22 @@ import api from '../api/client';
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'organization');
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile');
   const [mfaSetup, setMfaSetup] = useState(null);
   const [mfaCode, setMfaCode] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   const isAdmin = user?.role === 'ROLE_ADMIN';
+  const isPartnerOrAdmin = user?.role === 'ROLE_PARTNER' || isAdmin;
 
   const TABS = [
-    { id: 'organization', label: 'Organization' },
-    { id: 'integrations', label: 'Integrations' },
-    { id: 'agent', label: 'Deal Intelligence' },
+    { id: 'profile', label: 'Profile' },
+    ...(isPartnerOrAdmin ? [
+      { id: 'organization', label: 'Organization' },
+      { id: 'integrations', label: 'Integrations' },
+      { id: 'agent', label: 'Deal Intelligence' },
+    ] : []),
     ...(isAdmin ? [
       { id: 'users', label: 'Users' },
       { id: 'teams', label: 'Teams' },
@@ -89,9 +93,19 @@ export default function SettingsPage() {
       {error && <div className="flex items-center gap-2 text-danger text-sm mb-4"><AlertCircle className="w-4 h-4" /> {error}</div>}
       {success && <div className="text-success text-sm mb-4">{success}</div>}
 
-      {/* ── Organization Tab ────────────────────────────────────────── */}
-      {activeTab === 'organization' && (
+      {/* ── Profile Tab (all users) ──────────────────────────────────── */}
+      {activeTab === 'profile' && (
         <div className="space-y-6">
+          {/* User info */}
+          <section className="card p-6">
+            <h2 className="text-lg font-semibold text-text-primary mb-4">Your Profile</h2>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between"><span className="text-text-muted">Email</span><span className="text-text-primary">{user?.email}</span></div>
+              <div className="flex justify-between"><span className="text-text-muted">Name</span><span className="text-text-primary">{user?.displayName || '—'}</span></div>
+              <div className="flex justify-between"><span className="text-text-muted">Role</span><span className="text-text-primary">{user?.role?.replace('ROLE_', '')}</span></div>
+            </div>
+          </section>
+
           {/* MFA */}
           <section className="card p-6">
             <h2 className="text-lg font-semibold text-text-primary mb-4">Multi-Factor Authentication</h2>
@@ -124,9 +138,20 @@ export default function SettingsPage() {
             <h2 className="text-lg font-semibold text-text-primary mb-4">Password</h2>
             <Link to="/change-password" className="btn-secondary inline-block">Change Password</Link>
           </section>
+        </div>
+      )}
 
-          {/* Security Settings (ADMIN only) */}
+      {/* ── Organization Tab (PARTNER/ADMIN only) ──────────────────── */}
+      {activeTab === 'organization' && isPartnerOrAdmin && (
+        <div className="space-y-6">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary mb-1">Organization Settings</h2>
+            <p className="text-sm text-text-muted">Security policies and authentication settings for the firm.</p>
+          </div>
           {isAdmin && <SecurityConfigSection />}
+          {!isAdmin && (
+            <p className="text-text-muted text-sm text-center py-6">Contact your administrator to change organization security settings.</p>
+          )}
         </div>
       )}
 
