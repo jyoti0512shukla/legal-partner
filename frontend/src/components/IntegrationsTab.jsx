@@ -17,8 +17,17 @@ const INTEGRATIONS = [
     { provider: 'NETDOCUMENTS', name: 'NetDocuments', description: 'Legal document management system', apiPrefix: '/integrations', icon: '📋', featured: true },
     { provider: 'IMANAGE', name: 'iManage Work', description: 'Enterprise document and email management', apiPrefix: '/integrations', icon: '🗄️' },
   ]},
+  { category: 'Practice Management', items: [
+    { provider: 'CLIO', name: 'Clio', description: 'Sync matters, contacts, and documents from Clio', icon: '⚖️', comingSoon: true, featured: true },
+    { provider: 'PRACTICEPANTHER', name: 'PracticePanther', description: 'Practice management for growing firms', icon: '🐾', comingSoon: true },
+    { provider: 'MYCASE', name: 'MyCase', description: 'Case management and client communication', icon: '💼', comingSoon: true },
+  ]},
   { category: 'E-Signature', items: [
     { provider: 'DOCUSIGN', name: 'DocuSign', description: 'Send contracts for electronic signature', apiPrefix: '/integrations', icon: '✍️', featured: true },
+    { provider: 'ADOBE_SIGN', name: 'Adobe Acrobat Sign', description: 'E-signature via Adobe', icon: '🖊️', comingSoon: true },
+  ]},
+  { category: 'eDiscovery', items: [
+    { provider: 'RELATIVITY', name: 'Relativity', description: 'eDiscovery and litigation support', icon: '🔍', comingSoon: true },
   ]},
   { category: 'Notifications', items: [
     { provider: 'SLACK', name: 'Slack', description: 'Receive workflow notifications via Slack', apiPrefix: '/integrations', icon: '💬', isWebhook: true, featured: true },
@@ -146,17 +155,24 @@ export default function IntegrationsTab() {
   const noResults = search.trim() && filteredFeatured.length === 0 && filteredCategories.length === 0;
 
   const renderCard = (item) => {
-    const connected = isConnected(item.provider, item.apiPrefix);
+    const connected = !item.comingSoon && isConnected(item.provider, item.apiPrefix);
     const isConnecting = connecting === item.provider;
     const isDisconnecting = disconnecting === item.provider;
 
     return (
-      <div key={item.provider} className="card p-4 flex flex-col gap-3">
+      <div key={item.provider} className={`card p-4 flex flex-col gap-3 ${item.comingSoon ? 'opacity-75' : ''}`}>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <span className="text-2xl">{item.icon}</span>
             <div>
-              <div className="font-medium text-text-primary">{item.name}</div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-text-primary">{item.name}</span>
+                {item.comingSoon && (
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium">
+                    Coming Soon
+                  </span>
+                )}
+              </div>
               <div className="text-xs text-text-muted mt-0.5">{item.description}</div>
             </div>
           </div>
@@ -213,7 +229,11 @@ export default function IntegrationsTab() {
 
         {/* Action buttons */}
         <div className="flex gap-2 mt-auto">
-          {connected ? (
+          {item.comingSoon ? (
+            <button disabled className="btn-secondary text-xs flex-1 opacity-50 cursor-not-allowed">
+              Coming Soon
+            </button>
+          ) : connected ? (
             <button
               onClick={() => handleDisconnect(item)}
               disabled={isDisconnecting}
