@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import AppLayout from './components/layout/AppLayout';
 import LoginPage from './pages/LoginPage';
@@ -38,19 +38,20 @@ export default function App() {
     );
   }
 
-  // These routes work regardless of auth state (invite, reset password)
-  const publicRoutes = (
-    <Routes>
-      <Route path="/invite/:token" element={<AcceptInvitePage />} />
-      <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-    </Routes>
-  );
+  // Public routes work regardless of auth state
+  const location = useLocation();
+  const isPublicRoute = location.pathname.startsWith('/invite/') ||
+    location.pathname.startsWith('/reset-password/') ||
+    location.pathname === '/forgot-password';
 
-  // Check if current path is a public route
-  const path = window.location.pathname;
-  if (path.startsWith('/invite/') || path.startsWith('/reset-password/') || path === '/forgot-password') {
-    return publicRoutes;
+  if (isPublicRoute) {
+    return (
+      <Routes>
+        <Route path="/invite/:token" element={<AcceptInvitePage />} />
+        <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      </Routes>
+    );
   }
 
   if (!user) {

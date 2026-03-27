@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { LayoutDashboard, Briefcase, Workflow, Shield, Settings, LogOut, Scale, FileText, Brain, ChevronDown, FileEdit, GitCompare, ClipboardList, Key } from 'lucide-react';
 
 export default function Sidebar() {
@@ -65,8 +66,8 @@ function SidebarLink({ to, icon: Icon, label }) {
 
 function SidebarGroup({ icon: Icon, label, items }) {
   const [open, setOpen] = useState(false);
-  const location = window.location.pathname;
-  const isChildActive = items.some(item => location === item.to);
+  const loc = useLocation();
+  const isChildActive = items.some(item => loc.pathname === item.to);
 
   return (
     <div>
