@@ -50,7 +50,7 @@ export default function AgentConfigTab() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-text-primary mb-1">Deal Intelligence Agent</h2>
+        <h2 className="text-lg font-semibold text-text-primary mb-1">AI Agent</h2>
         <p className="text-sm text-text-muted">
           Automatically analyzes documents when uploaded to a matter. Checks against playbooks and detects cross-document conflicts.
         </p>

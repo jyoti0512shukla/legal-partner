@@ -10,19 +10,17 @@ const ROLES = [
   { value: 'ROLE_ASSOCIATE', label: 'Associate' },
 ];
 
-const ACTION_TYPES = [
-  'DOCUMENT_UPLOAD', 'DOCUMENT_VIEW', 'DOCUMENT_DELETE',
-  'AI_QUERY', 'AI_COMPARE', 'RISK_ASSESSMENT',
-  'WORKFLOW_STARTED', 'WORKFLOW_COMPLETED', 'WORKFLOW_FAILED', 'WORKFLOW_CANCELLED',
-  'CONNECTOR_EMAIL_SENT', 'CONNECTOR_SLACK_SENT', 'CONNECTOR_TEAMS_SENT', 'CONNECTOR_WEBHOOK_SENT',
-  'AGENT_ANALYSIS_TRIGGERED', 'AGENT_ANALYSIS_COMPLETED', 'AGENT_FINDING_REVIEWED',
-  'MATTER_CREATED', 'MATTER_UPDATED', 'MATTER_STATUS_CHANGED',
-  'MATTER_MEMBER_ADDED', 'MATTER_MEMBER_REMOVED',
-  'PLAYBOOK_CREATED', 'PLAYBOOK_UPDATED', 'PLAYBOOK_DELETED',
-  'INTEGRATION_CONNECTED', 'INTEGRATION_DISCONNECTED',
-  'LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT',
-  'PASSWORD_CHANGED', 'MFA_ENABLED', 'MFA_DISABLED', 'ACCOUNT_LOCKED',
-  'AUDIT_VIEW', 'AUDIT_EXPORT',
+const ACTION_GROUPS = [
+  { label: 'Documents', actions: ['DOCUMENT_UPLOAD', 'DOCUMENT_VIEW', 'DOCUMENT_DELETE'] },
+  { label: 'AI & Analysis', actions: ['AI_QUERY', 'AI_COMPARE', 'RISK_ASSESSMENT'] },
+  { label: 'Workflows', actions: ['WORKFLOW_STARTED', 'WORKFLOW_COMPLETED', 'WORKFLOW_FAILED', 'WORKFLOW_CANCELLED'] },
+  { label: 'Notifications', actions: ['CONNECTOR_EMAIL_SENT', 'CONNECTOR_SLACK_SENT', 'CONNECTOR_TEAMS_SENT', 'CONNECTOR_WEBHOOK_SENT'] },
+  { label: 'AI Agent', actions: ['AGENT_ANALYSIS_TRIGGERED', 'AGENT_ANALYSIS_COMPLETED', 'AGENT_FINDING_REVIEWED'] },
+  { label: 'Matters', actions: ['MATTER_CREATED', 'MATTER_UPDATED', 'MATTER_STATUS_CHANGED', 'MATTER_MEMBER_ADDED', 'MATTER_MEMBER_REMOVED'] },
+  { label: 'Playbooks', actions: ['PLAYBOOK_CREATED', 'PLAYBOOK_UPDATED', 'PLAYBOOK_DELETED'] },
+  { label: 'Users', actions: ['USER_CREATED', 'USER_DELETED', 'USER_ROLE_CHANGED', 'USER_ENABLED', 'USER_DISABLED', 'USER_INVITE_SENT'] },
+  { label: 'Integrations', actions: ['INTEGRATION_CONNECTED', 'INTEGRATION_DISCONNECTED'] },
+  { label: 'Authentication', actions: ['LOGIN_SUCCESS', 'LOGIN_FAILED', 'LOGOUT', 'PASSWORD_CHANGED', 'MFA_ENABLED', 'MFA_DISABLED', 'ACCOUNT_LOCKED'] },
 ];
 
 function getRelativeDate(offset) {
@@ -175,7 +173,11 @@ export default function AuditLogPage({ embedded = false }) {
             <label className="text-xs text-text-muted mb-1 block">Action</label>
             <select value={actionFilter} onChange={e => { setActionFilter(e.target.value); setPage(0); }} className="input-field text-sm min-w-[160px]">
               <option value="">All Actions</option>
-              {ACTION_TYPES.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
+              {ACTION_GROUPS.map(g => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.actions.map(a => <option key={a} value={a}>{a.replace(/_/g, ' ')}</option>)}
+                </optgroup>
+              ))}
             </select>
           </div>
           <div>

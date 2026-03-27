@@ -28,14 +28,12 @@ export default function SettingsPage() {
     ...(isPartnerOrAdmin ? [
       { id: 'organization', label: 'Organization' },
       { id: 'integrations', label: 'Integrations' },
-      { id: 'agent', label: 'Deal Intelligence' },
+      { id: 'agent', label: 'AI Agent' },
       { id: 'pipelines', label: 'Review Pipelines' },
       { id: 'audit', label: 'Audit Log' },
     ] : []),
-    ...(isAdmin ? [
-      { id: 'users', label: 'Users' },
-      { id: 'teams', label: 'Teams' },
-    ] : []),
+    ...(isAdmin ? [{ id: 'users', label: 'Users' }] : []),
+    ...(isPartnerOrAdmin ? [{ id: 'teams', label: 'Teams' }] : []),
   ];
 
   useEffect(() => {
@@ -166,7 +164,7 @@ export default function SettingsPage() {
       {activeTab === 'audit' && isPartnerOrAdmin && <AuditLogPage embedded />}
 
       {activeTab === 'users' && isAdmin && <UserManagementTab />}
-      {activeTab === 'teams' && isAdmin && <TeamsManagementTab />}
+      {activeTab === 'teams' && isPartnerOrAdmin && <TeamsManagementTab />}
     </div>
   );
 }

@@ -14,8 +14,8 @@ export default function TeamsManagementTab() {
   const [searchResults, setSearchResults] = useState([]);
   const [addingUser, setAddingUser] = useState(null);
 
-  const fetchTeams = () => api.get('/teams').then(r => setTeams(r.data || [])).catch(() => {}).finally(() => setLoading(false));
-  useEffect(fetchTeams, []);
+  const fetchTeams = () => { api.get('/teams').then(r => setTeams(r.data || [])).catch(() => {}).finally(() => setLoading(false)); };
+  useEffect(() => { fetchTeams(); }, []);
 
   const handleCreate = async () => {
     if (!newTeam.name.trim()) return;
