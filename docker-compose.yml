@@ -139,6 +139,9 @@ services:
       - "8443:80"
     environment:
       JWT_ENABLED: "false"
+      # Allow ONLYOFFICE to call back to Docker-internal IPs (backend container)
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "true"
     volumes:
       - onlyoffice_data:/var/lib/onlyoffice
     restart: unless-stopped
