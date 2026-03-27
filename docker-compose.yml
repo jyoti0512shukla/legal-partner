@@ -112,6 +112,9 @@ services:
       SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: "true"
       SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE: ${SMTP_SSL_ENABLE:-true}
       SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: ${SMTP_STARTTLS_ENABLE:-false}
+      # Document editor
+      LEGALPARTNER_ONLYOFFICE_URL: ${LEGALPARTNER_ONLYOFFICE_URL:-http://localhost:8443}
+      LEGALPARTNER_STORAGE_PATH: /data/documents
       # Drop and rebuild DB automatically when a migration script is edited during development
       FLYWAY_CLEAN_ON_VALIDATION_ERROR: "true"
       FLYWAY_CLEAN_DISABLED: "false"
