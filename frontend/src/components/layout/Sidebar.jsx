@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { LayoutDashboard, Briefcase, Workflow, Shield, Settings, LogOut, Scale } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Workflow, Shield, Settings, LogOut, Scale, FileText } from 'lucide-react';
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
@@ -15,6 +15,7 @@ export default function Sidebar() {
       <nav className="flex-1 space-y-1">
         <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" />
         <SidebarLink to="/matters" icon={Briefcase} label="Matters" />
+        <SidebarLink to="/documents" icon={FileText} label="Documents" />
         <SidebarLink to="/workflows" icon={Workflow} label="Workflows" />
         <SidebarLink to="/playbooks" icon={Shield} label="Playbooks" />
 
