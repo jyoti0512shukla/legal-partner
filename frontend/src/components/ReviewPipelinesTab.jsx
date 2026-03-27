@@ -2,7 +2,13 @@ import { useState, useEffect } from 'react';
 import { Loader2, Plus, Trash2, ArrowDown, X } from 'lucide-react';
 import api from '../api/client';
 
-const AVAILABLE_ACTIONS = ['APPROVE', 'RETURN', 'FLAG', 'SEND', 'ADD_NOTE'];
+const AVAILABLE_ACTIONS = [
+  { id: 'APPROVE', label: 'Approve', desc: 'Advance to next stage', icon: '✓' },
+  { id: 'RETURN', label: 'Return', desc: 'Send back to previous stage', icon: '↩' },
+  { id: 'FLAG', label: 'Flag', desc: 'Flag for attention', icon: '⚑' },
+  { id: 'SEND', label: 'Send', desc: 'Final send (e.g. to client)', icon: '→' },
+  { id: 'ADD_NOTE', label: 'Add Note', desc: 'Comment without status change', icon: '✎' },
+];
 const ROLES = ['', 'ADMIN', 'PARTNER', 'ASSOCIATE', 'PARALEGAL'];
 
 export default function ReviewPipelinesTab() {
@@ -104,24 +110,49 @@ export default function ReviewPipelinesTab() {
                   <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0 mt-1">
                     {idx + 1}
                   </div>
-                  <div className="flex-1 grid grid-cols-3 gap-2">
-                    <div>
-                      <label className="text-[10px] text-text-muted">Stage Name *</label>
-                      <input value={stage.name} onChange={e => updateStage(idx, 'name', e.target.value)}
-                        placeholder="e.g. Partner Review" className="input-field w-full text-xs py-1.5" />
+                  <div className="flex-1 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] text-text-muted">Stage Name *</label>
+                        <input value={stage.name} onChange={e => updateStage(idx, 'name', e.target.value)}
+                          placeholder="e.g. Partner Review" className="input-field w-full text-xs py-1.5" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] text-text-muted">Required Role</label>
+                        <select value={stage.requiredRole || ''} onChange={e => updateStage(idx, 'requiredRole', e.target.value)}
+                          className="input-field w-full text-xs py-1.5">
+                          <option value="">Anyone</option>
+                          {ROLES.filter(Boolean).map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
                     </div>
                     <div>
-                      <label className="text-[10px] text-text-muted">Required Role</label>
-                      <select value={stage.requiredRole || ''} onChange={e => updateStage(idx, 'requiredRole', e.target.value)}
-                        className="input-field w-full text-xs py-1.5">
-                        <option value="">Anyone</option>
-                        {ROLES.filter(Boolean).map(r => <option key={r} value={r}>{r}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-text-muted">Actions (comma-separated)</label>
-                      <input value={stage.actions} onChange={e => updateStage(idx, 'actions', e.target.value)}
-                        placeholder="APPROVE,RETURN" className="input-field w-full text-xs py-1.5" />
+                      <label className="text-[10px] text-text-muted mb-1 block">Available Actions</label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {AVAILABLE_ACTIONS.map(action => {
+                          const selected = (stage.actions || '').split(',').map(a => a.trim()).includes(action.id);
+                          return (
+                            <button key={action.id} type="button"
+                              onClick={() => {
+                                const current = (stage.actions || '').split(',').map(a => a.trim()).filter(Boolean);
+                                const updated = selected
+                                  ? current.filter(a => a !== action.id)
+                                  : [...current, action.id];
+                                updateStage(idx, 'actions', updated.join(','));
+                              }}
+                              className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg border transition-all ${
+                                selected
+                                  ? 'bg-primary/10 border-primary/30 text-primary'
+                                  : 'bg-surface border-border/50 text-text-muted hover:border-primary/20'
+                              }`}
+                              title={action.desc}
+                            >
+                              <span>{action.icon}</span>
+                              <span>{action.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                   <button onClick={() => removeStage(idx)} className="text-text-muted hover:text-danger shrink-0 mt-1">
