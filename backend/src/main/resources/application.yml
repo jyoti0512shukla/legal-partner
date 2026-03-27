@@ -78,6 +78,7 @@ legalpartner:
     path: ${LEGALPARTNER_STORAGE_PATH:/data/documents}
   onlyoffice:
     url: ${LEGALPARTNER_ONLYOFFICE_URL:http://localhost:8443}
+    backend-url: ${LEGALPARTNER_ONLYOFFICE_BACKEND_URL:http://backend:8080}
   jwt:
     secret: ${JWT_SECRET:change-me-in-production-min-256-bits-required-for-hs256}
     issuer: legal-partner

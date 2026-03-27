@@ -3,7 +3,6 @@ package com.legalpartner.controller;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.service.FileStorageService;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -12,15 +11,20 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api/v1/editor")
-@RequiredArgsConstructor
 @Slf4j
 public class DocumentEditorController {
 
     private final DocumentMetadataRepository docRepo;
     private final FileStorageService fileStorage;
+
+    /** Short-lived tokens: token → documentId. Expires after first use or on timeout. */
+    private final Map<String, UUID> editorTokens = new ConcurrentHashMap<>();
+    private final Map<String, Long> editorTokenExpiry = new ConcurrentHashMap<>();
+    private static final long TOKEN_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
     @Value("${legalpartner.onlyoffice.url:http://localhost:8443}")
     private String onlyofficeUrl;
@@ -28,8 +32,18 @@ public class DocumentEditorController {
     @Value("${legalpartner.cloud.backend-url:http://localhost:8080}")
     private String backendUrl;
 
+    /** Internal URL that ONLYOFFICE container uses to reach the backend (Docker service name). */
+    @Value("${legalpartner.onlyoffice.backend-url:http://backend:8080}")
+    private String onlyofficeBackendUrl;
+
+    public DocumentEditorController(DocumentMetadataRepository docRepo, FileStorageService fileStorage) {
+        this.docRepo = docRepo;
+        this.fileStorage = fileStorage;
+    }
+
     /**
-     * Get editor config for ONLYOFFICE — frontend uses this to initialize the editor.
+     * Get editor config for ONLYOFFICE — frontend uses this (authenticated via JWT).
+     * Generates a one-time token for ONLYOFFICE to fetch the file and post callbacks.
      */
     @GetMapping("/{documentId}/config")
     public Map<String, Object> getEditorConfig(@PathVariable UUID documentId, Authentication auth) {
@@ -40,8 +54,15 @@ public class DocumentEditorController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Original file not available for editing");
         }
 
-        String fileUrl = backendUrl + "/api/v1/editor/" + documentId + "/file";
-        String callbackUrl = backendUrl + "/api/v1/editor/" + documentId + "/callback";
+        // Generate short-lived token for ONLYOFFICE server-to-server calls
+        String token = UUID.randomUUID().toString();
+        editorTokens.put(token, documentId);
+        editorTokenExpiry.put(token, System.currentTimeMillis() + TOKEN_TTL_MS);
+        cleanExpiredTokens();
+
+        // ONLYOFFICE server fetches files/callbacks server-side — use Docker-internal URL
+        String fileUrl = onlyofficeBackendUrl + "/api/v1/editor/" + documentId + "/file?token=" + token;
+        String callbackUrl = onlyofficeBackendUrl + "/api/v1/editor/" + documentId + "/callback?token=" + token;
         String fileType = getFileType(doc.getFileName());
 
         Map<String, Object> config = new LinkedHashMap<>();
@@ -66,10 +87,12 @@ public class DocumentEditorController {
     }
 
     /**
-     * Serve the actual file to ONLYOFFICE.
+     * Serve the actual file to ONLYOFFICE — secured by one-time token (no JWT).
      */
     @GetMapping("/{documentId}/file")
-    public ResponseEntity<byte[]> getFile(@PathVariable UUID documentId) {
+    public ResponseEntity<byte[]> getFile(@PathVariable UUID documentId, @RequestParam String token) {
+        validateEditorToken(token, documentId);
+
         DocumentMetadata doc = docRepo.findById(documentId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
 
@@ -90,10 +113,14 @@ public class DocumentEditorController {
     }
 
     /**
-     * ONLYOFFICE callback — called when user saves the document.
+     * ONLYOFFICE callback — called when user saves the document. Secured by token.
      */
     @PostMapping("/{documentId}/callback")
-    public Map<String, Integer> handleCallback(@PathVariable UUID documentId, @RequestBody Map<String, Object> body) {
+    public Map<String, Integer> handleCallback(@PathVariable UUID documentId,
+                                                @RequestParam String token,
+                                                @RequestBody Map<String, Object> body) {
+        validateEditorToken(token, documentId);
+
         int status = (int) body.getOrDefault("status", 0);
         log.info("ONLYOFFICE callback for doc {}: status={}", documentId, status);
 
@@ -102,7 +129,6 @@ public class DocumentEditorController {
             String downloadUrl = (String) body.get("url");
             if (downloadUrl != null) {
                 try {
-                    // Download the edited file from ONLYOFFICE
                     byte[] edited = new org.springframework.web.client.RestTemplate()
                             .getForObject(downloadUrl, byte[].class);
                     if (edited != null) {
@@ -121,6 +147,29 @@ public class DocumentEditorController {
         }
 
         return Map.of("error", 0);
+    }
+
+    private void validateEditorToken(String token, UUID documentId) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing editor token");
+        }
+        UUID allowed = editorTokens.get(token);
+        Long expiry = editorTokenExpiry.get(token);
+        if (allowed == null || expiry == null || System.currentTimeMillis() > expiry) {
+            editorTokens.remove(token);
+            editorTokenExpiry.remove(token);
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Invalid or expired editor token");
+        }
+        if (!allowed.equals(documentId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Token does not match document");
+        }
+        // Don't remove on first use — ONLYOFFICE may call file + multiple callbacks with same token
+    }
+
+    private void cleanExpiredTokens() {
+        long now = System.currentTimeMillis();
+        editorTokenExpiry.entrySet().removeIf(e -> now > e.getValue());
+        editorTokens.keySet().retainAll(editorTokenExpiry.keySet());
     }
 
     private String getFileType(String fileName) {
