@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Shield, AlertTriangle, Loader2, FileText, Play, Wand2, Type, ClipboardCheck, Replace } from 'lucide-react';
+import { ArrowLeft, Shield, AlertTriangle, Loader2, FileText, Play, Wand2, Type, ClipboardCheck, Replace, Gauge } from 'lucide-react';
 import api from '../api/client';
 
 export default function DocumentEditorPage() {
@@ -17,6 +17,8 @@ export default function DocumentEditorPage() {
   const [selectedText, setSelectedText] = useState('');
   const [aiResult, setAiResult] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [coverage, setCoverage] = useState(null);
+  const [coverageLoading, setCoverageLoading] = useState(false);
 
   // Load editor config + document info
   useEffect(() => {
@@ -178,6 +180,7 @@ export default function DocumentEditorPage() {
 
   const TABS = [
     { id: 'selection', label: 'Selection', icon: Wand2 },
+    { id: 'coverage', label: 'Coverage', icon: Gauge },
     { id: 'findings', label: 'Findings', icon: Shield },
     { id: 'analyze', label: 'Analyze', icon: Play },
   ];
@@ -327,6 +330,12 @@ export default function DocumentEditorPage() {
               </div>
             )}
 
+            {/* ── Coverage Tab ──────────────────────────────────────── */}
+            {activePanel === 'coverage' && (
+              <CoveragePanel documentId={id} coverage={coverage} setCoverage={setCoverage}
+                loading={coverageLoading} setLoading={setCoverageLoading} />
+            )}
+
             {/* ── Findings Tab ──────────────────────────────────────── */}
             {activePanel === 'findings' && (
               <div className="space-y-2">
@@ -377,6 +386,181 @@ export default function DocumentEditorPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Coverage Panel Component ──────────────────────────────────────────
+
+const CLAUSE_CATEGORIES = {
+  'Core Terms': ['LIABILITY_LIMIT', 'INDEMNITY', 'PAYMENT_TERMS'],
+  'Termination & Exit': ['TERMINATION_CONVENIENCE', 'TERMINATION_CAUSE', 'ASSIGNMENT'],
+  'Risk & Protection': ['FORCE_MAJEURE', 'CONFIDENTIALITY', 'DATA_PROTECTION'],
+  'Governance': ['GOVERNING_LAW', 'DISPUTE_RESOLUTION', 'IP_OWNERSHIP'],
+};
+
+const STATUS_STYLES = {
+  PRESENT: { color: 'text-success', bg: 'bg-success/10', label: 'Present' },
+  WEAK: { color: 'text-warning', bg: 'bg-warning/10', label: 'Weak' },
+  MISSING: { color: 'text-danger', bg: 'bg-danger/10', label: 'Missing' },
+};
+
+function CoveragePanel({ documentId, coverage, setCoverage, loading, setLoading }) {
+  const [expanded, setExpanded] = useState(null);
+
+  const runCoverage = async () => {
+    setLoading(true);
+    try {
+      const res = await api.post('/review', { documentId });
+      setCoverage(res.data);
+    } catch (e) {
+      alert(e.response?.data?.message || 'Coverage analysis failed');
+    } finally { setLoading(false); }
+  };
+
+  if (!coverage && !loading) {
+    return (
+      <div className="text-center py-8">
+        <Gauge className="w-10 h-10 text-text-muted mx-auto mb-3" />
+        <p className="text-xs text-text-muted mb-3">Analyze contract coverage against 12 standard clause types</p>
+        <button onClick={runCoverage} className="btn-primary text-xs">
+          Run Coverage Analysis
+        </button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="text-center py-8">
+        <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-2" />
+        <p className="text-xs text-text-muted">Analyzing contract coverage...</p>
+      </div>
+    );
+  }
+
+  const clauses = coverage?.clauses || [];
+  const present = clauses.filter(c => c.status === 'PRESENT').length;
+  const weak = clauses.filter(c => c.status === 'WEAK').length;
+  const missing = clauses.filter(c => c.status === 'MISSING').length;
+  const total = clauses.length || 12;
+  const coveragePct = Math.round(((present + weak * 0.5) / total) * 100);
+
+  // Determine coverage label
+  const coverageLabel = coveragePct >= 80 ? 'Strong' : coveragePct >= 50 ? 'Partial' : 'Weak';
+  const coverageColor = coveragePct >= 80 ? 'text-success' : coveragePct >= 50 ? 'text-warning' : 'text-danger';
+  const gaugeColor = coveragePct >= 80 ? '#34d399' : coveragePct >= 50 ? '#fbbf24' : '#f87171';
+
+  return (
+    <div className="space-y-4">
+      {/* Coverage gauge */}
+      <div className="text-center py-3">
+        <div className="relative w-32 h-16 mx-auto mb-2 overflow-hidden">
+          <svg viewBox="0 0 120 60" className="w-full h-full">
+            {/* Background arc */}
+            <path d="M 10 55 A 50 50 0 0 1 110 55" fill="none" stroke="#222a3d" strokeWidth="8" strokeLinecap="round" />
+            {/* Filled arc */}
+            <path d="M 10 55 A 50 50 0 0 1 110 55" fill="none" stroke={gaugeColor} strokeWidth="8" strokeLinecap="round"
+              strokeDasharray={`${coveragePct * 1.57} 157`} />
+          </svg>
+        </div>
+        <p className={`text-2xl font-bold font-display ${coverageColor}`}>{coverageLabel}</p>
+        <p className="text-xs text-text-muted">Coverage</p>
+      </div>
+
+      {/* Stats row */}
+      <div className="flex justify-center gap-4">
+        <div className="text-center">
+          <p className="text-lg font-bold text-text-primary font-display">{total}</p>
+          <p className="text-[10px] text-text-muted">All Terms</p>
+        </div>
+        <div className="text-center">
+          <p className="text-lg font-bold text-success font-display">{present}</p>
+          <p className="text-[10px] text-text-muted">Present</p>
+        </div>
+        <div className="text-center">
+          <p className="text-lg font-bold text-warning font-display">{weak}</p>
+          <p className="text-[10px] text-text-muted">Weak</p>
+        </div>
+        <div className="text-center">
+          <p className="text-lg font-bold text-danger font-display">{missing}</p>
+          <p className="text-[10px] text-text-muted">Missing</p>
+        </div>
+      </div>
+
+      {/* Category drilldown */}
+      <div className="space-y-1.5">
+        {Object.entries(CLAUSE_CATEGORIES).map(([category, clauseIds]) => {
+          const categoryClauses = clauses.filter(c => clauseIds.includes(c.clauseId || c.clause_id));
+          const catPresent = categoryClauses.filter(c => c.status === 'PRESENT').length;
+          const catTotal = clauseIds.length;
+          const hasIssues = categoryClauses.some(c => c.status === 'MISSING' || c.status === 'WEAK');
+
+          return (
+            <div key={category}>
+              <button onClick={() => setExpanded(expanded === category ? null : category)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-surface-el transition-colors">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs">{expanded === category ? '▾' : '▸'}</span>
+                  <span className="text-xs font-medium text-text-primary">{category}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-text-muted">{catPresent}/{catTotal}</span>
+                  {hasIssues && <span className="w-2 h-2 rounded-full bg-danger" />}
+                </div>
+              </button>
+
+              {expanded === category && (
+                <div className="ml-6 space-y-1 mt-1">
+                  {categoryClauses.length > 0 ? categoryClauses.map((c, i) => {
+                    const st = STATUS_STYLES[c.status] || STATUS_STYLES.MISSING;
+                    return (
+                      <div key={i} className={`${st.bg} rounded-lg px-3 py-2`}>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-text-primary">
+                            {(c.clauseId || c.clause_id || '').replace(/_/g, ' ')}
+                          </span>
+                          <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
+                        </div>
+                        {c.finding && <p className="text-[10px] text-text-secondary mt-0.5">{c.finding}</p>}
+                      </div>
+                    );
+                  }) : (
+                    <p className="text-[10px] text-text-muted px-3 py-1">No data — run analysis first</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Uncategorized clauses */}
+      {clauses.filter(c => !Object.values(CLAUSE_CATEGORIES).flat().includes(c.clauseId || c.clause_id)).length > 0 && (
+        <div>
+          <p className="text-[10px] text-text-muted font-medium px-3 mb-1">OTHER CLAUSES</p>
+          <div className="space-y-1">
+            {clauses.filter(c => !Object.values(CLAUSE_CATEGORIES).flat().includes(c.clauseId || c.clause_id)).map((c, i) => {
+              const st = STATUS_STYLES[c.status] || STATUS_STYLES.MISSING;
+              return (
+                <div key={i} className={`${st.bg} rounded-lg px-3 py-2`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-text-primary">{(c.clauseId || c.clause_id || c.clauseName || '').replace(/_/g, ' ')}</span>
+                    <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
+                  </div>
+                  {c.finding && <p className="text-[10px] text-text-secondary mt-0.5">{c.finding}</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Re-run button */}
+      <button onClick={runCoverage} disabled={loading} className="btn-secondary w-full text-xs flex items-center justify-center gap-1.5">
+        {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Gauge className="w-3.5 h-3.5" />}
+        Re-analyze Coverage
+      </button>
     </div>
   );
 }
