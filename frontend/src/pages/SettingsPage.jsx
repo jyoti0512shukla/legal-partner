@@ -100,44 +100,16 @@ export default function SettingsPage() {
       {/* ── Profile Tab (all users) ──────────────────────────────────── */}
       {activeTab === 'profile' && (
         <div className="space-y-6">
-          {/* User info */}
           <section className="card p-6">
             <h2 className="text-lg font-semibold text-text-primary mb-4">Your Profile</h2>
             <div className="space-y-3 text-sm">
               <div className="flex justify-between"><span className="text-text-muted">Email</span><span className="text-text-primary">{user?.email}</span></div>
               <div className="flex justify-between"><span className="text-text-muted">Name</span><span className="text-text-primary">{user?.displayName || '—'}</span></div>
               <div className="flex justify-between"><span className="text-text-muted">Role</span><span className="text-text-primary">{user?.role?.replace('ROLE_', '')}</span></div>
+              <div className="flex justify-between"><span className="text-text-muted">MFA</span><span className={user?.mfaEnabled ? 'text-success' : 'text-text-muted'}>{user?.mfaEnabled ? 'Enabled' : 'Not enabled'}</span></div>
             </div>
           </section>
 
-          {/* MFA */}
-          <section className="card p-6">
-            <h2 className="text-lg font-semibold text-text-primary mb-4">Multi-Factor Authentication</h2>
-            {mfaSetup ? (
-              <div>
-                <p className="text-text-muted text-sm mb-4">Scan this QR code with your authenticator app, then enter the 6-digit code.</p>
-                <div className="bg-white p-4 rounded-lg inline-block mb-4">
-                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mfaSetup.qrCodeUrl)}`}
-                    alt="MFA QR Code" width={200} height={200} />
-                </div>
-                <p className="text-xs text-text-muted mb-2">Or enter manually: {mfaSetup.secret}</p>
-                <form onSubmit={handleVerifyMfa} className="flex gap-2">
-                  <input type="text" placeholder="000000" value={mfaCode}
-                    onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="input-field flex-1 max-w-[120px] text-center tracking-widest" maxLength={6} />
-                  <button type="submit" className="btn-primary">Verify & Enable</button>
-                  <button type="button" onClick={() => { setMfaSetup(null); setMfaCode(''); setError(''); }} className="btn-secondary">Cancel</button>
-                </form>
-              </div>
-            ) : (
-              <div className="flex gap-4">
-                <button onClick={handleEnableMfa} className="btn-primary">Enable MFA</button>
-                {user?.mfaEnabled && <button onClick={handleDisableMfa} className="btn-secondary text-danger">Disable MFA</button>}
-              </div>
-            )}
-          </section>
-
-          {/* Change Password */}
           <section className="card p-6">
             <h2 className="text-lg font-semibold text-text-primary mb-4">Password</h2>
             <Link to="/change-password" className="btn-secondary inline-block">Change Password</Link>
@@ -152,9 +124,37 @@ export default function SettingsPage() {
             <h2 className="text-lg font-semibold text-text-primary mb-1">Organization Settings</h2>
             <p className="text-sm text-text-muted">Security policies and authentication settings for the firm.</p>
           </div>
+
+          {/* MFA — firm-wide setting */}
+          <section className="card p-6">
+            <h3 className="text-sm font-semibold text-text-primary mb-3">Multi-Factor Authentication</h3>
+            <p className="text-xs text-text-muted mb-4">MFA protects all accounts with a second verification step. Set up your authenticator app below.</p>
+            {mfaSetup ? (
+              <div>
+                <div className="bg-white p-4 rounded-lg inline-block mb-4">
+                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mfaSetup.qrCodeUrl)}`}
+                    alt="MFA QR Code" width={200} height={200} />
+                </div>
+                <p className="text-xs text-text-muted mb-2">Or enter manually: {mfaSetup.secret}</p>
+                <form onSubmit={handleVerifyMfa} className="flex gap-2">
+                  <input type="text" placeholder="000000" value={mfaCode}
+                    onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="input-field flex-1 max-w-[120px] text-center tracking-widest" maxLength={6} />
+                  <button type="submit" className="btn-primary text-sm">Verify & Enable</button>
+                  <button type="button" onClick={() => { setMfaSetup(null); setMfaCode(''); setError(''); }} className="btn-secondary text-sm">Cancel</button>
+                </form>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <button onClick={handleEnableMfa} className="btn-primary text-sm">Enable MFA</button>
+                {user?.mfaEnabled && <button onClick={handleDisableMfa} className="btn-secondary text-sm text-danger">Disable MFA</button>}
+              </div>
+            )}
+          </section>
+
           {isAdmin && <SecurityConfigSection />}
           {!isAdmin && (
-            <p className="text-text-muted text-sm text-center py-6">Contact your administrator to change organization security settings.</p>
+            <p className="text-text-muted text-sm text-center py-4">Contact your administrator to change security settings.</p>
           )}
         </div>
       )}
