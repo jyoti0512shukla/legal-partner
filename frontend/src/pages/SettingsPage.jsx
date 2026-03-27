@@ -8,6 +8,7 @@ import AgentConfigTab from '../components/AgentConfigTab';
 import UserManagementTab from '../components/UserManagementTab';
 import TeamsManagementTab from '../components/TeamsManagementTab';
 import api from '../api/client';
+import AuditLogPage from './AuditLogPage';
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
@@ -27,6 +28,7 @@ export default function SettingsPage() {
       { id: 'organization', label: 'Organization' },
       { id: 'integrations', label: 'Integrations' },
       { id: 'agent', label: 'Deal Intelligence' },
+      { id: 'audit', label: 'Audit Log' },
     ] : []),
     ...(isAdmin ? [
       { id: 'users', label: 'Users' },
@@ -157,6 +159,8 @@ export default function SettingsPage() {
 
       {activeTab === 'integrations' && <IntegrationsTab />}
       {activeTab === 'agent' && <AgentConfigTab />}
+      {activeTab === 'audit' && isPartnerOrAdmin && <AuditLogPage embedded />}
+
       {activeTab === 'users' && isAdmin && <UserManagementTab />}
       {activeTab === 'teams' && isAdmin && <TeamsManagementTab />}
     </div>

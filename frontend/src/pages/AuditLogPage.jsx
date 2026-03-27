@@ -47,7 +47,7 @@ function toInstantParamEnd(dateStr) {
   return `${dateStr}T23:59:59Z`;
 }
 
-export default function AuditLogPage() {
+export default function AuditLogPage({ embedded = false }) {
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
@@ -138,7 +138,7 @@ export default function AuditLogPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Audit Log</h1>
+      {!embedded && <h1 className="text-2xl font-bold mb-6">Audit Log</h1>}
 
       <div className="grid grid-cols-4 gap-4 mb-6">
         {statCards.map(s => (
