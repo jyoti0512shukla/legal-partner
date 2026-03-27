@@ -164,7 +164,7 @@ function ClauseCard({ entry, onToggleGolden, onDelete }) {
   );
 }
 
-export default function ClauseLibraryPage() {
+export default function ClauseLibraryPage({ embedded = false }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -199,9 +199,9 @@ export default function ClauseLibraryPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          {!embedded && <h1 className="text-2xl font-bold flex items-center gap-2">
             <BookOpen className="w-7 h-7" /> Clause Library
-          </h1>
+          </h1>}
           <p className="text-sm text-text-muted mt-1">
             Curated clauses injected into AI drafting context as precedent.{' '}
             <span className="text-warning">Golden clauses</span> are always used first.

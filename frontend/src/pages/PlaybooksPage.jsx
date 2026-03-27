@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Shield, Plus, Trash2, Lock, Unlock, Edit2, X, ChevronDown, ChevronRight, Check } from 'lucide-react';
+import { Shield, Plus, Trash2, Lock, Unlock, Edit2, X, ChevronDown, ChevronRight, Check, BookOpen } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../api/client';
 
 const DEAL_TYPES = [
@@ -228,7 +229,40 @@ function DeleteConfirmModal({ playbook, onClose, onDeleted }) {
   );
 }
 
+import ClauseLibraryPage from './ClauseLibraryPage';
+
 export default function PlaybooksPage() {
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'playbooks');
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <Shield className="w-6 h-6 text-primary" />
+        <h1 className="text-2xl font-bold font-display">Playbooks</h1>
+      </div>
+
+      <div className="flex gap-1 border-b border-border/50 mb-6">
+        {[
+          { id: 'playbooks', label: 'Playbooks', icon: Shield },
+          { id: 'clause-library', label: 'Clause Library', icon: BookOpen },
+        ].map(tab => (
+          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === tab.id ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-primary'
+            }`}>
+            <tab.icon className="w-4 h-4" /> {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'playbooks' && <PlaybooksContent />}
+      {activeTab === 'clause-library' && <ClauseLibraryPage embedded />}
+    </div>
+  );
+}
+
+function PlaybooksContent() {
   const [playbooks, setPlaybooks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -250,11 +284,7 @@ export default function PlaybooksPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Shield className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold">Playbooks</h1>
-        </div>
+      <div className="flex items-center justify-end mb-4">
         <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2 text-sm">
           <Plus className="w-4 h-4" /> New Playbook
         </button>

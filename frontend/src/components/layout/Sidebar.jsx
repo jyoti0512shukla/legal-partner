@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { LayoutDashboard, Briefcase, Workflow, Shield, Settings, LogOut, Scale, FileText } from 'lucide-react';
+import { useState } from 'react';
+import { LayoutDashboard, Briefcase, Workflow, Shield, Settings, LogOut, Scale, FileText, Brain, ChevronDown, FileEdit, GitCompare, ClipboardList, Key } from 'lucide-react';
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
@@ -16,6 +17,13 @@ export default function Sidebar() {
         <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" />
         <SidebarLink to="/matters" icon={Briefcase} label="Matters" />
         <SidebarLink to="/documents" icon={FileText} label="Documents" />
+        <SidebarGroup icon={Brain} label="Intelligence" items={[
+          { to: '/intelligence', icon: Brain, label: 'Ask AI' },
+          { to: '/draft', icon: FileEdit, label: 'Draft' },
+          { to: '/compare', icon: GitCompare, label: 'Compare' },
+          { to: '/review', icon: ClipboardList, label: 'Review' },
+          { to: '/extraction', icon: Key, label: 'Extraction' },
+        ]} />
         <SidebarLink to="/workflows" icon={Workflow} label="Workflows" />
         <SidebarLink to="/playbooks" icon={Shield} label="Playbooks" />
 
@@ -52,5 +60,41 @@ function SidebarLink({ to, icon: Icon, label }) {
       <Icon className="w-5 h-5" />
       {label}
     </NavLink>
+  );
+}
+
+function SidebarGroup({ icon: Icon, label, items }) {
+  const [open, setOpen] = useState(false);
+  const location = window.location.pathname;
+  const isChildActive = items.some(item => location === item.to);
+
+  return (
+    <div>
+      <button onClick={() => setOpen(!open)}
+        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+          isChildActive ? 'bg-primary/10 text-primary' : 'text-text-secondary hover:text-text-primary hover:bg-surface-el'
+        }`}>
+        <div className="flex items-center gap-3">
+          <Icon className="w-5 h-5" />
+          {label}
+        </div>
+        <ChevronDown className={`w-4 h-4 transition-transform ${open || isChildActive ? 'rotate-180' : ''}`} />
+      </button>
+      {(open || isChildActive) && (
+        <div className="ml-4 mt-0.5 space-y-0.5">
+          {items.map(item => (
+            <NavLink key={item.to} to={item.to}
+              className={({ isActive }) =>
+                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+                  isActive ? 'text-primary bg-primary/5' : 'text-text-muted hover:text-text-primary hover:bg-surface-el'
+                }`
+              }>
+              <item.icon className="w-4 h-4" />
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
