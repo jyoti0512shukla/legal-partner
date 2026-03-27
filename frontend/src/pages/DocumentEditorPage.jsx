@@ -1,18 +1,22 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Shield, AlertTriangle, CheckCircle2, Flag, Loader2, FileText, Play } from 'lucide-react';
+import { ArrowLeft, Shield, AlertTriangle, Loader2, FileText, Play, Wand2, Type, ClipboardCheck, Replace } from 'lucide-react';
 import api from '../api/client';
 
 export default function DocumentEditorPage() {
   const { id } = useParams();
   const editorRef = useRef(null);
+  const editorInstance = useRef(null);
   const [config, setConfig] = useState(null);
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [findings, setFindings] = useState([]);
   const [analyzing, setAnalyzing] = useState(false);
-  const [activePanel, setActivePanel] = useState('findings');
+  const [activePanel, setActivePanel] = useState('selection');
+  const [selectedText, setSelectedText] = useState('');
+  const [aiResult, setAiResult] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   // Load editor config + document info
   useEffect(() => {
@@ -35,22 +39,48 @@ export default function DocumentEditorPage() {
     script.src = config.onlyofficeUrl + '/web-apps/apps/api/documents/api.js';
     script.onload = () => {
       if (window.DocsAPI) {
-        new window.DocsAPI.DocEditor('onlyoffice-editor', {
+        editorInstance.current = new window.DocsAPI.DocEditor('onlyoffice-editor', {
           document: config.document,
-          editorConfig: config.editorConfig,
+          editorConfig: {
+            ...config.editorConfig,
+            customization: {
+              toolbarNoTabs: true,
+              compactHeader: true,
+            },
+          },
           documentType: config.documentType,
           height: '100%',
           width: '100%',
+          events: {
+            onSelectionChange: (e) => {
+              // ONLYOFFICE fires this when selection changes
+              // We'll poll for selection instead since event support varies
+            },
+          },
         });
       }
     };
     script.onerror = () => setError('Could not connect to document editor. Is ONLYOFFICE running?');
     document.head.appendChild(script);
-
     return () => { document.head.removeChild(script); };
   }, [config]);
 
-  // Load findings if document has a matter
+  // Poll for selected text every 500ms when selection tab is active
+  useEffect(() => {
+    if (activePanel !== 'selection' || !editorInstance.current) return;
+    const interval = setInterval(() => {
+      try {
+        // ONLYOFFICE plugin API: get selected text
+        if (editorInstance.current && editorInstance.current.getSelectedText) {
+          const text = editorInstance.current.getSelectedText();
+          if (text && text !== selectedText) setSelectedText(text);
+        }
+      } catch { /* editor not ready */ }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [activePanel, selectedText]);
+
+  // Load findings
   useEffect(() => {
     if (!doc?.matter?.id) return;
     api.get(`/matters/${doc.matter.id}/findings`)
@@ -58,35 +88,78 @@ export default function DocumentEditorPage() {
       .catch(() => {});
   }, [doc, id]);
 
+  // AI actions on selected text
+  const handleSelectionAction = async (action) => {
+    const text = selectedText.trim();
+    if (!text) { alert('Select text in the document first'); return; }
+    setAiLoading(true);
+    setAiResult(null);
+
+    try {
+      if (action === 'improve') {
+        const res = await api.post('/ai/refine-clause', {
+          selectedText: text,
+          instruction: 'Suggest improved, more precise legal language',
+        });
+        setAiResult({ type: 'improve', ...res.data });
+      } else if (action === 'risk') {
+        const res = await api.post('/ai/refine-clause', {
+          selectedText: text,
+          instruction: 'Assess the legal risk of this clause. Identify issues and rate as HIGH, MEDIUM, or LOW risk.',
+        });
+        setAiResult({ type: 'risk', ...res.data });
+      } else if (action === 'playbook') {
+        const res = await api.post('/ai/refine-clause', {
+          selectedText: text,
+          instruction: 'Compare this clause against standard commercial contract best practices. Identify deviations and suggest improvements.',
+        });
+        setAiResult({ type: 'playbook', ...res.data });
+      } else if (action === 'simplify') {
+        const res = await api.post('/ai/refine-clause', {
+          selectedText: text,
+          instruction: 'Simplify this legal language while maintaining legal precision. Make it clearer and more readable.',
+        });
+        setAiResult({ type: 'simplify', ...res.data });
+      }
+    } catch (e) {
+      setAiResult({ type: 'error', reasoning: e.response?.data?.message || 'Analysis failed' });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Insert AI suggestion into document
+  const handleInsert = () => {
+    if (!aiResult?.improvedText || !editorInstance.current) return;
+    try {
+      // Use ONLYOFFICE command API to replace selection
+      editorInstance.current.serviceCommand('replaceSelection', aiResult.improvedText);
+    } catch {
+      // Fallback: copy to clipboard
+      navigator.clipboard.writeText(aiResult.improvedText);
+      alert('Improved text copied to clipboard. Paste it into the document.');
+    }
+  };
+
+  // Whole document analysis
   const handleAnalyze = async (task) => {
     setAnalyzing(true);
     try {
-      let endpoint;
       switch (task) {
-        case 'risk': endpoint = `/ai/risk-assessment/${id}`; break;
-        case 'extract': endpoint = `/ai/extract/${id}`; break;
-        case 'review': endpoint = `/review`; break;
-        default: return;
+        case 'risk': await api.post(`/ai/risk-assessment/${id}`); break;
+        case 'extract': await api.post(`/ai/extract/${id}`); break;
+        case 'review': await api.post('/review', { documentId: id }); break;
       }
-      if (task === 'review') {
-        await api.post(endpoint, { documentId: id });
-      } else {
-        await api.post(endpoint);
-      }
-      // Refresh findings
       if (doc?.matter?.id) {
         const res = await api.get(`/matters/${doc.matter.id}/findings`);
         setFindings((res.data || []).filter(f => f.documentId === id));
       }
-    } catch (e) {
-      alert(e.response?.data?.message || 'Analysis failed');
-    } finally { setAnalyzing(false); }
+    } catch (e) { alert(e.response?.data?.message || 'Analysis failed'); }
+    finally { setAnalyzing(false); }
   };
 
   if (loading) return (
-    <div className="flex items-center justify-center h-screen">
-      <Loader2 className="w-8 h-8 animate-spin text-text-muted" />
-    </div>
+    <div className="flex items-center justify-center h-screen"><Loader2 className="w-8 h-8 animate-spin text-text-muted" /></div>
   );
 
   if (error) return (
@@ -103,6 +176,12 @@ export default function DocumentEditorPage() {
     LOW: { dot: '🟢', bg: 'bg-success/10', border: 'border-success/20' },
   };
 
+  const TABS = [
+    { id: 'selection', label: 'Selection', icon: Wand2 },
+    { id: 'findings', label: 'Findings', icon: Shield },
+    { id: 'analyze', label: 'Analyze', icon: Play },
+  ];
+
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
@@ -118,6 +197,11 @@ export default function DocumentEditorPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {selectedText && (
+            <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+              {selectedText.length > 30 ? selectedText.slice(0, 30) + '...' : selectedText} selected
+            </span>
+          )}
           {findings.length > 0 && (
             <span className="text-[10px] bg-warning/10 text-warning px-2 py-0.5 rounded-full">
               {findings.length} findings
@@ -126,23 +210,20 @@ export default function DocumentEditorPage() {
         </div>
       </div>
 
-      {/* Split view: Editor + AI Panel */}
+      {/* Split view */}
       <div className="flex flex-1 overflow-hidden">
-        {/* ONLYOFFICE Editor */}
+        {/* Editor */}
         <div className="flex-1 bg-white" ref={editorRef}>
           <div id="onlyoffice-editor" className="h-full" />
         </div>
 
         {/* AI Panel */}
         <div className="w-80 bg-surface border-l border-border/50 flex flex-col shrink-0">
-          {/* Panel tabs */}
+          {/* Tabs */}
           <div className="flex border-b border-border/50 shrink-0">
-            {[
-              { id: 'findings', label: 'Findings', icon: Shield },
-              { id: 'analyze', label: 'Analyze', icon: Play },
-            ].map(tab => (
+            {TABS.map(tab => (
               <button key={tab.id} onClick={() => setActivePanel(tab.id)}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium border-b-2 transition-colors ${
+                className={`flex-1 flex items-center justify-center gap-1 py-2.5 text-[11px] font-medium border-b-2 transition-colors ${
                   activePanel === tab.id ? 'border-primary text-primary' : 'border-transparent text-text-muted'
                 }`}>
                 <tab.icon className="w-3.5 h-3.5" /> {tab.label}
@@ -152,12 +233,105 @@ export default function DocumentEditorPage() {
 
           {/* Panel content */}
           <div className="flex-1 overflow-y-auto p-3">
+
+            {/* ── Selection AI Tab ──────────────────────────────────── */}
+            {activePanel === 'selection' && (
+              <div className="space-y-3">
+                {/* Selected text preview */}
+                {selectedText ? (
+                  <div className="card p-3 !bg-surface-el">
+                    <p className="text-[10px] text-text-muted mb-1 font-medium">SELECTED TEXT</p>
+                    <p className="text-xs text-text-primary leading-relaxed">
+                      {selectedText.length > 200 ? selectedText.slice(0, 200) + '...' : selectedText}
+                    </p>
+                    <p className="text-[9px] text-text-muted mt-1">{selectedText.split(/\s+/).length} words</p>
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <Type className="w-8 h-8 text-text-muted mx-auto mb-2" />
+                    <p className="text-xs text-text-muted">Select text in the document to use AI actions</p>
+                    <p className="text-[10px] text-text-muted mt-1">Or paste text below</p>
+                    <textarea
+                      placeholder="Paste clause text here..."
+                      value={selectedText}
+                      onChange={e => setSelectedText(e.target.value)}
+                      rows={4}
+                      className="input-field w-full text-xs mt-3 resize-none"
+                    />
+                  </div>
+                )}
+
+                {/* AI Actions */}
+                {selectedText && (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-text-muted font-medium">AI ACTIONS</p>
+                    {[
+                      { key: 'improve', label: 'Suggest Improvement', desc: 'Better legal language', icon: Wand2 },
+                      { key: 'risk', label: 'Assess Risk', desc: 'Rate risk level of this clause', icon: Shield },
+                      { key: 'playbook', label: 'Check Best Practices', desc: 'Compare against standards', icon: ClipboardCheck },
+                      { key: 'simplify', label: 'Simplify Language', desc: 'Clearer, more readable', icon: Type },
+                    ].map(action => (
+                      <button key={action.key} onClick={() => handleSelectionAction(action.key)}
+                        disabled={aiLoading}
+                        className="w-full text-left card p-2.5 hover:border-primary/30 transition-colors !bg-surface-el">
+                        <div className="flex items-center gap-2.5">
+                          <action.icon className="w-4 h-4 text-primary shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-text-primary">{action.label}</p>
+                            <p className="text-[10px] text-text-muted">{action.desc}</p>
+                          </div>
+                          {aiLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-text-muted shrink-0" />}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* AI Result */}
+                {aiResult && (
+                  <div className="space-y-2 pt-2 border-t border-border/50">
+                    <p className="text-[10px] text-text-muted font-medium">AI RESULT</p>
+
+                    {aiResult.reasoning && (
+                      <div className="insight-card p-3">
+                        <p className="text-xs text-text-secondary leading-relaxed">{aiResult.reasoning}</p>
+                      </div>
+                    )}
+
+                    {aiResult.improvedText && (
+                      <div className="space-y-2">
+                        <div className="card p-3 !bg-success/5 border-success/20">
+                          <p className="text-[10px] text-success font-medium mb-1">SUGGESTED TEXT</p>
+                          <p className="text-xs text-text-primary leading-relaxed">{aiResult.improvedText}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button onClick={handleInsert}
+                            className="btn-primary text-xs flex-1 flex items-center justify-center gap-1.5">
+                            <Replace className="w-3.5 h-3.5" /> Insert into Document
+                          </button>
+                          <button onClick={() => { navigator.clipboard.writeText(aiResult.improvedText); }}
+                            className="btn-secondary text-xs px-3">
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {aiResult.type === 'error' && (
+                      <div className="card p-3 !bg-danger/5 border-danger/20">
+                        <p className="text-xs text-danger">{aiResult.reasoning}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Findings Tab ──────────────────────────────────────── */}
             {activePanel === 'findings' && (
               <div className="space-y-2">
                 {findings.length === 0 ? (
-                  <p className="text-text-muted text-xs text-center py-8">
-                    No findings yet. Run analysis or upload to a matter with a playbook.
-                  </p>
+                  <p className="text-text-muted text-xs text-center py-8">No findings for this document.</p>
                 ) : (
                   findings.map(f => {
                     const sev = SEVERITY[f.severity] || SEVERITY.MEDIUM;
@@ -178,9 +352,10 @@ export default function DocumentEditorPage() {
               </div>
             )}
 
+            {/* ── Analyze Tab ───────────────────────────────────────── */}
             {activePanel === 'analyze' && (
               <div className="space-y-3">
-                <p className="text-xs text-text-muted">Run AI analysis on this document.</p>
+                <p className="text-xs text-text-muted">Run full-document AI analysis.</p>
                 {[
                   { key: 'risk', label: 'Risk Assessment', desc: 'Assess risk across 7 categories' },
                   { key: 'extract', label: 'Extract Key Terms', desc: 'Party names, dates, values' },
