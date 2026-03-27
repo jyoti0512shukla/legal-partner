@@ -20,17 +20,18 @@ export default function DocumentEditorPage() {
   const [coverage, setCoverage] = useState(null);
   const [coverageLoading, setCoverageLoading] = useState(false);
 
-  // Load editor config + document info
+  // Load document info first, editor config separately (may fail if no stored file)
   useEffect(() => {
-    Promise.all([
-      api.get(`/editor/${id}/config`),
-      api.get(`/documents/${id}`),
-    ]).then(([configRes, docRes]) => {
-      setConfig(configRes.data);
-      setDoc(docRes.data);
-    }).catch(e => {
-      setError(e.response?.data?.message || 'Failed to load document for editing. Original file may not be available.');
-    }).finally(() => setLoading(false));
+    api.get(`/documents/${id}`)
+      .then(r => {
+        setDoc(r.data);
+        // Try to get editor config — may fail if file not stored
+        return api.get(`/editor/${id}/config`).then(c => setConfig(c.data)).catch(() => {
+          // No stored file — editor won't load but AI panel still works
+        });
+      })
+      .catch(() => setError('Document not found'))
+      .finally(() => setLoading(false));
   }, [id]);
 
   // Initialize ONLYOFFICE editor
@@ -215,9 +216,26 @@ export default function DocumentEditorPage() {
 
       {/* Split view */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Editor */}
-        <div className="flex-1 bg-white" ref={editorRef}>
-          <div id="onlyoffice-editor" className="h-full" />
+        {/* Editor or fallback */}
+        <div className="flex-1" ref={editorRef}>
+          {config ? (
+            <div id="onlyoffice-editor" className="h-full bg-white" />
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center bg-surface-el p-8">
+              <FileText className="w-12 h-12 text-text-muted mb-4" />
+              <h2 className="text-lg font-semibold text-text-primary mb-2">{doc?.fileName}</h2>
+              <p className="text-sm text-text-muted text-center max-w-md mb-4">
+                Document editor not available — original file was uploaded before file storage was enabled.
+                Re-upload the file to enable in-browser editing.
+              </p>
+              <p className="text-xs text-text-muted mb-6">You can still use the AI panel on the right to analyze this document.</p>
+              <div className="flex gap-3">
+                <Link to={`/intelligence?documentId=${id}`} className="btn-primary text-sm">
+                  Analyze in Intelligence
+                </Link>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AI Panel */}
