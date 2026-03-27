@@ -41,6 +41,7 @@ public class DocumentService {
     private final EmbeddingModel embeddingModel;
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final ApplicationEventPublisher eventPublisher;
+    private final FileStorageService fileStorageService;
 
     private final Tika tika = new Tika();
 
@@ -76,6 +77,17 @@ public class DocumentService {
             repository.save(doc);
             throw new RuntimeException("Failed to read uploaded file", e);
         }
+
+        // Store original file for ONLYOFFICE editing
+        try {
+            String storedPath = fileStorageService.store(doc.getId(), doc.getFileName(), fileBytes);
+            doc.setStoredPath(storedPath);
+            doc.setFileSize(file.getSize());
+            repository.save(doc);
+        } catch (Exception e) {
+            log.warn("Failed to store original file (editor won't work): {}", e.getMessage());
+        }
+
         processDocumentAsync(doc.getId(), fileBytes);
         return doc;
     }

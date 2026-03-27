@@ -115,6 +115,8 @@ services:
       # Drop and rebuild DB automatically when a migration script is edited during development
       FLYWAY_CLEAN_ON_VALIDATION_ERROR: "true"
       FLYWAY_CLEAN_DISABLED: "false"
+    volumes:
+      - document_storage:/data/documents
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,6 +129,18 @@ services:
       retries: 10
     restart: unless-stopped
 
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    ports:
+      - "8443:80"
+    environment:
+      JWT_ENABLED: "false"
+    volumes:
+      - onlyoffice_data:/var/lib/onlyoffice
+    restart: unless-stopped
+
 volumes:
   pgdata:
   ollama_models:
+  onlyoffice_data:
+  document_storage:

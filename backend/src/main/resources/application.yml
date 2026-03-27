@@ -74,6 +74,10 @@ langchain4j:
 
 legalpartner:
   legal-system: ${LEGALPARTNER_LEGAL_SYSTEM:USA}   # USA | INDIA
+  storage:
+    path: ${LEGALPARTNER_STORAGE_PATH:/data/documents}
+  onlyoffice:
+    url: ${LEGALPARTNER_ONLYOFFICE_URL:http://localhost:8443}
   jwt:
     secret: ${JWT_SECRET:change-me-in-production-min-256-bits-required-for-hs256}
     issuer: legal-partner

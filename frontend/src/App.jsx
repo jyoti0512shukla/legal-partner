@@ -22,6 +22,7 @@ import ClauseLibraryPage from './pages/ClauseLibraryPage';
 import EdgarImportPage from './pages/EdgarImportPage';
 import PlaybooksPage from './pages/PlaybooksPage';
 import MatterDetailPage from './pages/MatterDetailPage';
+import DocumentEditorPage from './pages/DocumentEditorPage';
 import AcceptInvitePage from './pages/AcceptInvitePage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
@@ -74,6 +75,7 @@ export default function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/intelligence" element={<IntelligencePage />} />
         <Route path="/documents" element={<DocumentsPage />} />
+        <Route path="/documents/:id/edit" element={<DocumentEditorPage />} />
         <Route path="/draft" element={<DraftPage />} />
         <Route path="/compare" element={<ComparePage />} />
         <Route path="/matters" element={<MattersPage />} />

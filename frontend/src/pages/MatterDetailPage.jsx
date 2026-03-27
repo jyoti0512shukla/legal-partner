@@ -235,7 +235,7 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
       ) : (
         <div className="space-y-2">
           {docs.map(doc => (
-            <div key={doc.id} onClick={() => navigate(`/intelligence?documentId=${doc.id}`)}
+            <div key={doc.id} onClick={() => navigate(`/documents/${doc.id}/edit`)}
               className="card p-3 flex items-center justify-between cursor-pointer hover:border-primary/30 transition-colors">
               <div className="flex items-center gap-3">
                 <FileText className="w-5 h-5 text-text-muted" />

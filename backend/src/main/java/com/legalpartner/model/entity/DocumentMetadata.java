@@ -26,6 +26,12 @@ public class DocumentMetadata {
     @Column(length = 100)
     private String contentType;
 
+    @Column(name = "stored_path", length = 500)
+    private String storedPath;
+
+    @Column(name = "file_size")
+    private Long fileSize;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 50)
     private DocumentType documentType;
