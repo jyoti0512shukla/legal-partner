@@ -184,6 +184,67 @@ Configurable multi-stage approval workflows for document review, defined at the 
 - Channels: Slack webhooks, Microsoft Teams webhooks, email (per user's configured integrations)
 - Pipeline role → matter role mapping: PARTNER → Lead Partner + Partner, ASSOCIATE → Associate, PARALEGAL → Paralegal, ADMIN → Lead Partner
 
+### Playbooks
+
+Playbooks capture your firm's **negotiation positions** per deal type — the rules your AI uses to evaluate contracts.
+
+**What a Playbook Contains:**
+- Deal type (SaaS Acquisition, M&A, NDA, Commercial Lease, etc.)
+- Multiple **positions**, one per clause type (Liability, IP Ownership, Termination, Indemnity, etc.)
+- Each position defines:
+  - **Standard position** — your firm's preferred stance (e.g., "Liability capped at 2x annual fees")
+  - **Minimum acceptable** — the least you'd accept (e.g., "Liability capped at 1x annual fees")
+  - **Non-negotiable flag** — locked positions that cannot be compromised
+  - **Notes** — context for associates on why this position matters
+
+**How Playbooks Are Used:**
+- Assign a default playbook to a matter based on deal type
+- The AI agent compares uploaded contracts against the playbook positions
+- Deviations generate findings: "Liability cap is 0.5x fees — below firm minimum of 1x"
+- Non-negotiable violations generate HIGH severity findings
+- Playbooks are reusable across matters of the same deal type
+
+**Management:**
+- Create/edit via Playbooks page in sidebar
+- Mark one playbook as default per deal type
+- Positions are inline-editable with clause type dropdown
+
+### Workflows
+
+Workflows are **automated multi-step AI pipelines** that process documents — extract, analyze, assess, and generate output.
+
+**Available Step Types:**
+1. **Extract Key Terms** — parties, dates, contract value, liability cap, governing law, notice period, arbitration venue
+2. **Risk Assessment** — categorized risk report (HIGH/MEDIUM/LOW) with clause references
+3. **Clause Checklist** — audits against 12 standard clause types, reports PRESENT/WEAK/MISSING
+4. **Executive Summary** — synthesizes extraction + risk + clause results into a 1-page summary
+5. **Redline Suggestions** — generates improved clause language for risk items
+6. **Draft Clause** — drafts new clauses or full agreement sections from context
+
+**How Workflows Work:**
+- Define a workflow as an ordered sequence of steps
+- Each step can have conditions (e.g., "only run Redline if risk is HIGH")
+- Run manually on any document, or auto-trigger on document upload
+- Steps execute sequentially, each building on prior results
+- Output connectors: email results, post to Slack/Teams webhook
+
+**Workflow Types:**
+- **System workflows** — pre-built (e.g., "Full Analysis": extract → risk → clauses → summary)
+- **Team workflows** — shared across the firm
+- **Custom workflows** — personal, built via drag-and-drop builder
+
+**Execution & Tracking:**
+- Run a workflow from the Workflows page or from a matter's Workflows tab
+- Live progress view: see each step's status (pending/running/completed/failed)
+- Results stored per step — view extracted terms, risk categories, clause coverage, summaries
+- Failed steps show error details, skipped steps show reason
+
+**How Playbooks and Workflows Relate:**
+- Playbooks define the rules ("our firm's position on liability is X")
+- Workflows execute the analysis ("compare this contract against the playbook")
+- A workflow's Risk Assessment step uses the matter's assigned playbook to generate findings
+- Together: **Playbooks = what to check, Workflows = how to check it**
+
 ### Audit Trail
 - Compliance-grade logging of every user action
 - Filter by user, action type, date range
