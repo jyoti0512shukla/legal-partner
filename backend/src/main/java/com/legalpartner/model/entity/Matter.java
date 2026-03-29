@@ -53,6 +53,10 @@ public class Matter {
     @JoinColumn(name = "default_playbook_id")
     private Playbook defaultPlaybook;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "review_pipeline_id")
+    private ReviewPipeline reviewPipeline;
+
     @UpdateTimestamp
     private Instant updatedAt;
 }

@@ -84,6 +84,16 @@ public class MatterController {
         return matterService.updateStatus(id, status, auth.getName());
     }
 
+    @PatchMapping("/{id}/review-pipeline")
+    public MatterResponse setReviewPipeline(
+            @PathVariable UUID id,
+            @RequestParam(required = false) UUID pipelineId,
+            Authentication auth) {
+        User user = matterAccessService.resolveUser(auth);
+        matterAccessService.requireMembership(id, user.getId(), user.getRole());
+        return matterService.setReviewPipeline(id, pipelineId);
+    }
+
     // ── Team management endpoints ────────────────────────────────────────────
 
     @GetMapping("/{id}/team")

@@ -37,6 +37,7 @@ export default function MatterDetailPage() {
   const [tab, setTab] = useState('documents');
   const [team, setTeam] = useState([]);
   const [myRole, setMyRole] = useState(null);
+  const [pipelines, setPipelines] = useState([]);
 
   const isAdmin = user?.role === 'ROLE_ADMIN';
   const isPartner = user?.role === 'ROLE_PARTNER';
@@ -71,10 +72,16 @@ export default function MatterDetailPage() {
       })
       .catch(() => navigate('/matters'))
       .finally(() => setLoading(false));
+    api.get('/review-pipelines').then(r => setPipelines(r.data || [])).catch(() => {});
   }, [id, user, navigate]);
 
   const handleStatusChange = async (status) => {
     await api.patch(`/matters/${id}/status?status=${status}`);
+    fetchMatter();
+  };
+
+  const handlePipelineChange = async (pipelineId) => {
+    await api.patch(`/matters/${id}/review-pipeline?${pipelineId ? `pipelineId=${pipelineId}` : ''}`);
     fetchMatter();
   };
 
@@ -128,6 +135,19 @@ export default function MatterDetailPage() {
             <span className="flex items-center gap-1"><Shield className="w-3.5 h-3.5" /> {findingSummary.count} findings</span>
           )}
           <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {team.length} team members</span>
+          <span className="flex items-center gap-1">
+            <GitPullRequest className="w-3.5 h-3.5" />
+            {canEdit ? (
+              <select value={matter.reviewPipelineId || ''}
+                onChange={e => handlePipelineChange(e.target.value || null)}
+                className="bg-transparent border-none text-xs text-text-muted hover:text-text-primary cursor-pointer p-0 -ml-0.5">
+                <option value="">No review pipeline</option>
+                {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            ) : (
+              <span>{matter.reviewPipelineName || 'No pipeline'}</span>
+            )}
+          </span>
         </div>
       </div>
 
@@ -147,7 +167,8 @@ export default function MatterDetailPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'documents' && <DocumentsTab matterId={id} canUpload={true} onDocUploaded={fetchMatter} />}
+      {tab === 'documents' && <DocumentsTab matterId={id} canUpload={true} onDocUploaded={fetchMatter}
+        defaultPipelineId={matter.reviewPipelineId} defaultPipelineName={matter.reviewPipelineName} pipelines={pipelines} />}
       {tab === 'findings' && <MatterFindingsPanel matterId={id} readOnly={!canReviewFindings} />}
       {tab === 'workflows' && <WorkflowsTab matterId={id} matterRef={matter.matterRef} matterName={matter.name} />}
       {tab === 'team' && <TeamTab matterId={id} team={team} canManage={canManage} onTeamChanged={fetchTeam} />}
@@ -158,15 +179,14 @@ export default function MatterDetailPage() {
 
 // ── Documents Tab ──────────────────────────────────────────────────────
 
-function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
+function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, defaultPipelineName, pipelines }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [reviews, setReviews] = useState([]);
-  const [pipelines, setPipelines] = useState([]);
   const [startingReview, setStartingReview] = useState(null); // docId being started
-  const [selectedPipeline, setSelectedPipeline] = useState('');
+  const [showPipelinePicker, setShowPipelinePicker] = useState(null); // docId showing alternate picker
   const [actionLoading, setActionLoading] = useState(null); // reviewId being acted on
   const [expandedReview, setExpandedReview] = useState(null); // reviewId showing history
   const [reviewHistory, setReviewHistory] = useState([]);
@@ -188,7 +208,6 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
   useEffect(() => {
     fetchDocs();
     fetchReviews();
-    api.get('/review-pipelines').then(r => setPipelines(r.data || [])).catch(() => {});
   }, [matterId]);
 
   const handleUpload = async (files) => {
@@ -216,16 +235,16 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
     handleUpload(e.dataTransfer.files);
   };
 
-  const handleStartReview = async (docId) => {
-    if (!selectedPipeline) return;
+  const handleStartReview = async (docId, pipelineId) => {
+    if (!pipelineId) return;
     setStartingReview(docId);
     try {
-      await api.post(`/review-pipelines/reviews/start?matterId=${matterId}&documentId=${docId}&pipelineId=${selectedPipeline}`);
+      await api.post(`/review-pipelines/reviews/start?matterId=${matterId}&documentId=${docId}&pipelineId=${pipelineId}`);
       fetchReviews();
-      setStartingReview(null);
-      setSelectedPipeline('');
+      setShowPipelinePicker(null);
     } catch (e) {
       alert(e.response?.data?.message || 'Failed to start review');
+    } finally {
       setStartingReview(null);
     }
   };
@@ -426,19 +445,42 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
                   <div className="border-t border-border/50 px-3 py-2 flex items-center gap-2"
                     onClick={(e) => e.stopPropagation()}>
                     <GitPullRequest className="w-3.5 h-3.5 text-text-muted" />
-                    <select value={startingReview === doc.id ? selectedPipeline : ''}
-                      onChange={(e) => { setStartingReview(doc.id); setSelectedPipeline(e.target.value); }}
-                      className="input-field text-[11px] py-1 flex-1">
-                      <option value="">Start review...</option>
-                      {pipelines.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} ({p.stages?.length || 0} stages)</option>
-                      ))}
-                    </select>
-                    {startingReview === doc.id && selectedPipeline && (
-                      <button onClick={() => handleStartReview(doc.id)}
-                        className="btn-primary text-[11px] px-2.5 py-1 flex items-center gap-1">
-                        <Play className="w-3 h-3" /> Start
-                      </button>
+                    {defaultPipelineId ? (
+                      <>
+                        <button onClick={() => handleStartReview(doc.id, defaultPipelineId)}
+                          disabled={startingReview === doc.id}
+                          className="btn-primary text-[11px] px-2.5 py-1 flex items-center gap-1">
+                          {startingReview === doc.id
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : <Play className="w-3 h-3" />}
+                          Start Review
+                        </button>
+                        <span className="text-[10px] text-text-muted">{defaultPipelineName}</span>
+                        <button onClick={() => setShowPipelinePicker(showPipelinePicker === doc.id ? null : doc.id)}
+                          className="text-[10px] text-text-muted hover:text-primary ml-auto">
+                          Use different...
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-[10px] text-text-muted">Select a pipeline:</span>
+                    )}
+                    {(!defaultPipelineId || showPipelinePicker === doc.id) && (
+                      <>
+                        <select defaultValue=""
+                          onChange={(e) => { if (e.target.value) handleStartReview(doc.id, e.target.value); }}
+                          className="input-field text-[11px] py-1 flex-1">
+                          <option value="" disabled>Choose pipeline...</option>
+                          {pipelines.filter(p => p.id !== defaultPipelineId).map(p => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.stages?.length || 0} stages)</option>
+                          ))}
+                        </select>
+                        {showPipelinePicker === doc.id && (
+                          <button onClick={() => setShowPipelinePicker(null)}
+                            className="text-text-muted hover:text-text-primary">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

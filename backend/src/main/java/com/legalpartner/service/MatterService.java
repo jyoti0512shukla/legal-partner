@@ -17,6 +17,7 @@ import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.MatterMemberRepository;
 import com.legalpartner.repository.MatterRepository;
 import com.legalpartner.repository.PlaybookRepository;
+import com.legalpartner.repository.ReviewPipelineRepository;
 import com.legalpartner.repository.TeamMemberRepository;
 import com.legalpartner.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +42,7 @@ public class MatterService {
     private final MatterAccessService matterAccessService;
     private final UserRepository userRepository;
     private final PlaybookRepository playbookRepository;
+    private final ReviewPipelineRepository reviewPipelineRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final AuditService auditService;
     private final TeamMemberRepository teamMemberRepository;
@@ -166,6 +168,20 @@ public class MatterService {
     public Matter requireMatter(UUID matterId) {
         return matterRepository.findById(matterId)
                 .orElseThrow(() -> new NoSuchElementException("Matter not found: " + matterId));
+    }
+
+    public MatterResponse setReviewPipeline(UUID matterId, UUID pipelineId) {
+        Matter matter = matterRepository.findById(matterId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Matter not found"));
+        if (pipelineId != null) {
+            matter.setReviewPipeline(reviewPipelineRepository.findById(pipelineId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pipeline not found")));
+        } else {
+            matter.setReviewPipeline(null);
+        }
+        matter = matterRepository.save(matter);
+        log.info("Matter {} review pipeline set to {}", matter.getMatterRef(), pipelineId);
+        return MatterResponse.from(matter, documentRepository.countByMatterUuid(matterId));
     }
 
     // ── Team management ──────────────────────────────────────────────────────

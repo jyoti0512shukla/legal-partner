@@ -17,7 +17,9 @@ public record MatterResponse(
         int documentCount,
         String dealType,
         UUID defaultPlaybookId,
-        long findingCount
+        long findingCount,
+        UUID reviewPipelineId,
+        String reviewPipelineName
 ) {
     public static MatterResponse from(Matter m, int documentCount) {
         return from(m, documentCount, 0);
@@ -31,7 +33,9 @@ public record MatterResponse(
                 m.getCreatedAt(), documentCount,
                 m.getDealType(),
                 m.getDefaultPlaybook() != null ? m.getDefaultPlaybook().getId() : null,
-                findingCount
+                findingCount,
+                m.getReviewPipeline() != null ? m.getReviewPipeline().getId() : null,
+                m.getReviewPipeline() != null ? m.getReviewPipeline().getName() : null
         );
     }
 }
