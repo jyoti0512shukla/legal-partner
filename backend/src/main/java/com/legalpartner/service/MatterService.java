@@ -34,6 +34,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Slf4j
+@org.springframework.transaction.annotation.Transactional(readOnly = true)
 public class MatterService {
 
     private final MatterRepository matterRepository;
@@ -47,6 +48,7 @@ public class MatterService {
     private final AuditService auditService;
     private final TeamMemberRepository teamMemberRepository;
 
+    @org.springframework.transaction.annotation.Transactional
     public MatterResponse createMatter(MatterRequest request, String username) {
         if (matterRepository.findByMatterRef(request.matterRef()).isPresent()) {
             throw new IllegalArgumentException("Matter reference already exists: " + request.matterRef());
@@ -87,6 +89,7 @@ public class MatterService {
         return MatterResponse.from(matter, 0);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public MatterResponse updateMatter(UUID id, MatterRequest request, String username) {
         Matter matter = matterRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Matter not found"));
@@ -152,6 +155,7 @@ public class MatterService {
         return MatterResponse.from(matter, documentRepository.countByMatterUuid(id));
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public MatterResponse updateStatus(UUID id, String status, String username) {
         Matter matter = matterRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Matter not found: " + id));
@@ -170,6 +174,7 @@ public class MatterService {
                 .orElseThrow(() -> new NoSuchElementException("Matter not found: " + matterId));
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public MatterResponse setReviewPipeline(UUID matterId, UUID pipelineId) {
         Matter matter = matterRepository.findById(matterId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Matter not found"));
@@ -186,6 +191,7 @@ public class MatterService {
 
     // ── Team management ──────────────────────────────────────────────────────
 
+    @org.springframework.transaction.annotation.Transactional
     public MatterMemberResponse addMember(UUID matterId, MatterMemberRequest req,
                                           UUID actingUserId, UserRole actingRole) {
         if (!matterAccessService.canManageTeam(matterId, actingUserId, actingRole)) {
@@ -227,6 +233,7 @@ public class MatterService {
         return toResponse(saved);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public void removeMember(UUID matterId, UUID targetUserId, UUID actingUserId, UserRole actingRole) {
         if (!matterAccessService.canManageTeam(matterId, actingUserId, actingRole)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only LEAD_PARTNER or ADMIN can manage team");
@@ -241,13 +248,13 @@ public class MatterService {
                 .queryText(member.getEmail()).success(true).build());
     }
 
-    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<MatterMemberResponse> listMembers(UUID matterId) {
         return matterMemberRepository.findByMatterId(matterId).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
+    @org.springframework.transaction.annotation.Transactional
     public List<MatterMemberResponse> addTeamToMatter(UUID matterId, UUID teamId, String matterRoleStr,
                                                        UUID actingUserId, com.legalpartner.model.enums.UserRole actingRole) {
         if (!matterAccessService.canManageTeam(matterId, actingUserId, actingRole)) {
