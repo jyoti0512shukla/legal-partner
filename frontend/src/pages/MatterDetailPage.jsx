@@ -563,34 +563,43 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, d
                       </button>
                     )}
 
-                    {/* Other pipelines */}
-                    {pipelines.filter(p => p.id !== defaultPipelineId).length > 0 && (
-                      <>
-                        {defaultPipelineId && (
-                          <p className="text-[10px] text-text-muted mb-2">Or use a different pipeline:</p>
-                        )}
-                        <div className="space-y-1.5">
-                          {pipelines.filter(p => p.id !== defaultPipelineId).map(p => (
-                            <button key={p.id}
-                              onClick={() => handleStartReview(reviewModal.id, p.id)}
-                              disabled={startingReview}
-                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-border hover:border-primary/30 hover:bg-surface-el transition-colors">
-                              <div className="flex items-center gap-2">
-                                <GitPullRequest className="w-3.5 h-3.5 text-text-muted" />
-                                <span className="text-xs font-medium text-text-primary">{p.name}</span>
-                              </div>
-                              <span className="text-[10px] text-text-muted">{p.stages?.length || 0} stages</span>
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-
-                    {pipelines.length === 0 && (
-                      <p className="text-xs text-text-muted text-center py-4">
-                        No review pipelines configured. Create one in Settings.
-                      </p>
-                    )}
+                    {/* All pipelines (or just non-default ones if default is set) */}
+                    {(() => {
+                      const otherPipelines = defaultPipelineId
+                        ? pipelines.filter(p => p.id !== defaultPipelineId)
+                        : pipelines;
+                      if (otherPipelines.length === 0 && !defaultPipelineId && pipelines.length === 0) {
+                        return (
+                          <p className="text-xs text-text-muted text-center py-4">
+                            No review pipelines configured. Create one in Settings.
+                          </p>
+                        );
+                      }
+                      if (otherPipelines.length === 0) return null;
+                      return (
+                        <>
+                          {defaultPipelineId ? (
+                            <p className="text-[10px] text-text-muted mb-2">Or use a different pipeline:</p>
+                          ) : (
+                            <p className="text-[10px] text-text-muted mb-2">Select a pipeline to start review:</p>
+                          )}
+                          <div className="space-y-1.5">
+                            {otherPipelines.map(p => (
+                              <button key={p.id}
+                                onClick={() => handleStartReview(reviewModal.id, p.id)}
+                                disabled={startingReview}
+                                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-border hover:border-primary/30 hover:bg-surface-el transition-colors">
+                                <div className="flex items-center gap-2">
+                                  <GitPullRequest className="w-3.5 h-3.5 text-text-muted" />
+                                  <span className="text-xs font-medium text-text-primary">{p.name}</span>
+                                </div>
+                                <span className="text-[10px] text-text-muted">{p.stages?.length || 0} stages</span>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </>
               )}
