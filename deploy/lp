@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CUSTOMERS_DIR="$DEPLOY_DIR/customers"
+COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
+REMOTE_DIR="/opt/legalpartner"
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+red()   { echo -e "\033[0;31m$*\033[0m"; }
+green() { echo -e "\033[0;32m$*\033[0m"; }
+yellow(){ echo -e "\033[0;33m$*\033[0m"; }
+bold()  { echo -e "\033[1m$*\033[0m"; }
+
+die() { red "ERROR: $*" >&2; exit 1; }
+
+load_customer() {
+  local name="$1"
+  local dir="$CUSTOMERS_DIR/$name"
+  [[ -d "$dir" ]] || die "Customer '$name' not found. Run: lp init $name"
+  [[ -f "$dir/metadata.sh" ]] || die "Missing $dir/metadata.sh"
+  [[ -f "$dir/.env" ]] || die "Missing $dir/.env"
+  # shellcheck source=/dev/null
+  source "$dir/metadata.sh"
+  CUSTOMER_DIR="$dir"
+  CUSTOMER_ENV="$dir/.env"
+  : "${SSH_HOST:?SSH_HOST not set in metadata.sh}"
+  : "${SSH_USER:?SSH_USER not set in metadata.sh}"
+  SSH_TARGET="${SSH_USER}@${SSH_HOST}"
+  SSH_KEY_OPT=""
+  [[ -n "${SSH_KEY:-}" ]] && SSH_KEY_OPT="-i $SSH_KEY"
+}
+
+remote() {
+  # shellcheck disable=SC2086
+  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_KEY_OPT "$SSH_TARGET" "$@"
+}
+
+remote_scp() {
+  # shellcheck disable=SC2086
+  scp -o StrictHostKeyChecking=no $SSH_KEY_OPT "$@"
+}
+
+list_customers() {
+  [[ -d "$CUSTOMERS_DIR" ]] || return
+  for d in "$CUSTOMERS_DIR"/*/; do
+    [[ -f "$d/metadata.sh" ]] && basename "$d"
+  done
+}
+
+# ── Commands ─────────────────────────────────────────────────────────
+
+cmd_init() {
+  local name="${1:?Usage: lp init <customer-name>}"
+  local dir="$CUSTOMERS_DIR/$name"
+
+  [[ -d "$dir" ]] && die "Customer '$name' already exists at $dir"
+  mkdir -p "$dir"
+
+  # Copy template
+  cp "$DEPLOY_DIR/.env.template" "$dir/.env"
+
+  # Generate secrets
+  local db_pass jwt_secret enc_key
+  db_pass=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
+  jwt_secret=$(openssl rand -base64 48 | tr -d '/+=' | head -c 48)
+  enc_key=$(openssl rand -base64 32 | tr -d '/+=' | head -c 32)
+
+  # Fill in generated secrets
+  if [[ "$(uname)" == "Darwin" ]]; then
+    sed -i '' "s|^DB_PASSWORD=.*|DB_PASSWORD=$db_pass|" "$dir/.env"
+    sed -i '' "s|^JWT_SECRET=.*|JWT_SECRET=$jwt_secret|" "$dir/.env"
+    sed -i '' "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$enc_key|" "$dir/.env"
+  else
+    sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=$db_pass|" "$dir/.env"
+    sed -i "s|^JWT_SECRET=.*|JWT_SECRET=$jwt_secret|" "$dir/.env"
+    sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=$enc_key|" "$dir/.env"
+  fi
+
+  # Prompt for metadata
+  echo ""
+  bold "Initializing customer: $name"
+  echo ""
+  read -rp "SSH host (IP or hostname): " ssh_host
+  read -rp "SSH user [deploy]: " ssh_user
+  ssh_user="${ssh_user:-deploy}"
+  read -rp "SSH key path (blank for default): " ssh_key
+  read -rp "Customer domain (e.g., sharmalaw.legal-ai.studio): " domain
+
+  cat > "$dir/metadata.sh" <<EOF
+# Customer: $name
+SSH_HOST="$ssh_host"
+SSH_USER="$ssh_user"
+SSH_KEY="${ssh_key}"
+CUSTOMER_NAME="$name"
+DOMAIN="$domain"
+EOF
+
+  # Fill in URLs if domain provided
+  if [[ -n "$domain" ]]; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+      sed -i '' "s|^LEGALPARTNER_APP_URL=.*|LEGALPARTNER_APP_URL=http://$domain|" "$dir/.env"
+      sed -i '' "s|^LEGALPARTNER_CLOUD_FRONTEND_URL=.*|LEGALPARTNER_CLOUD_FRONTEND_URL=http://$domain|" "$dir/.env"
+      sed -i '' "s|^LEGALPARTNER_CLOUD_BACKEND_URL=.*|LEGALPARTNER_CLOUD_BACKEND_URL=http://$domain/api|" "$dir/.env"
+    else
+      sed -i "s|^LEGALPARTNER_APP_URL=.*|LEGALPARTNER_APP_URL=http://$domain|" "$dir/.env"
+      sed -i "s|^LEGALPARTNER_CLOUD_FRONTEND_URL=.*|LEGALPARTNER_CLOUD_FRONTEND_URL=http://$domain|" "$dir/.env"
+      sed -i "s|^LEGALPARTNER_CLOUD_BACKEND_URL=.*|LEGALPARTNER_CLOUD_BACKEND_URL=http://$domain/api|" "$dir/.env"
+    fi
+  fi
+
+  echo ""
+  green "Customer '$name' initialized at $dir"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Edit $dir/.env — fill in LLM keys, SMTP, integrations"
+  echo "  2. Run: lp provision $name"
+  echo "  3. Run: lp deploy $name"
+}
+
+cmd_provision() {
+  local name="${1:?Usage: lp provision <customer>}"
+  load_customer "$name"
+
+  bold "Provisioning $name ($SSH_TARGET)..."
+
+  # Install Docker if needed
+  remote "command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker \$USER)"
+
+  # Create remote directory
+  remote "sudo mkdir -p $REMOTE_DIR && sudo chown \$USER:\$USER $REMOTE_DIR"
+
+  green "Provisioned $name. Run: lp deploy $name"
+}
+
+cmd_deploy() {
+  local name="${1:?Usage: lp deploy <customer> [tag]}"
+  local tag="${2:-}"
+  load_customer "$name"
+
+  # Override IMAGE_TAG if provided
+  if [[ -n "$tag" ]]; then
+    yellow "Pinning IMAGE_TAG=$tag"
+    if [[ "$(uname)" == "Darwin" ]]; then
+      sed -i '' "s|^IMAGE_TAG=.*|IMAGE_TAG=$tag|" "$CUSTOMER_ENV"
+    else
+      sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=$tag|" "$CUSTOMER_ENV"
+    fi
+  fi
+
+  bold "Deploying $name ($SSH_TARGET)..."
+
+  # Push files
+  echo "  Pushing compose + config..."
+  remote_scp "$COMPOSE_FILE" "$SSH_TARGET:$REMOTE_DIR/docker-compose.yml"
+  remote_scp "$CUSTOMER_ENV" "$SSH_TARGET:$REMOTE_DIR/.env"
+
+  # Pull + restart
+  echo "  Pulling images..."
+  remote "cd $REMOTE_DIR && docker compose pull"
+
+  echo "  Starting services..."
+  remote "cd $REMOTE_DIR && docker compose up -d"
+
+  # Health check
+  echo "  Waiting for backend health..."
+  local attempts=0
+  while ! remote "curl -sf http://localhost:8080/actuator/health >/dev/null 2>&1"; do
+    attempts=$((attempts + 1))
+    [[ $attempts -ge 24 ]] && die "Backend health check failed after 120s"
+    sleep 5
+  done
+
+  green "Deployed $name successfully!"
+  cmd_status "$name"
+}
+
+cmd_deploy_all() {
+  local tag="${1:-}"
+  for name in $(list_customers); do
+    echo ""
+    cmd_deploy "$name" "$tag" || yellow "Failed to deploy $name, continuing..."
+    echo ""
+  done
+}
+
+cmd_rollback() {
+  local name="${1:?Usage: lp rollback <customer> <tag>}"
+  local tag="${2:?Usage: lp rollback <customer> <tag>}"
+  yellow "Rolling back $name to $tag..."
+  cmd_deploy "$name" "$tag"
+}
+
+cmd_status() {
+  local name="${1:?Usage: lp status <customer>}"
+  load_customer "$name"
+
+  bold "Status: $name ($SSH_TARGET)"
+  echo ""
+  remote "cd $REMOTE_DIR && docker compose ps --format 'table {{.Name}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || docker compose ps"
+  echo ""
+
+  # Health check
+  if remote "curl -sf http://localhost:8080/actuator/health >/dev/null 2>&1"; then
+    green "Backend: healthy"
+  else
+    red "Backend: unhealthy"
+  fi
+
+  if remote "curl -sf http://localhost:80 >/dev/null 2>&1"; then
+    green "Frontend: healthy"
+  else
+    red "Frontend: unreachable"
+  fi
+}
+
+cmd_status_all() {
+  for name in $(list_customers); do
+    echo ""
+    cmd_status "$name" || true
+    echo ""
+  done
+}
+
+cmd_logs() {
+  local name="${1:?Usage: lp logs <customer> [service]}"
+  local service="${2:-}"
+  load_customer "$name"
+  remote "cd $REMOTE_DIR && docker compose logs --tail=100 -f $service"
+}
+
+cmd_backup() {
+  local name="${1:?Usage: lp backup <customer>}"
+  load_customer "$name"
+
+  local timestamp
+  timestamp=$(date +%Y%m%d-%H%M%S)
+  local dump_file="legalpartner-${name}-${timestamp}.sql.gz"
+
+  bold "Backing up $name database..."
+  remote "cd $REMOTE_DIR && docker compose exec -T postgres pg_dump -U legalpartner legalpartner | gzip" > "$CUSTOMERS_DIR/$name/$dump_file"
+  green "Backup saved to $CUSTOMERS_DIR/$name/$dump_file"
+}
+
+cmd_ssh() {
+  local name="${1:?Usage: lp ssh <customer>}"
+  load_customer "$name"
+  # shellcheck disable=SC2086
+  ssh -o StrictHostKeyChecking=no $SSH_KEY_OPT "$SSH_TARGET"
+}
+
+cmd_list() {
+  bold "Customers:"
+  for name in $(list_customers); do
+    source "$CUSTOMERS_DIR/$name/metadata.sh"
+    echo "  $name  →  ${SSH_USER}@${SSH_HOST}  (${DOMAIN:-no domain})"
+  done
+}
+
+# ── Main ─────────────────────────────────────────────────────────────
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  init)       cmd_init "$@" ;;
+  provision)  cmd_provision "$@" ;;
+  deploy)     cmd_deploy "$@" ;;
+  deploy-all) cmd_deploy_all "$@" ;;
+  rollback)   cmd_rollback "$@" ;;
+  status)     cmd_status "$@" ;;
+  status-all) cmd_status_all "$@" ;;
+  logs)       cmd_logs "$@" ;;
+  backup)     cmd_backup "$@" ;;
+  ssh)        cmd_ssh "$@" ;;
+  list)       cmd_list ;;
+  help|*)
+    bold "lp — Legal Partner deployment CLI"
+    echo ""
+    echo "Usage: lp <command> [args]"
+    echo ""
+    echo "Commands:"
+    echo "  init <customer>           Create customer config from template"
+    echo "  provision <customer>      Install Docker on VM, create directories"
+    echo "  deploy <customer> [tag]   Push config, pull images, start services"
+    echo "  deploy-all [tag]          Deploy to all customers"
+    echo "  rollback <customer> <tag> Pin image tag and redeploy"
+    echo "  status <customer>         Show service status and health"
+    echo "  status-all                Status of all customers"
+    echo "  logs <customer> [service] Tail logs (e.g., lp logs acme backend)"
+    echo "  backup <customer>         Dump database to local file"
+    echo "  ssh <customer>            SSH into customer VM"
+    echo "  list                      List all customers"
+    echo ""
+    ;;
+esac

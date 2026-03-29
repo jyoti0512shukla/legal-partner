@@ -26,6 +26,9 @@ ollama_models/
 *.env.local
 .venv-convert/
 
+# Customer deployment configs (secrets)
+deploy/customers/
+
 # OS
 Thumbs.db
 .DS_Store

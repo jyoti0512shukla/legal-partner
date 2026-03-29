@@ -19,12 +19,22 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Compute image tags
+        id: tags
+        run: |
+          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          DATE=$(date -u +%Y%m%d-%H%M%S)
+          PREFIX="${{ secrets.DOCKERHUB_USERNAME }}"
+          echo "backend=${PREFIX}/legal-partner-backend:latest,${PREFIX}/legal-partner-backend:${SHA},${PREFIX}/legal-partner-backend:${DATE}" >> "$GITHUB_OUTPUT"
+          echo "frontend=${PREFIX}/legal-partner-frontend:latest,${PREFIX}/legal-partner-frontend:${SHA},${PREFIX}/legal-partner-frontend:${DATE}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push backend
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/legal-partner-backend:latest
+          tags: ${{ steps.tags.outputs.backend }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -33,6 +43,6 @@ jobs:
         with:
           context: ./frontend
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/legal-partner-frontend:latest
+          tags: ${{ steps.tags.outputs.frontend }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
