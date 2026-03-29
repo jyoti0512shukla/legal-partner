@@ -372,19 +372,17 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, d
                     {doc.processingStatus || 'PENDING'}
                   </span>
                   {/* Review button */}
-                  {pipelines.length > 0 && (
-                    <button onClick={(e) => { e.stopPropagation(); openReviewModal(doc); }}
-                      className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
-                        activeReview
-                          ? `${reviewStatus.bg} ${reviewStatus.color}`
-                          : 'bg-surface-el text-text-muted hover:text-primary hover:bg-primary/5'
-                      }`}>
-                      <GitPullRequest className="w-3.5 h-3.5" />
-                      {activeReview
-                        ? `${activeReview.currentStageName} (${activeReview.currentStageOrder}/${activeReview.totalStages})`
-                        : 'Review'}
-                    </button>
-                  )}
+                  <button onClick={(e) => { e.stopPropagation(); openReviewModal(doc); }}
+                    className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                      activeReview
+                        ? `${reviewStatus?.bg} ${reviewStatus?.color}`
+                        : 'bg-surface-el text-text-muted hover:text-primary hover:bg-primary/5'
+                    }`}>
+                    <GitPullRequest className="w-3.5 h-3.5" />
+                    {activeReview
+                      ? `${activeReview.currentStageName} (${activeReview.currentStageOrder}/${activeReview.totalStages})`
+                      : 'Review'}
+                  </button>
                 </div>
               </div>
             );
