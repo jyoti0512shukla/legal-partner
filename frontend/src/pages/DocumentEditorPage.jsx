@@ -1,10 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, Shield, AlertTriangle, Loader2, FileText, Play, Wand2, Type, ClipboardCheck, Replace, Gauge } from 'lucide-react';
 import api from '../api/client';
 
 export default function DocumentEditorPage() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const matterId = searchParams.get('matterId');
   const editorRef = useRef(null);
   const editorInstance = useRef(null);
   const [config, setConfig] = useState(null);
@@ -24,7 +26,9 @@ export default function DocumentEditorPage() {
   useEffect(() => {
     api.get(`/documents/${id}`)
       .then(r => {
-        setDoc(r.data);
+        // Flatten: API returns { metadata, segmentsByClauseType }
+        const d = r.data?.metadata || r.data;
+        setDoc(d);
         // Try to get editor config — may fail if file not stored
         return api.get(`/editor/${id}/config`).then(c => setConfig(c.data)).catch(() => {
           // No stored file — editor won't load but AI panel still works
@@ -91,11 +95,11 @@ export default function DocumentEditorPage() {
 
   // Load findings
   useEffect(() => {
-    if (!doc?.matter?.id) return;
-    api.get(`/matters/${doc.matter.id}/findings`)
+    if (!matterId) return;
+    api.get(`/matters/${matterId}/findings`)
       .then(r => setFindings((r.data || []).filter(f => f.documentId === id)))
       .catch(() => {});
-  }, [doc, id]);
+  }, [matterId, id]);
 
   // AI actions on selected text
   const handleSelectionAction = async (action) => {
@@ -168,8 +172,8 @@ export default function DocumentEditorPage() {
         case 'extract': await api.post(`/ai/extract/${id}`); break;
         case 'review': await api.post('/review', { documentId: id }); break;
       }
-      if (doc?.matter?.id) {
-        const res = await api.get(`/matters/${doc.matter.id}/findings`);
+      if (matterId) {
+        const res = await api.get(`/matters/${matterId}/findings`);
         setFindings((res.data || []).filter(f => f.documentId === id));
       }
     } catch (e) { alert(e.response?.data?.message || 'Analysis failed'); }
@@ -206,7 +210,7 @@ export default function DocumentEditorPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-surface border-b border-border/50 shrink-0">
         <div className="flex items-center gap-3">
-          <Link to={doc?.matter?.id ? `/matters/${doc.matter.id}` : '/documents'}
+          <Link to={matterId ? `/matters/${matterId}` : '/documents'}
             className="text-text-muted hover:text-text-primary">
             <ArrowLeft className="w-4 h-4" />
           </Link>

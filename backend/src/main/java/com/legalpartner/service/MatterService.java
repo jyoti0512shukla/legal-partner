@@ -241,6 +241,7 @@ public class MatterService {
                 .queryText(member.getEmail()).success(true).build());
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public List<MatterMemberResponse> listMembers(UUID matterId) {
         return matterMemberRepository.findByMatterId(matterId).stream()
                 .map(this::toResponse)
