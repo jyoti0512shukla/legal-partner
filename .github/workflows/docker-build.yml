@@ -30,12 +30,24 @@ jobs:
       - name: Compute image tags
         id: tags
         run: |
-          SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          DATE=$(date -u +%Y%m%d-%H%M%S)
           PREFIX="${{ env.IMAGE_PREFIX }}"
-          echo "backend=${PREFIX}/legal-partner-backend:latest,${PREFIX}/legal-partner-backend:${SHA},${PREFIX}/legal-partner-backend:${DATE}" >> "$GITHUB_OUTPUT"
-          echo "frontend=${PREFIX}/legal-partner-frontend:latest,${PREFIX}/legal-partner-frontend:${SHA},${PREFIX}/legal-partner-frontend:${DATE}" >> "$GITHUB_OUTPUT"
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          DATE=$(date -u +%Y.%m.%d)
+
+          # Count today's releases by checking existing tags in ghcr.io
+          EXISTING=$(docker manifest inspect "${PREFIX}/legal-partner-backend:v${DATE}-1" > /dev/null 2>&1 && echo "exists" || echo "")
+          RELEASE=1
+          if [[ -n "$EXISTING" ]]; then
+            # Find the highest release number for today
+            for i in $(seq 1 50); do
+              docker manifest inspect "${PREFIX}/legal-partner-backend:v${DATE}-${i}" > /dev/null 2>&1 && RELEASE=$((i + 1)) || break
+            done
+          fi
+
+          VERSION="v${DATE}-${RELEASE}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "backend=${PREFIX}/legal-partner-backend:latest,${PREFIX}/legal-partner-backend:${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "frontend=${PREFIX}/legal-partner-frontend:latest,${PREFIX}/legal-partner-frontend:${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "### 🐳 Image version: \`${VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and push backend
         uses: docker/build-push-action@v5

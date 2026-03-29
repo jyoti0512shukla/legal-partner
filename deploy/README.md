@@ -155,20 +155,19 @@ Every push to `main` creates tagged images. To roll back:
 ### Find the version to roll back to
 
 ```bash
-# Check git log for the commit SHA before the bad change
-git log --oneline -10
+# Check GitHub Actions — each run shows the version in the summary
+# e.g., v2026.03.29-1, v2026.03.28-3, v2026.03.27-1
 
-# Or check GitHub Actions for image tags
-# Each run shows the SHA tag it pushed
+# Or check ghcr.io packages page for available tags
 ```
 
 ### Roll back
 
 ```bash
-bash deploy/lp rollback acme-legal abc1234
+bash deploy/lp rollback acme-legal v2026.03.28-3
 ```
 
-This pins `IMAGE_TAG=abc1234` in the customer's `.env` and redeploys. The VM will pull the specific version instead of `:latest`.
+This pins `IMAGE_TAG=v2026.03.28-3` in the customer's `.env` and redeploys. The VM will pull that specific version instead of `:latest`.
 
 ### Roll forward (back to latest)
 
@@ -268,13 +267,14 @@ Docker volumes (persistent data):
 
 ## Image Tags
 
-Every push to `main` produces three tags per image:
+Every push to `main` produces two tags per image:
 
 | Tag | Example | Use |
 |-----|---------|-----|
 | `:latest` | `legal-partner-backend:latest` | Normal deploys |
-| `:<sha>` | `legal-partner-backend:abc1234` | Precise rollback |
-| `:<date>` | `legal-partner-backend:20260329-143022` | Human reference |
+| `:vDATE-N` | `legal-partner-backend:v2026.03.29-1` | Versioned release for rollback |
+
+The release number auto-increments per day (v2026.03.29-1, v2026.03.29-2, etc.). The version is also shown in the GitHub Actions run summary.
 
 Images are stored at `ghcr.io/jyoti0512shukla/legal-partner-backend` and `legal-partner-frontend`.
 
