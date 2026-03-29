@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CUSTOMERS_DIR="$DEPLOY_DIR/customers"
@@ -33,13 +33,26 @@ load_customer() {
 }
 
 remote() {
-  # shellcheck disable=SC2086
-  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_KEY_OPT "$SSH_TARGET" "$@"
+  if [[ -n "${GCP_VM:-}" ]]; then
+    gcloud compute ssh "${SSH_USER}@${GCP_VM}" --zone="${GCP_ZONE}" --command="$*"
+  else
+    # shellcheck disable=SC2086
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 $SSH_KEY_OPT "$SSH_TARGET" "$@"
+  fi
 }
 
 remote_scp() {
-  # shellcheck disable=SC2086
-  scp -o StrictHostKeyChecking=no $SSH_KEY_OPT "$@"
+  if [[ -n "${GCP_VM:-}" ]]; then
+    # gcloud scp: local_file → remote:path
+    local src="$1"
+    local dest="$2"
+    # dest is user@host:/path — extract just the path
+    local remote_path="${dest##*:}"
+    gcloud compute scp "$src" "${SSH_USER}@${GCP_VM}:${remote_path}" --zone="${GCP_ZONE}"
+  else
+    # shellcheck disable=SC2086
+    scp -o StrictHostKeyChecking=no $SSH_KEY_OPT "$@"
+  fi
 }
 
 list_customers() {
@@ -173,10 +186,10 @@ cmd_deploy() {
 
   # Pull + restart
   echo "  Pulling images..."
-  remote "cd $REMOTE_DIR && docker compose pull"
+  remote "cd $REMOTE_DIR && docker-compose pull"
 
   echo "  Starting services..."
-  remote "cd $REMOTE_DIR && docker compose up -d"
+  remote "cd $REMOTE_DIR && docker-compose up -d"
 
   # Health check
   echo "  Waiting for backend health..."
@@ -213,7 +226,7 @@ cmd_status() {
 
   bold "Status: $name ($SSH_TARGET)"
   echo ""
-  remote "cd $REMOTE_DIR && docker compose ps --format 'table {{.Name}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || docker compose ps"
+  remote "cd $REMOTE_DIR && docker-compose ps --format 'table {{.Name}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null || docker-compose ps"
   echo ""
 
   # Health check
@@ -223,10 +236,13 @@ cmd_status() {
     red "Backend: unhealthy"
   fi
 
-  if remote "curl -sf http://localhost:80 >/dev/null 2>&1"; then
-    green "Frontend: healthy"
+  local fport
+  fport=$(grep -E '^FRONTEND_PORT=' "$CUSTOMER_ENV" 2>/dev/null | cut -d= -f2)
+  fport="${fport:-80}"
+  if remote "curl -sf http://localhost:${fport} >/dev/null 2>&1"; then
+    green "Frontend: healthy (port $fport)"
   else
-    red "Frontend: unreachable"
+    red "Frontend: unreachable (port $fport)"
   fi
 }
 
@@ -242,7 +258,7 @@ cmd_logs() {
   local name="${1:?Usage: lp logs <customer> [service]}"
   local service="${2:-}"
   load_customer "$name"
-  remote "cd $REMOTE_DIR && docker compose logs --tail=100 -f $service"
+  remote "cd $REMOTE_DIR && docker-compose logs --tail=100 -f $service"
 }
 
 cmd_backup() {
@@ -254,15 +270,19 @@ cmd_backup() {
   local dump_file="legalpartner-${name}-${timestamp}.sql.gz"
 
   bold "Backing up $name database..."
-  remote "cd $REMOTE_DIR && docker compose exec -T postgres pg_dump -U legalpartner legalpartner | gzip" > "$CUSTOMERS_DIR/$name/$dump_file"
+  remote "cd $REMOTE_DIR && docker-compose exec -T postgres pg_dump -U legalpartner legalpartner | gzip" > "$CUSTOMERS_DIR/$name/$dump_file"
   green "Backup saved to $CUSTOMERS_DIR/$name/$dump_file"
 }
 
 cmd_ssh() {
   local name="${1:?Usage: lp ssh <customer>}"
   load_customer "$name"
-  # shellcheck disable=SC2086
-  ssh -o StrictHostKeyChecking=no $SSH_KEY_OPT "$SSH_TARGET"
+  if [[ -n "${GCP_VM:-}" ]]; then
+    gcloud compute ssh "${SSH_USER}@${GCP_VM}" --zone="${GCP_ZONE}"
+  else
+    # shellcheck disable=SC2086
+    ssh -o StrictHostKeyChecking=no $SSH_KEY_OPT "$SSH_TARGET"
+  fi
 }
 
 cmd_list() {
