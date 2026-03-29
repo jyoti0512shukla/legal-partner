@@ -16,7 +16,7 @@ export default function DocumentEditorPage() {
   const [activePanel, setActivePanel] = useState('selection');
   const [selectedText, setSelectedText] = useState('');
   const [aiResult, setAiResult] = useState(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(null); // tracks which action key is loading
   const [coverage, setCoverage] = useState(null);
   const [coverageLoading, setCoverageLoading] = useState(false);
 
@@ -69,19 +69,25 @@ export default function DocumentEditorPage() {
   }, [config]);
 
   // Poll for selected text every 500ms when selection tab is active
+  const connectorRef = useRef(null);
   useEffect(() => {
     if (activePanel !== 'selection' || !editorInstance.current) return;
+    // Create connector once for this effect
+    try {
+      if (!connectorRef.current) {
+        connectorRef.current = editorInstance.current.createConnector();
+      }
+    } catch { return; }
+
     const interval = setInterval(() => {
       try {
-        // ONLYOFFICE plugin API: get selected text
-        if (editorInstance.current && editorInstance.current.getSelectedText) {
-          const text = editorInstance.current.getSelectedText();
-          if (text && text !== selectedText) setSelectedText(text);
-        }
+        connectorRef.current.executeMethod('GetSelectedText', null, (text) => {
+          if (text && text.trim()) setSelectedText(text.trim());
+        });
       } catch { /* editor not ready */ }
     }, 500);
     return () => clearInterval(interval);
-  }, [activePanel, selectedText]);
+  }, [activePanel]);
 
   // Load findings
   useEffect(() => {
@@ -95,7 +101,7 @@ export default function DocumentEditorPage() {
   const handleSelectionAction = async (action) => {
     const text = selectedText.trim();
     if (!text) { alert('Select text in the document first'); return; }
-    setAiLoading(true);
+    setAiLoading(action);
     setAiResult(null);
 
     try {
@@ -127,16 +133,25 @@ export default function DocumentEditorPage() {
     } catch (e) {
       setAiResult({ type: 'error', reasoning: e.response?.data?.message || 'Analysis failed' });
     } finally {
-      setAiLoading(false);
+      setAiLoading(null);
     }
   };
 
   // Insert AI suggestion into document
   const handleInsert = () => {
-    if (!aiResult?.improvedText || !editorInstance.current) return;
+    if (!aiResult?.improvedText) return;
+
+    // No ONLYOFFICE editor — replace the pasted text in the textarea
+    if (!editorInstance.current) {
+      setSelectedText(aiResult.improvedText);
+      setAiResult(null);
+      return;
+    }
+
     try {
-      // Use ONLYOFFICE command API to replace selection
-      editorInstance.current.serviceCommand('replaceSelection', aiResult.improvedText);
+      // Use ONLYOFFICE Connector API to paste at selection
+      const connector = editorInstance.current.createConnector();
+      connector.executeMethod('PasteText', [aiResult.improvedText]);
     } catch {
       // Fallback: copy to clipboard
       navigator.clipboard.writeText(aiResult.improvedText);
@@ -293,7 +308,7 @@ export default function DocumentEditorPage() {
                       { key: 'simplify', label: 'Simplify Language', desc: 'Clearer, more readable', icon: Type },
                     ].map(action => (
                       <button key={action.key} onClick={() => handleSelectionAction(action.key)}
-                        disabled={aiLoading}
+                        disabled={!!aiLoading}
                         className="w-full text-left card p-2.5 hover:border-primary/30 transition-colors !bg-surface-el">
                         <div className="flex items-center gap-2.5">
                           <action.icon className="w-4 h-4 text-primary shrink-0" />
@@ -301,7 +316,7 @@ export default function DocumentEditorPage() {
                             <p className="text-xs font-medium text-text-primary">{action.label}</p>
                             <p className="text-[10px] text-text-muted">{action.desc}</p>
                           </div>
-                          {aiLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-text-muted shrink-0" />}
+                          {aiLoading === action.key && <Loader2 className="w-3.5 h-3.5 animate-spin text-text-muted shrink-0" />}
                         </div>
                       </button>
                     ))}

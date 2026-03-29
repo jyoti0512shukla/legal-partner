@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, FileText, Shield, Workflow, Users, Clock, Plus, Upload, Trash2, X,
-  Loader2, CheckCircle2, XCircle, AlertTriangle, Edit2, Play
+  Loader2, CheckCircle2, XCircle, AlertTriangle, Edit2, Play,
+  GitPullRequest, ChevronRight, RotateCcw, Flag, Send, MessageSquare
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import api from '../api/client';
@@ -162,6 +163,13 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [reviews, setReviews] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
+  const [startingReview, setStartingReview] = useState(null); // docId being started
+  const [selectedPipeline, setSelectedPipeline] = useState('');
+  const [actionLoading, setActionLoading] = useState(null); // reviewId being acted on
+  const [expandedReview, setExpandedReview] = useState(null); // reviewId showing history
+  const [reviewHistory, setReviewHistory] = useState([]);
   const navigate = useNavigate();
 
   const fetchDocs = () => {
@@ -170,7 +178,18 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
       .catch(() => {})
       .finally(() => setLoading(false));
   };
-  useEffect(fetchDocs, [matterId]);
+
+  const fetchReviews = () => {
+    api.get(`/review-pipelines/reviews/matter/${matterId}`)
+      .then(r => setReviews(r.data || []))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchDocs();
+    fetchReviews();
+    api.get('/review-pipelines').then(r => setPipelines(r.data || [])).catch(() => {});
+  }, [matterId]);
 
   const handleUpload = async (files) => {
     if (!files?.length) return;
@@ -195,6 +214,61 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
     e.preventDefault();
     setDragOver(false);
     handleUpload(e.dataTransfer.files);
+  };
+
+  const handleStartReview = async (docId) => {
+    if (!selectedPipeline) return;
+    setStartingReview(docId);
+    try {
+      await api.post(`/review-pipelines/reviews/start?matterId=${matterId}&documentId=${docId}&pipelineId=${selectedPipeline}`);
+      fetchReviews();
+      setStartingReview(null);
+      setSelectedPipeline('');
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to start review');
+      setStartingReview(null);
+    }
+  };
+
+  const handleAction = async (reviewId, action) => {
+    setActionLoading(reviewId);
+    try {
+      const notes = action === 'RETURN' || action === 'FLAG'
+        ? prompt(`Add a note for ${action.toLowerCase()}:`) || ''
+        : '';
+      await api.post(`/review-pipelines/reviews/${reviewId}/action`, { action, notes });
+      fetchReviews();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Action failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const toggleHistory = async (reviewId) => {
+    if (expandedReview === reviewId) { setExpandedReview(null); return; }
+    try {
+      const res = await api.get(`/review-pipelines/reviews/${reviewId}/actions`);
+      setReviewHistory(res.data || []);
+      setExpandedReview(reviewId);
+    } catch { setExpandedReview(null); }
+  };
+
+  const getDocReview = (docId) => reviews.find(r => r.documentId === docId && r.status === 'IN_PROGRESS');
+  const getDocCompletedReviews = (docId) => reviews.filter(r => r.documentId === docId && r.status !== 'IN_PROGRESS');
+
+  const REVIEW_STATUS = {
+    IN_PROGRESS: { color: 'text-warning', bg: 'bg-warning/10', label: 'In Review' },
+    APPROVED: { color: 'text-success', bg: 'bg-success/10', label: 'Approved' },
+    SENT: { color: 'text-primary', bg: 'bg-primary/10', label: 'Sent' },
+  };
+
+  const ACTION_ICONS = {
+    APPROVE: { icon: CheckCircle2, color: 'text-success hover:bg-success/10', label: 'Approve' },
+    RETURN: { icon: RotateCcw, color: 'text-warning hover:bg-warning/10', label: 'Return' },
+    FLAG: { icon: Flag, color: 'text-danger hover:bg-danger/10', label: 'Flag' },
+    SEND: { icon: Send, color: 'text-primary hover:bg-primary/10', label: 'Send' },
+    ADD_NOTE: { icon: MessageSquare, color: 'text-text-muted hover:bg-surface-el', label: 'Note' },
   };
 
   if (loading) return <div className="flex items-center gap-2 text-text-muted py-4"><Loader2 className="w-4 h-4 animate-spin" /> Loading documents...</div>;
@@ -233,25 +307,144 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded }) {
       {docs.length === 0 ? (
         <p className="text-text-muted text-sm text-center py-6">No documents uploaded to this matter yet.</p>
       ) : (
-        <div className="space-y-2">
-          {docs.map(doc => (
-            <div key={doc.id} onClick={() => navigate(`/documents/${doc.id}/edit`)}
-              className="card p-3 flex items-center justify-between cursor-pointer hover:border-primary/30 transition-colors">
-              <div className="flex items-center gap-3">
-                <FileText className="w-5 h-5 text-text-muted" />
-                <div>
-                  <div className="text-sm font-medium text-text-primary">{doc.fileName || doc.name}</div>
-                  <div className="text-[10px] text-text-muted">
-                    {doc.documentType && <span>{doc.documentType} · </span>}
-                    {new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString()}
+        <div className="space-y-3">
+          {docs.map(doc => {
+            const activeReview = getDocReview(doc.id);
+            const completedReviews = getDocCompletedReviews(doc.id);
+            const reviewStatus = activeReview ? REVIEW_STATUS[activeReview.status] : null;
+            const actions = activeReview?.availableActions?.split(',').filter(Boolean) || [];
+
+            return (
+              <div key={doc.id} className="card overflow-hidden">
+                {/* Document row */}
+                <div className="p-3 flex items-center justify-between cursor-pointer hover:bg-surface-el/50 transition-colors"
+                  onClick={() => navigate(`/documents/${doc.id}/edit`)}>
+                  <div className="flex items-center gap-3">
+                    <FileText className="w-5 h-5 text-text-muted" />
+                    <div>
+                      <div className="text-sm font-medium text-text-primary">{doc.fileName || doc.name}</div>
+                      <div className="text-[10px] text-text-muted">
+                        {doc.documentType && <span>{doc.documentType} · </span>}
+                        {new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* Completed review badges */}
+                    {completedReviews.map(r => {
+                      const st = REVIEW_STATUS[r.status] || REVIEW_STATUS.APPROVED;
+                      return (
+                        <span key={r.id} className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${st.bg} ${st.color}`}>
+                          {st.label}
+                        </span>
+                      );
+                    })}
+                    <span className={`text-[10px] font-medium ${DOC_STATUS_COLORS[doc.processingStatus] || 'text-text-muted'}`}>
+                      {doc.processingStatus || 'PENDING'}
+                    </span>
                   </div>
                 </div>
+
+                {/* Active review bar */}
+                {activeReview && (
+                  <div className="border-t border-border/50 px-3 py-2 bg-surface-el/30">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <GitPullRequest className={`w-3.5 h-3.5 ${reviewStatus.color}`} />
+                        <span className="text-xs font-medium text-text-primary">{activeReview.pipelineName}</span>
+                        <span className="text-[10px] text-text-muted">·</span>
+                        <span className={`text-[10px] font-medium ${reviewStatus.color}`}>
+                          {activeReview.currentStageName}
+                        </span>
+                        {activeReview.requiredRole && (
+                          <span className="text-[10px] text-text-muted">
+                            ({activeReview.requiredRole.replace(/_/g, ' ')})
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-text-muted">
+                        Stage {activeReview.currentStageOrder}/{activeReview.totalStages}
+                      </span>
+                    </div>
+
+                    {/* Progress bar */}
+                    <div className="w-full h-1 bg-surface rounded-full mb-2">
+                      <div className="h-1 bg-primary rounded-full transition-all"
+                        style={{ width: `${(activeReview.currentStageOrder / activeReview.totalStages) * 100}%` }} />
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-1.5">
+                      {actions.map(action => {
+                        const cfg = ACTION_ICONS[action];
+                        if (!cfg) return null;
+                        const Icon = cfg.icon;
+                        return (
+                          <button key={action}
+                            onClick={(e) => { e.stopPropagation(); handleAction(activeReview.id, action); }}
+                            disabled={actionLoading === activeReview.id}
+                            className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md transition-colors ${cfg.color}`}>
+                            {actionLoading === activeReview.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Icon className="w-3 h-3" />
+                            )}
+                            {cfg.label}
+                          </button>
+                        );
+                      })}
+                      <button onClick={(e) => { e.stopPropagation(); toggleHistory(activeReview.id); }}
+                        className="text-[11px] text-text-muted hover:text-text-primary ml-auto flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> History
+                      </button>
+                    </div>
+
+                    {/* Review history */}
+                    {expandedReview === activeReview.id && reviewHistory.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-border/30 space-y-1">
+                        {reviewHistory.map(h => (
+                          <div key={h.id} className="flex items-center gap-2 text-[10px]">
+                            <span className="text-text-muted">{new Date(h.createdAt).toLocaleString()}</span>
+                            <span className="font-medium text-text-primary">{h.actedByName}</span>
+                            <span className={`px-1.5 py-0.5 rounded font-medium ${
+                              h.action === 'APPROVE' ? 'bg-success/10 text-success' :
+                              h.action === 'RETURN' ? 'bg-warning/10 text-warning' :
+                              h.action === 'FLAG' ? 'bg-danger/10 text-danger' :
+                              'bg-surface-el text-text-muted'
+                            }`}>{h.action}</span>
+                            <span className="text-text-muted">{h.stageName}</span>
+                            {h.notes && <span className="text-text-secondary italic">— {h.notes}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Start review (only if no active review) */}
+                {!activeReview && pipelines.length > 0 && (
+                  <div className="border-t border-border/50 px-3 py-2 flex items-center gap-2"
+                    onClick={(e) => e.stopPropagation()}>
+                    <GitPullRequest className="w-3.5 h-3.5 text-text-muted" />
+                    <select value={startingReview === doc.id ? selectedPipeline : ''}
+                      onChange={(e) => { setStartingReview(doc.id); setSelectedPipeline(e.target.value); }}
+                      className="input-field text-[11px] py-1 flex-1">
+                      <option value="">Start review...</option>
+                      {pipelines.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} ({p.stages?.length || 0} stages)</option>
+                      ))}
+                    </select>
+                    {startingReview === doc.id && selectedPipeline && (
+                      <button onClick={() => handleStartReview(doc.id)}
+                        className="btn-primary text-[11px] px-2.5 py-1 flex items-center gap-1">
+                        <Play className="w-3 h-3" /> Start
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              <span className={`text-[10px] font-medium ${DOC_STATUS_COLORS[doc.processingStatus] || 'text-text-muted'}`}>
-                {doc.processingStatus || 'PENDING'}
-              </span>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
