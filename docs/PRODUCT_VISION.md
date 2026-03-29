@@ -209,9 +209,9 @@ Playbooks capture your firm's **negotiation positions** per deal type — the ru
 - Mark one playbook as default per deal type
 - Positions are inline-editable with clause type dropdown
 
-### Workflows
+### AI Agents
 
-Workflows are **automated multi-step AI pipelines** that process documents — extract, analyze, assess, and generate output.
+AI Agents are **automated multi-step AI pipelines** that process documents — extract, analyze, assess, and generate output.
 
 **Available Step Types:**
 1. **Extract Key Terms** — parties, dates, contract value, liability cap, governing law, notice period, arbitration venue
@@ -221,29 +221,29 @@ Workflows are **automated multi-step AI pipelines** that process documents — e
 5. **Redline Suggestions** — generates improved clause language for risk items
 6. **Draft Clause** — drafts new clauses or full agreement sections from context
 
-**How Workflows Work:**
-- Define a workflow as an ordered sequence of steps
+**How AI Agents Work:**
+- Define an agent as an ordered sequence of steps
 - Each step can have conditions (e.g., "only run Redline if risk is HIGH")
 - Run manually on any document, or auto-trigger on document upload
 - Steps execute sequentially, each building on prior results
 - Output connectors: email results, post to Slack/Teams webhook
 
-**Workflow Types:**
-- **System workflows** — pre-built (e.g., "Full Analysis": extract → risk → clauses → summary)
-- **Team workflows** — shared across the firm
-- **Custom workflows** — personal, built via drag-and-drop builder
+**Agent Types:**
+- **System agents** — pre-built (e.g., "Full Analysis": extract → risk → clauses → summary)
+- **Team agents** — shared across the firm
+- **Custom agents** — personal, built via drag-and-drop builder
 
 **Execution & Tracking:**
-- Run a workflow from the Workflows page or from a matter's Workflows tab
+- Run an agent from the AI Agents page or from a matter's AI Agents tab
 - Live progress view: see each step's status (pending/running/completed/failed)
 - Results stored per step — view extracted terms, risk categories, clause coverage, summaries
 - Failed steps show error details, skipped steps show reason
 
-**How Playbooks and Workflows Relate:**
+**How Playbooks and AI Agents Relate:**
 - Playbooks define the rules ("our firm's position on liability is X")
-- Workflows execute the analysis ("compare this contract against the playbook")
-- A workflow's Risk Assessment step uses the matter's assigned playbook to generate findings
-- Together: **Playbooks = what to check, Workflows = how to check it**
+- AI Agents execute the analysis ("compare this contract against the playbook")
+- An agent's Risk Assessment step uses the matter's assigned playbook to generate findings
+- Together: **Playbooks = what to check, AI Agents = how to check it**
 
 ### Audit Trail
 - Compliance-grade logging of every user action

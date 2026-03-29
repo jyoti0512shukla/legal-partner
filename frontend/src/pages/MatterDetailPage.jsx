@@ -23,7 +23,7 @@ const ROLE_COLORS = {
 const TABS = [
   { id: 'documents', label: 'Documents', icon: FileText },
   { id: 'findings', label: 'Findings', icon: Shield },
-  { id: 'workflows', label: 'Workflows', icon: Workflow },
+  { id: 'workflows', label: 'AI Agents', icon: Workflow },
   { id: 'team', label: 'Team', icon: Users },
   { id: 'activity', label: 'Activity', icon: Clock },
 ];
@@ -639,12 +639,12 @@ function WorkflowsTab({ matterId, matterRef, matterName }) {
     <div className="space-y-4">
       <div className="flex justify-end">
         <button onClick={() => navigate('/workflows')} className="btn-primary text-sm flex items-center gap-1.5">
-          <Play className="w-4 h-4" /> Run Workflow
+          <Play className="w-4 h-4" /> Run AI Agent
         </button>
       </div>
 
       {runs.length === 0 ? (
-        <p className="text-text-muted text-sm text-center py-6">No workflow runs for this matter yet.</p>
+        <p className="text-text-muted text-sm text-center py-6">No AI agent runs for this matter yet.</p>
       ) : (
         <div className="space-y-2">
           {runs.map(run => {

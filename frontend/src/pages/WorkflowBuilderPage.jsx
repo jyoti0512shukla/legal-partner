@@ -344,7 +344,7 @@ export default function WorkflowBuilderPage() {
   const updateStep = (index, updated) => setSteps(prev => prev.map((s, i) => i === index ? updated : s));
 
   const handleSave = async () => {
-    if (!name.trim()) { setError('Workflow name is required'); return; }
+    if (!name.trim()) { setError('Agent name is required'); return; }
     if (steps.length === 0) { setError('Add at least one step'); return; }
 
     // Validate connectors
@@ -374,7 +374,7 @@ export default function WorkflowBuilderPage() {
         <ArrowLeft className="w-4 h-4" /> Back to Workflows
       </button>
 
-      <h1 className="text-2xl font-bold mb-6">Build Custom Workflow</h1>
+      <h1 className="text-2xl font-bold mb-6">Build Custom AI Agent</h1>
 
       <div className="grid grid-cols-3 gap-6">
         {/* Step palette */}
@@ -384,7 +384,7 @@ export default function WorkflowBuilderPage() {
         <div className="col-span-2 space-y-4">
           <div className="card space-y-3">
             <div>
-              <label className="text-xs text-text-muted mb-1 block">Workflow Name *</label>
+              <label className="text-xs text-text-muted mb-1 block">Agent Name *</label>
               <input
                 value={name}
                 onChange={e => setName(e.target.value)}
@@ -474,7 +474,7 @@ export default function WorkflowBuilderPage() {
               className="btn-primary flex items-center gap-2 text-sm"
             >
               <Save className="w-4 h-4" />
-              {saving ? 'Saving…' : 'Save Workflow'}
+              {saving ? 'Saving…' : 'Save Agent'}
             </button>
           </div>
         </div>

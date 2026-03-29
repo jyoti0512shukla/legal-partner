@@ -62,7 +62,7 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
   };
 
   const handleRun = async () => {
-    if (!defId) { setError('Select a workflow'); return; }
+    if (!defId) { setError('Select an AI agent'); return; }
     if (!isDraftWorkflow && !docId) { setError('Select a document'); return; }
     if (isDraftWorkflow && !draft.partyA.trim()) { setError('Enter Party A name'); return; }
     if (isDraftWorkflow && !draft.partyB.trim()) { setError('Enter Party B name'); return; }
@@ -76,12 +76,12 @@ function RunWorkflowModal({ definitions, docs, onClose, onStarted, initialDefId 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="card w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-lg font-bold">Run Workflow</h2>
+        <h2 className="text-lg font-bold">Run AI Agent</h2>
 
         <div>
-          <label className="text-xs text-text-muted mb-1 block">Workflow</label>
+          <label className="text-xs text-text-muted mb-1 block">AI Agent</label>
           <select value={defId} onChange={e => { setDefId(e.target.value); setDocId(''); }} className="input-field w-full text-sm">
-            <option value="">Choose a workflow…</option>
+            <option value="">Choose an AI agent…</option>
             {definitions.map(d => (
               <option key={d.id} value={d.id}>
                 {d.predefined ? '⚡ ' : d.team ? '👥 ' : '🔧 '}{d.name}
@@ -396,7 +396,7 @@ export default function WorkflowsPage() {
 
   if (loading) return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Workflows</h1>
+      <h1 className="text-2xl font-bold mb-6">AI Agents</h1>
       <div className="grid grid-cols-3 gap-4">
         {[1,2,3].map(i => <div key={i} className="card h-40 animate-pulse bg-surface-el" />)}
       </div>
@@ -406,7 +406,7 @@ export default function WorkflowsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Workflows</h1>
+        <h1 className="text-2xl font-bold">AI Agents</h1>
         <div className="flex gap-2">
           <button onClick={() => navigate('/workflows/analytics')} className="btn-secondary flex items-center gap-2 text-sm">
             <BarChart3 className="w-4 h-4" /> Analytics
@@ -415,7 +415,7 @@ export default function WorkflowsPage() {
             <Plus className="w-4 h-4" /> Build
           </button>
           <button onClick={() => { setPreselectedDef(null); setShowModal(true); }} className="btn-primary flex items-center gap-2 text-sm">
-            <Play className="w-4 h-4" /> Run Workflow
+            <Play className="w-4 h-4" /> Run AI Agent
           </button>
         </div>
       </div>
@@ -428,7 +428,7 @@ export default function WorkflowsPage() {
 
       {/* Predefined workflows */}
       <section className="mb-8">
-        <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">System Workflows</h2>
+        <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">System Agents</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {predefined.map(def => (
             <WorkflowCard key={def.id} def={def} onRun={() => { setPreselectedDef(def.id); setShowModal(true); }} canAdmin={false} />
@@ -439,7 +439,7 @@ export default function WorkflowsPage() {
       {/* Team workflows */}
       {team.length > 0 && (
         <section className="mb-8">
-          <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Team Workflows</h2>
+          <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Team Agents</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {team.map(def => (
               <WorkflowCard key={def.id} def={def}
@@ -455,7 +455,7 @@ export default function WorkflowsPage() {
       {/* Custom workflows */}
       {custom.length > 0 && (
         <section className="mb-8">
-          <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">My Workflows</h2>
+          <h2 className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">My Agents</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {custom.map(def => (
               <WorkflowCard key={def.id} def={def}
@@ -494,14 +494,14 @@ export default function WorkflowsPage() {
         ) : runs.length === 0 ? (
           <div className="card text-center py-10">
             <Workflow className="w-10 h-10 text-text-muted mx-auto mb-3" />
-            <p className="text-text-muted text-sm">{matterFilter ? `No runs found for matter "${matterFilter}".` : 'No runs yet. Run a workflow to get started.'}</p>
+            <p className="text-text-muted text-sm">{matterFilter ? `No runs found for matter "${matterFilter}".` : 'No runs yet. Run an AI agent to get started.'}</p>
           </div>
         ) : (
           <div className="card !p-0 overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-xs text-text-muted">
-                  <th className="text-left px-4 py-3 font-medium">Workflow</th>
+                  <th className="text-left px-4 py-3 font-medium">Agent</th>
                   <th className="text-left px-4 py-3 font-medium">Status</th>
                   <th className="text-left px-4 py-3 font-medium">Progress</th>
                   <th className="text-left px-4 py-3 font-medium">Duration</th>

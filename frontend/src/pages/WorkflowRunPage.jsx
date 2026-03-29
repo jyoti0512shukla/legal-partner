@@ -300,7 +300,7 @@ export default function WorkflowRunPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [workflowName, setWorkflowName] = useState('Workflow');
+  const [workflowName, setWorkflowName] = useState('AI Agent');
   const [runId, setRunId] = useState(id || null);
   const [steps, setSteps] = useState([]);
   const [stepStatuses, setStepStatuses] = useState({});

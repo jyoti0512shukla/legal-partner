@@ -25,7 +25,7 @@ export default function Sidebar() {
         <SidebarLink to="/extraction" icon={Key} label="Extraction" />
 
         <SidebarSection label="Manage" />
-        <SidebarLink to="/workflows" icon={Workflow} label="Workflows" />
+        <SidebarLink to="/workflows" icon={Workflow} label="AI Agents" />
         <SidebarLink to="/playbooks" icon={Shield} label="Playbooks" />
         <SidebarLink to="/settings" icon={Settings} label="Settings" />
       </nav>

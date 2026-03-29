@@ -63,7 +63,7 @@ export default function WorkflowAnalyticsPage() {
   if (loading) {
     return (
       <div>
-        <h1 className="text-2xl font-bold mb-6">Workflow Analytics</h1>
+        <h1 className="text-2xl font-bold mb-6">Agent Analytics</h1>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {[1,2,3,4].map(i => <div key={i} className="card h-24 animate-pulse bg-surface-el" />)}
         </div>
@@ -74,7 +74,7 @@ export default function WorkflowAnalyticsPage() {
   if (error) {
     return (
       <div>
-        <h1 className="text-2xl font-bold mb-6">Workflow Analytics</h1>
+        <h1 className="text-2xl font-bold mb-6">Agent Analytics</h1>
         <div className="card border-l-4 border-danger bg-danger/5">
           <p className="text-danger text-sm">{error}</p>
         </div>
@@ -90,7 +90,7 @@ export default function WorkflowAnalyticsPage() {
         <button onClick={() => navigate('/workflows')} className="text-text-muted hover:text-text-primary">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-2xl font-bold">Workflow Analytics</h1>
+        <h1 className="text-2xl font-bold">Agent Analytics</h1>
       </div>
 
       {/* Stat cards */}
@@ -162,12 +162,12 @@ export default function WorkflowAnalyticsPage() {
         <div className="card">
           <div className="flex items-center gap-2 mb-4">
             <Workflow className="w-4 h-4 text-primary" />
-            <h3 className="text-sm font-semibold">Usage by Workflow</h3>
+            <h3 className="text-sm font-semibold">Usage by Agent</h3>
           </div>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-xs text-text-muted">
-                <th className="text-left pb-2 font-medium">Workflow</th>
+                <th className="text-left pb-2 font-medium">Agent</th>
                 <th className="text-right pb-2 font-medium">Total</th>
                 <th className="text-right pb-2 font-medium">Completed</th>
                 <th className="text-right pb-2 font-medium">Success Rate</th>
@@ -197,7 +197,7 @@ export default function WorkflowAnalyticsPage() {
       {a.totalRuns === 0 && (
         <div className="card text-center py-10">
           <BarChart3 className="w-10 h-10 text-text-muted mx-auto mb-3" />
-          <p className="text-text-muted text-sm">No runs yet. Run a workflow to see analytics.</p>
+          <p className="text-text-muted text-sm">No runs yet. Run an AI agent to see analytics.</p>
           <button onClick={() => navigate('/workflows')} className="btn-primary text-sm mt-4">
             Go to Workflows
           </button>
