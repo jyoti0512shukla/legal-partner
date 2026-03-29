@@ -1,8 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { LayoutDashboard, Briefcase, Workflow, Shield, Settings, LogOut, Scale, FileText, Brain, ChevronDown, FileEdit, GitCompare, ClipboardList, Key } from 'lucide-react';
+import { LayoutDashboard, Briefcase, Workflow, Shield, Settings, LogOut, Scale, FileText, Brain, FileEdit, GitCompare, ClipboardList, Key } from 'lucide-react';
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
@@ -18,19 +16,18 @@ export default function Sidebar() {
         <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" />
         <SidebarLink to="/matters" icon={Briefcase} label="Matters" />
         <SidebarLink to="/documents" icon={FileText} label="Documents" />
-        <SidebarGroup icon={Brain} label="Intelligence" items={[
-          { to: '/intelligence', icon: Brain, label: 'Ask AI' },
-          { to: '/draft', icon: FileEdit, label: 'Draft' },
-          { to: '/compare', icon: GitCompare, label: 'Compare' },
-          { to: '/review', icon: ClipboardList, label: 'Review' },
-          { to: '/extraction', icon: Key, label: 'Extraction' },
-        ]} />
+
+        <SidebarSection label="AI Intelligence" />
+        <SidebarLink to="/intelligence" icon={Brain} label="Ask AI" />
+        <SidebarLink to="/draft" icon={FileEdit} label="Draft" />
+        <SidebarLink to="/compare" icon={GitCompare} label="Compare" />
+        <SidebarLink to="/review" icon={ClipboardList} label="Review" />
+        <SidebarLink to="/extraction" icon={Key} label="Extraction" />
+
+        <SidebarSection label="Manage" />
         <SidebarLink to="/workflows" icon={Workflow} label="Workflows" />
         <SidebarLink to="/playbooks" icon={Shield} label="Playbooks" />
-
-        <div className="pt-4 mt-4 border-t border-border/50">
-          <SidebarLink to="/settings" icon={Settings} label="Settings" />
-        </div>
+        <SidebarLink to="/settings" icon={Settings} label="Settings" />
       </nav>
 
       <div className="border-t border-border/50 pt-4 mt-4">
@@ -64,38 +61,8 @@ function SidebarLink({ to, icon: Icon, label }) {
   );
 }
 
-function SidebarGroup({ icon: Icon, label, items }) {
-  const [open, setOpen] = useState(false);
-  const loc = useLocation();
-  const isChildActive = items.some(item => loc.pathname === item.to);
-
+function SidebarSection({ label }) {
   return (
-    <div>
-      <button onClick={() => setOpen(!open)}
-        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-          isChildActive ? 'bg-primary/10 text-primary' : 'text-text-secondary hover:text-text-primary hover:bg-surface-el'
-        }`}>
-        <div className="flex items-center gap-3">
-          <Icon className="w-5 h-5" />
-          {label}
-        </div>
-        <ChevronDown className={`w-4 h-4 transition-transform ${open || isChildActive ? 'rotate-180' : ''}`} />
-      </button>
-      {(open || isChildActive) && (
-        <div className="ml-4 mt-0.5 space-y-0.5">
-          {items.map(item => (
-            <NavLink key={item.to} to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  isActive ? 'text-primary bg-primary/5' : 'text-text-muted hover:text-text-primary hover:bg-surface-el'
-                }`
-              }>
-              <item.icon className="w-4 h-4" />
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
-      )}
-    </div>
+    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider px-3 pt-4 pb-1">{label}</p>
   );
 }
