@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import {
   Loader2, ArrowRight, CheckCircle2, Clock, AlertTriangle, Users,
-  Brain, Shield, GitPullRequest, FileText, Activity
+  Brain, Shield, GitPullRequest, FileText
 } from 'lucide-react';
 import api from '../api/client';
 
@@ -11,7 +11,6 @@ const STATUS_COLORS = { IN_PROGRESS: 'text-warning', APPROVED: 'text-success', S
 const TABS = [
   { id: 'ai', label: 'AI Insights', icon: Brain },
   { id: 'reviews', label: 'Reviews', icon: GitPullRequest },
-  { id: 'activity', label: 'Activity', icon: Activity },
 ];
 
 export default function DashboardPage() {
@@ -193,58 +192,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── Activity Tab ─────────────────────────────────────────── */}
-      {tab === 'activity' && (
-        <div className="space-y-6">
-          {/* Combined timeline: recent findings + completed reviews */}
-          <Section title="Recent Activity" icon={Activity} color="text-text-muted">
-            {(() => {
-              const items = [];
-              recentFindings.slice(0, 10).forEach(f => {
-                items.push({ time: f.createdAt, type: 'finding', data: f });
-              });
-              recentlyCompleted.forEach(r => {
-                items.push({ time: r.completedAt || r.startedAt, type: 'review', data: r });
-              });
-              items.sort((a, b) => new Date(b.time) - new Date(a.time));
-
-              if (items.length === 0) return <EmptyState text="No recent activity." />;
-
-              return (
-                <div className="space-y-1">
-                  {items.slice(0, 20).map((item, i) => (
-                    <div key={i} onClick={() => navigate(`/matters/${item.type === 'finding' ? item.data.matterId : item.data.matterId}`)}
-                      className="flex items-start gap-3 py-2.5 px-1 cursor-pointer hover:bg-surface-el/50 rounded-lg transition-colors">
-                      <div className="mt-0.5">
-                        {item.type === 'finding' ? (
-                          <SeverityDot severity={item.data.severity} />
-                        ) : (
-                          <CheckCircle2 className="w-4 h-4 text-success" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm text-text-primary">
-                          {item.type === 'finding'
-                            ? item.data.title
-                            : `Review completed: ${item.data.matterName}`}
-                        </div>
-                        <div className="text-[10px] text-text-muted mt-0.5">
-                          {item.type === 'finding'
-                            ? `${item.data.documentName || 'Unknown document'} · ${item.data.severity}`
-                            : `${item.data.pipelineName} · ${item.data.documentName || ''}`}
-                        </div>
-                      </div>
-                      <div className="text-[10px] text-text-muted shrink-0">
-                        {timeAgo(item.time)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
-          </Section>
-        </div>
-      )}
     </div>
   );
 }
@@ -348,17 +295,6 @@ function EmptyState({ text }) {
   return <p className="text-text-muted text-xs text-center py-6">{text}</p>;
 }
 
-function timeAgo(date) {
-  if (!date) return '';
-  const diff = Date.now() - new Date(date).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
 
 function getGreeting() {
   const h = new Date().getHours();
