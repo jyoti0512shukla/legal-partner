@@ -185,11 +185,11 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, d
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [reviews, setReviews] = useState([]);
-  const [startingReview, setStartingReview] = useState(null); // docId being started
-  const [showPipelinePicker, setShowPipelinePicker] = useState(null); // docId showing alternate picker
-  const [actionLoading, setActionLoading] = useState(null); // reviewId being acted on
-  const [expandedReview, setExpandedReview] = useState(null); // reviewId showing history
+  const [reviewModal, setReviewModal] = useState(null); // doc object for modal
+  const [startingReview, setStartingReview] = useState(false);
+  const [actionLoading, setActionLoading] = useState(null);
   const [reviewHistory, setReviewHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const navigate = useNavigate();
 
   const fetchDocs = () => {
@@ -237,26 +237,26 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, d
 
   const handleStartReview = async (docId, pipelineId) => {
     if (!pipelineId) return;
-    setStartingReview(docId);
+    setStartingReview(true);
     try {
       await api.post(`/review-pipelines/reviews/start?matterId=${matterId}&documentId=${docId}&pipelineId=${pipelineId}`);
       fetchReviews();
-      setShowPipelinePicker(null);
     } catch (e) {
       alert(e.response?.data?.message || 'Failed to start review');
     } finally {
-      setStartingReview(null);
+      setStartingReview(false);
     }
   };
 
   const handleAction = async (reviewId, action) => {
-    setActionLoading(reviewId);
+    setActionLoading(action);
     try {
       const notes = action === 'RETURN' || action === 'FLAG'
         ? prompt(`Add a note for ${action.toLowerCase()}:`) || ''
         : '';
       await api.post(`/review-pipelines/reviews/${reviewId}/action`, { action, notes });
       fetchReviews();
+      loadHistory(reviewId);
     } catch (e) {
       alert(e.response?.data?.message || 'Action failed');
     } finally {
@@ -264,17 +264,24 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, d
     }
   };
 
-  const toggleHistory = async (reviewId) => {
-    if (expandedReview === reviewId) { setExpandedReview(null); return; }
+  const loadHistory = async (reviewId) => {
+    setHistoryLoading(true);
     try {
       const res = await api.get(`/review-pipelines/reviews/${reviewId}/actions`);
       setReviewHistory(res.data || []);
-      setExpandedReview(reviewId);
-    } catch { setExpandedReview(null); }
+    } catch { setReviewHistory([]); }
+    finally { setHistoryLoading(false); }
   };
 
   const getDocReview = (docId) => reviews.find(r => r.documentId === docId && r.status === 'IN_PROGRESS');
   const getDocCompletedReviews = (docId) => reviews.filter(r => r.documentId === docId && r.status !== 'IN_PROGRESS');
+
+  const openReviewModal = (doc) => {
+    setReviewModal(doc);
+    setReviewHistory([]);
+    const active = getDocReview(doc.id);
+    if (active) loadHistory(active.id);
+  };
 
   const REVIEW_STATUS = {
     IN_PROGRESS: { color: 'text-warning', bg: 'bg-warning/10', label: 'In Review' },
@@ -283,14 +290,19 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, d
   };
 
   const ACTION_ICONS = {
-    APPROVE: { icon: CheckCircle2, color: 'text-success hover:bg-success/10', label: 'Approve' },
-    RETURN: { icon: RotateCcw, color: 'text-warning hover:bg-warning/10', label: 'Return' },
-    FLAG: { icon: Flag, color: 'text-danger hover:bg-danger/10', label: 'Flag' },
-    SEND: { icon: Send, color: 'text-primary hover:bg-primary/10', label: 'Send' },
-    ADD_NOTE: { icon: MessageSquare, color: 'text-text-muted hover:bg-surface-el', label: 'Note' },
+    APPROVE: { icon: CheckCircle2, color: 'text-success hover:bg-success/10 border border-success/20', label: 'Approve' },
+    RETURN: { icon: RotateCcw, color: 'text-warning hover:bg-warning/10 border border-warning/20', label: 'Return' },
+    FLAG: { icon: Flag, color: 'text-danger hover:bg-danger/10 border border-danger/20', label: 'Flag' },
+    SEND: { icon: Send, color: 'text-primary hover:bg-primary/10 border border-primary/20', label: 'Send' },
+    ADD_NOTE: { icon: MessageSquare, color: 'text-text-muted hover:bg-surface-el border border-border', label: 'Add Note' },
   };
 
   if (loading) return <div className="flex items-center gap-2 text-text-muted py-4"><Loader2 className="w-4 h-4 animate-spin" /> Loading documents...</div>;
+
+  // Current modal doc review state
+  const modalActiveReview = reviewModal ? getDocReview(reviewModal.id) : null;
+  const modalCompletedReviews = reviewModal ? getDocCompletedReviews(reviewModal.id) : [];
+  const modalActions = modalActiveReview?.availableActions?.split(',').filter(Boolean) || [];
 
   return (
     <div className="space-y-4">
@@ -326,167 +338,264 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, d
       {docs.length === 0 ? (
         <p className="text-text-muted text-sm text-center py-6">No documents uploaded to this matter yet.</p>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {docs.map(doc => {
             const activeReview = getDocReview(doc.id);
             const completedReviews = getDocCompletedReviews(doc.id);
             const reviewStatus = activeReview ? REVIEW_STATUS[activeReview.status] : null;
-            const actions = activeReview?.availableActions?.split(',').filter(Boolean) || [];
 
             return (
-              <div key={doc.id} className="card overflow-hidden">
-                {/* Document row */}
-                <div className="p-3 flex items-center justify-between cursor-pointer hover:bg-surface-el/50 transition-colors"
+              <div key={doc.id}
+                className="card p-3 flex items-center justify-between cursor-pointer hover:border-primary/30 transition-colors">
+                <div className="flex items-center gap-3 flex-1 min-w-0"
                   onClick={() => navigate(`/documents/${doc.id}/edit`)}>
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-text-muted" />
-                    <div>
-                      <div className="text-sm font-medium text-text-primary">{doc.fileName || doc.name}</div>
-                      <div className="text-[10px] text-text-muted">
-                        {doc.documentType && <span>{doc.documentType} · </span>}
-                        {new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString()}
-                      </div>
+                  <FileText className="w-5 h-5 text-text-muted shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-text-primary truncate">{doc.fileName || doc.name}</div>
+                    <div className="text-[10px] text-text-muted">
+                      {doc.documentType && <span>{doc.documentType} · </span>}
+                      {new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString()}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {/* Completed review badges */}
-                    {completedReviews.map(r => {
-                      const st = REVIEW_STATUS[r.status] || REVIEW_STATUS.APPROVED;
-                      return (
-                        <span key={r.id} className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${st.bg} ${st.color}`}>
-                          {st.label}
-                        </span>
-                      );
-                    })}
-                    <span className={`text-[10px] font-medium ${DOC_STATUS_COLORS[doc.processingStatus] || 'text-text-muted'}`}>
-                      {doc.processingStatus || 'PENDING'}
-                    </span>
-                  </div>
                 </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Completed review badges */}
+                  {completedReviews.map(r => {
+                    const st = REVIEW_STATUS[r.status] || REVIEW_STATUS.APPROVED;
+                    return (
+                      <span key={r.id} className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${st.bg} ${st.color}`}>
+                        {st.label}
+                      </span>
+                    );
+                  })}
+                  <span className={`text-[10px] font-medium ${DOC_STATUS_COLORS[doc.processingStatus] || 'text-text-muted'}`}>
+                    {doc.processingStatus || 'PENDING'}
+                  </span>
+                  {/* Review button */}
+                  {pipelines.length > 0 && (
+                    <button onClick={(e) => { e.stopPropagation(); openReviewModal(doc); }}
+                      className={`flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1.5 rounded-lg transition-colors ${
+                        activeReview
+                          ? `${reviewStatus.bg} ${reviewStatus.color}`
+                          : 'bg-surface-el text-text-muted hover:text-primary hover:bg-primary/5'
+                      }`}>
+                      <GitPullRequest className="w-3.5 h-3.5" />
+                      {activeReview
+                        ? `${activeReview.currentStageName} (${activeReview.currentStageOrder}/${activeReview.totalStages})`
+                        : 'Review'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-                {/* Active review bar */}
-                {activeReview && (
-                  <div className="border-t border-border/50 px-3 py-2 bg-surface-el/30">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <GitPullRequest className={`w-3.5 h-3.5 ${reviewStatus.color}`} />
-                        <span className="text-xs font-medium text-text-primary">{activeReview.pipelineName}</span>
-                        <span className="text-[10px] text-text-muted">·</span>
-                        <span className={`text-[10px] font-medium ${reviewStatus.color}`}>
-                          {activeReview.currentStageName}
-                        </span>
-                        {activeReview.requiredRole && (
-                          <span className="text-[10px] text-text-muted">
-                            ({activeReview.requiredRole.replace(/_/g, ' ')})
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[10px] text-text-muted">
-                        Stage {activeReview.currentStageOrder}/{activeReview.totalStages}
+      {/* ── Review Modal ──────────────────────────────────────────────── */}
+      {reviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setReviewModal(null)}>
+          <div className="bg-surface border border-border rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto shadow-xl"
+            onClick={(e) => e.stopPropagation()}>
+
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+              <div className="flex items-center gap-3 min-w-0">
+                <FileText className="w-5 h-5 text-text-muted shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-semibold text-text-primary truncate">
+                    {reviewModal.fileName || reviewModal.name}
+                  </h3>
+                  <p className="text-[10px] text-text-muted">Document Review</p>
+                </div>
+              </div>
+              <button onClick={() => setReviewModal(null)} className="text-text-muted hover:text-text-primary p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+
+              {/* ── Active Review ───────────────────────────────────── */}
+              {modalActiveReview ? (
+                <>
+                  {/* Pipeline + Stage info */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <GitPullRequest className={`w-4 h-4 ${REVIEW_STATUS[modalActiveReview.status]?.color}`} />
+                      <span className="text-sm font-semibold text-text-primary">{modalActiveReview.pipelineName}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${REVIEW_STATUS[modalActiveReview.status]?.bg} ${REVIEW_STATUS[modalActiveReview.status]?.color}`}>
+                        {REVIEW_STATUS[modalActiveReview.status]?.label}
                       </span>
                     </div>
 
-                    {/* Progress bar */}
-                    <div className="w-full h-1 bg-surface rounded-full mb-2">
-                      <div className="h-1 bg-primary rounded-full transition-all"
-                        style={{ width: `${(activeReview.currentStageOrder / activeReview.totalStages) * 100}%` }} />
+                    {/* Stage progress */}
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-xs text-text-muted">Stage {modalActiveReview.currentStageOrder} of {modalActiveReview.totalStages}</span>
+                      <div className="flex-1 h-1.5 bg-surface-el rounded-full">
+                        <div className="h-1.5 bg-primary rounded-full transition-all"
+                          style={{ width: `${(modalActiveReview.currentStageOrder / modalActiveReview.totalStages) * 100}%` }} />
+                      </div>
                     </div>
 
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-1.5">
-                      {actions.map(action => {
-                        const cfg = ACTION_ICONS[action];
-                        if (!cfg) return null;
-                        const Icon = cfg.icon;
-                        return (
-                          <button key={action}
-                            onClick={(e) => { e.stopPropagation(); handleAction(activeReview.id, action); }}
-                            disabled={actionLoading === activeReview.id}
-                            className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md transition-colors ${cfg.color}`}>
-                            {actionLoading === activeReview.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Icon className="w-3 h-3" />
-                            )}
-                            {cfg.label}
-                          </button>
-                        );
-                      })}
-                      <button onClick={(e) => { e.stopPropagation(); toggleHistory(activeReview.id); }}
-                        className="text-[11px] text-text-muted hover:text-text-primary ml-auto flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> History
-                      </button>
+                    <div className="card p-3 !bg-surface-el">
+                      <p className="text-[10px] text-text-muted mb-0.5">CURRENT STAGE</p>
+                      <p className="text-sm font-medium text-text-primary">{modalActiveReview.currentStageName}</p>
+                      {modalActiveReview.requiredRole && (
+                        <p className="text-[10px] text-text-muted mt-0.5">
+                          Waiting on: {modalActiveReview.requiredRole.replace(/_/g, ' ')}
+                        </p>
+                      )}
                     </div>
+                  </div>
 
-                    {/* Review history */}
-                    {expandedReview === activeReview.id && reviewHistory.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-border/30 space-y-1">
+                  {/* Action buttons */}
+                  {modalActions.length > 0 && (
+                    <div>
+                      <p className="text-[10px] text-text-muted font-medium mb-2">ACTIONS</p>
+                      <div className="flex flex-wrap gap-2">
+                        {modalActions.map(action => {
+                          const cfg = ACTION_ICONS[action];
+                          if (!cfg) return null;
+                          const Icon = cfg.icon;
+                          return (
+                            <button key={action}
+                              onClick={() => handleAction(modalActiveReview.id, action)}
+                              disabled={!!actionLoading}
+                              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-colors ${cfg.color}`}>
+                              {actionLoading === action
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : <Icon className="w-3.5 h-3.5" />}
+                              {cfg.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* History */}
+                  <div>
+                    <p className="text-[10px] text-text-muted font-medium mb-2">HISTORY</p>
+                    {historyLoading ? (
+                      <div className="flex items-center gap-2 text-text-muted py-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span className="text-xs">Loading...</span>
+                      </div>
+                    ) : reviewHistory.length === 0 ? (
+                      <p className="text-xs text-text-muted py-2">No actions taken yet.</p>
+                    ) : (
+                      <div className="space-y-2">
                         {reviewHistory.map(h => (
-                          <div key={h.id} className="flex items-center gap-2 text-[10px]">
-                            <span className="text-text-muted">{new Date(h.createdAt).toLocaleString()}</span>
-                            <span className="font-medium text-text-primary">{h.actedByName}</span>
-                            <span className={`px-1.5 py-0.5 rounded font-medium ${
-                              h.action === 'APPROVE' ? 'bg-success/10 text-success' :
-                              h.action === 'RETURN' ? 'bg-warning/10 text-warning' :
-                              h.action === 'FLAG' ? 'bg-danger/10 text-danger' :
-                              'bg-surface-el text-text-muted'
-                            }`}>{h.action}</span>
-                            <span className="text-text-muted">{h.stageName}</span>
-                            {h.notes && <span className="text-text-secondary italic">— {h.notes}</span>}
+                          <div key={h.id} className="flex items-start gap-2.5 text-xs">
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                              h.action === 'APPROVE' ? 'bg-success/10' :
+                              h.action === 'RETURN' ? 'bg-warning/10' :
+                              h.action === 'FLAG' ? 'bg-danger/10' :
+                              'bg-surface-el'
+                            }`}>
+                              {h.action === 'APPROVE' && <CheckCircle2 className="w-3 h-3 text-success" />}
+                              {h.action === 'RETURN' && <RotateCcw className="w-3 h-3 text-warning" />}
+                              {h.action === 'FLAG' && <Flag className="w-3 h-3 text-danger" />}
+                              {h.action === 'SEND' && <Send className="w-3 h-3 text-primary" />}
+                              {h.action === 'ADD_NOTE' && <MessageSquare className="w-3 h-3 text-text-muted" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-text-primary">{h.actedByName}</span>
+                                <span className="text-text-muted">{h.action.toLowerCase()}</span>
+                                <span className="text-text-muted">at {h.stageName}</span>
+                              </div>
+                              {h.notes && <p className="text-text-secondary mt-0.5 italic">{h.notes}</p>}
+                              <p className="text-[10px] text-text-muted mt-0.5">
+                                {new Date(h.createdAt).toLocaleString()}
+                              </p>
+                            </div>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
-                )}
+                </>
+              ) : (
+                /* ── No Active Review — Start one ──────────────────── */
+                <>
+                  {/* Completed reviews */}
+                  {modalCompletedReviews.length > 0 && (
+                    <div>
+                      <p className="text-[10px] text-text-muted font-medium mb-2">PREVIOUS REVIEWS</p>
+                      <div className="space-y-1.5">
+                        {modalCompletedReviews.map(r => {
+                          const st = REVIEW_STATUS[r.status] || REVIEW_STATUS.APPROVED;
+                          return (
+                            <div key={r.id} className={`flex items-center justify-between px-3 py-2 rounded-lg ${st.bg}`}>
+                              <div className="flex items-center gap-2">
+                                <GitPullRequest className={`w-3.5 h-3.5 ${st.color}`} />
+                                <span className="text-xs font-medium text-text-primary">{r.pipelineName}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[10px] font-medium ${st.color}`}>{st.label}</span>
+                                <span className="text-[10px] text-text-muted">
+                                  {r.completedAt ? new Date(r.completedAt).toLocaleDateString() : ''}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
-                {/* Start review (only if no active review) */}
-                {!activeReview && pipelines.length > 0 && (
-                  <div className="border-t border-border/50 px-3 py-2 flex items-center gap-2"
-                    onClick={(e) => e.stopPropagation()}>
-                    <GitPullRequest className="w-3.5 h-3.5 text-text-muted" />
-                    {defaultPipelineId ? (
-                      <>
-                        <button onClick={() => handleStartReview(doc.id, defaultPipelineId)}
-                          disabled={startingReview === doc.id}
-                          className="btn-primary text-[11px] px-2.5 py-1 flex items-center gap-1">
-                          {startingReview === doc.id
-                            ? <Loader2 className="w-3 h-3 animate-spin" />
-                            : <Play className="w-3 h-3" />}
-                          Start Review
-                        </button>
-                        <span className="text-[10px] text-text-muted">{defaultPipelineName}</span>
-                        <button onClick={() => setShowPipelinePicker(showPipelinePicker === doc.id ? null : doc.id)}
-                          className="text-[10px] text-text-muted hover:text-primary ml-auto">
-                          Use different...
-                        </button>
-                      </>
-                    ) : (
-                      <span className="text-[10px] text-text-muted">Select a pipeline:</span>
+                  {/* Start review */}
+                  <div>
+                    <p className="text-[10px] text-text-muted font-medium mb-3">START REVIEW</p>
+
+                    {/* Default pipeline — prominent button */}
+                    {defaultPipelineId && (
+                      <button onClick={() => handleStartReview(reviewModal.id, defaultPipelineId)}
+                        disabled={startingReview}
+                        className="w-full btn-primary text-sm py-2.5 flex items-center justify-center gap-2 mb-3">
+                        {startingReview
+                          ? <Loader2 className="w-4 h-4 animate-spin" />
+                          : <Play className="w-4 h-4" />}
+                        Start Review — {defaultPipelineName}
+                      </button>
                     )}
-                    {(!defaultPipelineId || showPipelinePicker === doc.id) && (
+
+                    {/* Other pipelines */}
+                    {pipelines.filter(p => p.id !== defaultPipelineId).length > 0 && (
                       <>
-                        <select defaultValue=""
-                          onChange={(e) => { if (e.target.value) handleStartReview(doc.id, e.target.value); }}
-                          className="input-field text-[11px] py-1 flex-1">
-                          <option value="" disabled>Choose pipeline...</option>
-                          {pipelines.filter(p => p.id !== defaultPipelineId).map(p => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.stages?.length || 0} stages)</option>
-                          ))}
-                        </select>
-                        {showPipelinePicker === doc.id && (
-                          <button onClick={() => setShowPipelinePicker(null)}
-                            className="text-text-muted hover:text-text-primary">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
+                        {defaultPipelineId && (
+                          <p className="text-[10px] text-text-muted mb-2">Or use a different pipeline:</p>
                         )}
+                        <div className="space-y-1.5">
+                          {pipelines.filter(p => p.id !== defaultPipelineId).map(p => (
+                            <button key={p.id}
+                              onClick={() => handleStartReview(reviewModal.id, p.id)}
+                              disabled={startingReview}
+                              className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-border hover:border-primary/30 hover:bg-surface-el transition-colors">
+                              <div className="flex items-center gap-2">
+                                <GitPullRequest className="w-3.5 h-3.5 text-text-muted" />
+                                <span className="text-xs font-medium text-text-primary">{p.name}</span>
+                              </div>
+                              <span className="text-[10px] text-text-muted">{p.stages?.length || 0} stages</span>
+                            </button>
+                          ))}
+                        </div>
                       </>
+                    )}
+
+                    {pipelines.length === 0 && (
+                      <p className="text-xs text-text-muted text-center py-4">
+                        No review pipelines configured. Create one in Settings.
+                      </p>
                     )}
                   </div>
-                )}
-              </div>
-            );
-          })}
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
