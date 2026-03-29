@@ -4,17 +4,25 @@ on:
   push:
     branches: [main]
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to Docker Hub
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -24,7 +32,7 @@ jobs:
         run: |
           SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           DATE=$(date -u +%Y%m%d-%H%M%S)
-          PREFIX="${{ secrets.DOCKERHUB_USERNAME }}"
+          PREFIX="${{ env.IMAGE_PREFIX }}"
           echo "backend=${PREFIX}/legal-partner-backend:latest,${PREFIX}/legal-partner-backend:${SHA},${PREFIX}/legal-partner-backend:${DATE}" >> "$GITHUB_OUTPUT"
           echo "frontend=${PREFIX}/legal-partner-frontend:latest,${PREFIX}/legal-partner-frontend:${SHA},${PREFIX}/legal-partner-frontend:${DATE}" >> "$GITHUB_OUTPUT"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"

@@ -49,7 +49,7 @@ services:
     restart: "no"
 
   backend:
-    image: ${DOCKERHUB_USERNAME}/legal-partner-backend:latest
+    image: ${IMAGE_REGISTRY:-ghcr.io/jyoti0512shukla}/legal-partner-backend:${IMAGE_TAG:-latest}
     logging: *default-logging
     ports:
       - "8080:8080"
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ${DOCKERHUB_USERNAME}/legal-partner-frontend:latest
+    image: ${IMAGE_REGISTRY:-ghcr.io/jyoti0512shukla}/legal-partner-frontend:${IMAGE_TAG:-latest}
     logging: *default-logging
     ports:
       - "80:80"
