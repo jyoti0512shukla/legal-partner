@@ -20,4 +20,16 @@ public interface MatterFindingRepository extends JpaRepository<MatterFinding, UU
     @Query("SELECT f.severity, COUNT(f) FROM MatterFinding f WHERE f.matter.id = :matterId GROUP BY f.severity")
     List<Object[]> countBySeverity(@Param("matterId") UUID matterId);
     void deleteByMatterIdAndFindingTypeIn(UUID matterId, List<FindingType> types);
+
+    // Cross-matter queries for dashboard
+    List<MatterFinding> findTop20ByOrderByCreatedAtDesc();
+    List<MatterFinding> findByStatusOrderByCreatedAtDesc(FindingStatus status);
+    long countBySeverity(FindingSeverity severity);
+    long countByStatus(FindingStatus status);
+
+    @Query("SELECT f.severity, COUNT(f) FROM MatterFinding f GROUP BY f.severity")
+    List<Object[]> countAllBySeverity();
+
+    @Query("SELECT f.matter.id, f.matter.name, f.severity, COUNT(f) FROM MatterFinding f WHERE f.status = 'NEW' GROUP BY f.matter.id, f.matter.name, f.severity ORDER BY COUNT(f) DESC")
+    List<Object[]> countUnreviewedByMatterAndSeverity();
 }

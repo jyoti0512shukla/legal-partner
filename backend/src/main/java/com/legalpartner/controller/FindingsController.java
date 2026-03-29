@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/matters/{matterId}/findings")
 @RequiredArgsConstructor
 public class FindingsController {
 
@@ -31,7 +30,57 @@ public class FindingsController {
     private final UserRepository userRepo;
     private final AuditService auditService;
 
-    @GetMapping
+    // ── Global findings dashboard ─────────────────────────────────────
+    @GetMapping("/api/v1/findings/dashboard")
+    public java.util.Map<String, Object> globalDashboard() {
+        List<Object[]> severityCounts = findingRepo.countAllBySeverity();
+        long high = 0, medium = 0, low = 0;
+        for (Object[] row : severityCounts) {
+            FindingSeverity sev = (FindingSeverity) row[0];
+            long count = (Long) row[1];
+            switch (sev) {
+                case HIGH -> high = count;
+                case MEDIUM -> medium = count;
+                case LOW -> low = count;
+            }
+        }
+        long unreviewed = findingRepo.countByStatus(FindingStatus.NEW);
+        List<MatterFindingDto> recent = findingRepo.findTop20ByOrderByCreatedAtDesc()
+                .stream().map(this::toDto).toList();
+
+        // Matters with most unreviewed findings
+        List<Object[]> matterCounts = findingRepo.countUnreviewedByMatterAndSeverity();
+        java.util.Map<UUID, java.util.Map<String, Object>> mattersMap = new java.util.LinkedHashMap<>();
+        for (Object[] row : matterCounts) {
+            UUID matterId = (UUID) row[0];
+            String matterName = (String) row[1];
+            FindingSeverity sev = (FindingSeverity) row[2];
+            long count = (Long) row[3];
+            mattersMap.computeIfAbsent(matterId, k -> {
+                var m = new java.util.LinkedHashMap<String, Object>();
+                m.put("matterId", matterId);
+                m.put("matterName", matterName);
+                m.put("high", 0L);
+                m.put("medium", 0L);
+                m.put("low", 0L);
+                return m;
+            });
+            mattersMap.get(matterId).put(sev.name().toLowerCase(), count);
+        }
+
+        return java.util.Map.of(
+                "highCount", high,
+                "mediumCount", medium,
+                "lowCount", low,
+                "unreviewedCount", unreviewed,
+                "totalCount", high + medium + low,
+                "recentFindings", recent,
+                "matterRiskSummary", mattersMap.values().stream().toList()
+        );
+    }
+
+    // ── Per-matter findings ───────────────────────────────────────────
+    @GetMapping("/api/v1/matters/{matterId}/findings")
     public List<MatterFindingDto> list(
             @PathVariable UUID matterId,
             @RequestParam(required = false) String severity,
@@ -47,7 +96,7 @@ public class FindingsController {
         return findings.stream().map(this::toDto).toList();
     }
 
-    @GetMapping("/summary")
+    @GetMapping("/api/v1/matters/{matterId}/findings/summary")
     public FindingSummaryDto summary(@PathVariable UUID matterId) {
         List<Object[]> counts = findingRepo.countBySeverity(matterId);
         long high = 0, medium = 0, low = 0;
@@ -64,7 +113,7 @@ public class FindingsController {
         return new FindingSummaryDto(high, medium, low, unreviewed, high + medium + low);
     }
 
-    @PatchMapping("/{findingId}")
+    @PatchMapping("/api/v1/matters/{matterId}/findings/{findingId}")
     public MatterFindingDto review(
             @PathVariable UUID matterId,
             @PathVariable UUID findingId,
