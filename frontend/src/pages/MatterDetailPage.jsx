@@ -129,23 +129,30 @@ export default function MatterDetailPage() {
         </div>
 
         {/* Stats bar */}
-        <div className="flex items-center gap-4 mt-3 text-xs text-text-muted">
-          <span className="flex items-center gap-1"><FileText className="w-3.5 h-3.5" /> {matter.documentCount} documents</span>
+        <div className="flex items-center gap-3 mt-3 flex-wrap">
+          <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-primary/10 text-primary">
+            <FileText className="w-3.5 h-3.5" /> {matter.documentCount} docs
+          </span>
           {findingSummary && findingSummary.count > 0 && (
-            <span className="flex items-center gap-1"><Shield className="w-3.5 h-3.5" /> {findingSummary.count} findings</span>
+            <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-warning/10 text-warning">
+              <Shield className="w-3.5 h-3.5" /> {findingSummary.count} findings
+            </span>
           )}
-          <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> {team.length} team members</span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-surface-el text-text-primary">
+            <Users className="w-3.5 h-3.5" /> {team.length} members
+          </span>
+          <span className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-surface-el text-text-primary">
             <GitPullRequest className="w-3.5 h-3.5" />
+            <span className="text-text-muted">Review:</span>
             {canEdit ? (
               <select value={matter.reviewPipelineId || ''}
                 onChange={e => handlePipelineChange(e.target.value || null)}
-                className="bg-transparent border-none text-xs text-text-muted hover:text-text-primary cursor-pointer p-0 -ml-0.5">
-                <option value="">No review pipeline</option>
+                className="bg-transparent border-none text-xs font-medium text-text-primary cursor-pointer p-0">
+                <option value="">None</option>
                 {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             ) : (
-              <span>{matter.reviewPipelineName || 'No pipeline'}</span>
+              <span>{matter.reviewPipelineName || 'None'}</span>
             )}
           </span>
         </div>
