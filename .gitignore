@@ -28,6 +28,7 @@ ollama_models/
 
 # Customer deployment configs (secrets)
 deploy/customers/
+deploy/.ghcr-token
 
 # OS
 Thumbs.db

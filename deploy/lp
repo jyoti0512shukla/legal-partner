@@ -131,6 +131,21 @@ cmd_provision() {
   # Create remote directory
   remote "sudo mkdir -p $REMOTE_DIR && sudo chown \$USER:\$USER $REMOTE_DIR"
 
+  # Log in to ghcr.io for private image pulls
+  if [[ -n "${GHCR_PAT:-}" ]]; then
+    echo "  Logging in to ghcr.io..."
+    remote "echo '$GHCR_PAT' | docker login ghcr.io -u '${GHCR_USER:-jyoti0512shukla}' --password-stdin"
+  elif [[ -f "$DEPLOY_DIR/.ghcr-token" ]]; then
+    echo "  Logging in to ghcr.io..."
+    local token
+    token=$(cat "$DEPLOY_DIR/.ghcr-token")
+    remote "echo '$token' | docker login ghcr.io -u '${GHCR_USER:-jyoti0512shukla}' --password-stdin"
+  else
+    yellow "  No ghcr.io token found. To set up:"
+    yellow "    Option 1: echo '<PAT>' > deploy/.ghcr-token"
+    yellow "    Option 2: GHCR_PAT=<PAT> lp provision $name"
+  fi
+
   green "Provisioned $name. Run: lp deploy $name"
 }
 
