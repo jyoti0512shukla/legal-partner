@@ -146,6 +146,44 @@ See `docs/STRATEGY.md` for detailed model selection rationale, Indian legal data
 - Categorized risk report (HIGH / MEDIUM / LOW per category)
 - Clause references for each risk finding
 
+### Review Pipelines
+
+Configurable multi-stage approval workflows for document review, defined at the org level and attached to matters.
+
+**Setup (Settings > Review Pipelines):**
+- Define reusable pipeline templates with ordered stages
+- Each stage has: name, required role (Partner, Associate, Paralegal, or Anyone), available actions (Approve, Return, Flag, Send, Add Note), and auto-notify toggle
+- Example: "Standard NDA Review" → Associate Review → Partner Sign-off → Send to Client
+
+**Attach to a Matter:**
+- Each matter can have a default review pipeline (set in matter header)
+- All documents in the matter inherit this default
+
+**Start a Review on a Document:**
+- One-click "Start Review" uses the matter's default pipeline
+- "Use different..." option to pick an alternate pipeline for special documents
+- Opens a review modal with full context
+
+**Review Flow:**
+- Review starts at Stage 1 and routes to matter team members by role
+- If the stage requires "Partner", all Partners on the matter's team are notified (Slack, Teams, email) — shared queue model, whoever picks it up first handles it
+- **Approve** → advances to next stage, notifies next role
+- **Return** → sends back to previous stage with notes
+- **Flag** → logs a concern without moving the stage
+- **Send** → marks the review complete (final stage)
+- **Add Note** → adds commentary to the audit trail
+
+**Visibility:**
+- Document cards show compact review status button (stage name + progress)
+- Review modal shows: current stage, progress bar, action buttons, and full history
+- Dashboard page: "Needs Your Action" (filtered by your role + matter membership), "Team Activity", "Recently Completed"
+- Completed documents show "Approved" or "Sent" badges
+
+**Notifications:**
+- Stage transitions trigger notifications to qualified matter team members
+- Channels: Slack webhooks, Microsoft Teams webhooks, email (per user's configured integrations)
+- Pipeline role → matter role mapping: PARTNER → Lead Partner + Partner, ASSOCIATE → Associate, PARALEGAL → Paralegal, ADMIN → Lead Partner
+
 ### Audit Trail
 - Compliance-grade logging of every user action
 - Filter by user, action type, date range
