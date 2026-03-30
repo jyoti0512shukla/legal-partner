@@ -293,6 +293,88 @@ Then redeploy: `bash deploy/lp deploy acme-legal`
 
 ---
 
+## Data Protection & Reliability
+
+### Strategy
+
+Single-VM deployment with automated disk snapshots. No secondary infrastructure needed.
+
+| Layer | What | Cost |
+|-------|------|------|
+| **Container recovery** | `restart: unless-stopped` — Docker auto-restarts crashed services | Free |
+| **VM reboot recovery** | Docker services start automatically on boot | Free |
+| **Data backup** | GCP disk snapshots — daily, incremental, 7-day retention | Free (5GB included) |
+| **Manual DB backup** | `lp backup <customer>` — on-demand pg_dump to operator laptop | Free |
+| **Uptime monitoring** | UptimeRobot (or similar) pings every 5 min, alerts on failure | Free tier |
+
+### Downtime expectations
+
+| Failure | Downtime | Recovery |
+|---------|----------|----------|
+| Container crash | ~10 seconds | Docker auto-restarts |
+| VM reboot | ~2 minutes | Services auto-start |
+| VM disk failure | **30-60 minutes** | Create new VM from snapshot |
+| GCP zone outage | **Hours** | Wait for Google, or restore in another zone |
+
+### Setting up disk snapshots (per customer GCP VM)
+
+```bash
+# Create snapshot schedule — daily at 2 AM, keep 7 days
+gcloud compute resource-policies create snapshot-schedule lp-daily-backup \
+  --region=<REGION> \
+  --max-retention-days=7 \
+  --daily-schedule \
+  --start-time=02:00
+
+# Attach to the customer's VM disk
+gcloud compute disks add-resource-policies <VM-NAME> \
+  --resource-policies=lp-daily-backup \
+  --zone=<ZONE>
+```
+
+This captures everything — database, documents, Docker volumes, config. Incremental snapshots mean only changes are stored.
+
+### Disaster recovery — VM dies completely
+
+```bash
+# 1. Find latest snapshot
+gcloud compute snapshots list --filter="sourceDisk~<VM-NAME>"
+
+# 2. Create new disk from snapshot
+gcloud compute disks create lp-restored-disk \
+  --source-snapshot=<SNAPSHOT-NAME> \
+  --zone=<ZONE>
+
+# 3. Create new VM with the restored disk
+gcloud compute instances create <VM-NAME>-restored \
+  --disk=name=lp-restored-disk,boot=yes \
+  --zone=<ZONE> \
+  --machine-type=<SAME-TYPE>
+
+# 4. Docker starts automatically, all services come up
+# 5. Update DNS / firewall to point to new VM IP
+```
+
+**Total recovery time: ~30 minutes. Zero data loss (up to last snapshot).**
+
+### Setting up uptime monitoring
+
+1. Sign up at [UptimeRobot](https://uptimerobot.com) (free — 50 monitors)
+2. Add monitor: `http://<customer-domain>:<port>/api/v1/actuator/health`
+3. Alert contacts: your email + Slack webhook
+4. Check interval: 5 minutes
+
+You get alerted within 5 minutes of any outage. Recovery starts immediately.
+
+### For on-premise (non-GCP) VMs
+
+Disk snapshots are GCP-specific. For customer-owned hardware:
+- Use `lp backup <customer>` via cron on the operator laptop (or the VM itself)
+- Store backups on a separate disk / NAS / USB drive
+- Test restore monthly
+
+---
+
 ## Troubleshooting
 
 ### Blank page after deploy
