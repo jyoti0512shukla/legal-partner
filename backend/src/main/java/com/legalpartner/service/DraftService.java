@@ -428,8 +428,8 @@ public class DraftService {
                 + manifestConstraint + ragGrounding + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
         String fullSystemAndInitial = localizedSystemPrompt + "\n\n" + initialPrompt;
 
-        String generated = sanitizeClauseText(
-                chatModel.generate(UserMessage.from(fullSystemAndInitial)).content().text().trim());
+        String generated = sanitizeClauseText(stripLlmArtifacts(
+                chatModel.generate(UserMessage.from(fullSystemAndInitial)).content().text().trim()));
 
         List<String> qaWarnings = qaClause(clauseKey, generated, expectedSubclauses, contractType);
 
@@ -449,8 +449,8 @@ public class DraftService {
                 } catch (IOException ignored) {}
             }
 
-            generated = sanitizeClauseText(
-                    chatModel.generate(UserMessage.from(fullSystemAndInitial + "\n\n" + directiveRetry)).content().text().trim());
+            generated = sanitizeClauseText(stripLlmArtifacts(
+                    chatModel.generate(UserMessage.from(fullSystemAndInitial + "\n\n" + directiveRetry)).content().text().trim()));
             qaWarnings = qaClause(clauseKey, generated, expectedSubclauses, contractType);
         }
 
@@ -522,7 +522,26 @@ public class DraftService {
             log.warn("QA [{}]: clause too short — {} chars", clauseKey, plain.length());
         }
 
-        // 5. Contract-type contamination check
+        // 5. LLM artifact detection — JSON, LaTeX, code comments, instruction tokens
+        if (java.util.regex.Pattern.compile("\"[a-z_]+\"\\s*:\\s*[\"\\[{]").matcher(plain).find()) {
+            warnings.add("LLM artifact: raw JSON detected in output — output must be plain legal prose only");
+            log.warn("QA [{}]: JSON artifacts in output", clauseKey);
+        }
+        if (plain.contains("\\text{") || plain.contains("\\textbf{") || plain.contains("$\\text")) {
+            warnings.add("LLM artifact: LaTeX notation detected — output must be plain text, not LaTeX");
+            log.warn("QA [{}]: LaTeX artifacts in output", clauseKey);
+        }
+        if (java.util.regex.Pattern.compile("(?m)//\\s*\\w").matcher(plain).find()
+                || plain.contains("/*") || plain.contains("*/")) {
+            warnings.add("LLM artifact: code comments detected — output must be plain legal prose");
+            log.warn("QA [{}]: code comment artifacts in output", clauseKey);
+        }
+        if (plain.contains("[INST]") || plain.contains("[/INST]") || plain.contains("<<SYS>>")) {
+            warnings.add("LLM artifact: instruction tokens detected — output must not contain model control tokens");
+            log.warn("QA [{}]: instruction token artifacts in output", clauseKey);
+        }
+
+        // 6. Contract-type contamination check
         if (contractType != null) {
             List<String> contaminants = detectContamination(plain, contractType);
             if (!contaminants.isEmpty()) {
@@ -533,7 +552,7 @@ public class DraftService {
             }
         }
 
-        // 6. Semantic requirement check — clause must address expected legal concepts
+        // 7. Semantic requirement check — clause must address expected legal concepts
         List<String> semanticReqs = CLAUSE_SEMANTIC_REQUIREMENTS.get(clauseKey);
         if (semanticReqs != null) {
             String lowerPlain = plain.toLowerCase();
@@ -640,6 +659,125 @@ public class DraftService {
         return sb.length() == 0 ? "" : sb.toString();
     }
 
+    // ── LLM artifact stripper — runs BEFORE clause sanitizer ───────────────────
+
+    /**
+     * Strips non-prose artifacts that fine-tuned models (especially saul-legal-v3)
+     * inject into draft output: JSON wrappers, LaTeX commands, code comments,
+     * instruction tokens, and broken unicode escapes.
+     */
+    private String stripLlmArtifacts(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        String t = raw;
+
+        // 1. Strip instruction tokens ([INST], [/INST], <<SYS>>, <s>, </s>)
+        t = t.replaceAll("\\[/?INST\\]", "")
+             .replaceAll("<</?SYS>>", "")
+             .replaceAll("</?s>", "");
+
+        // 2. Strip markdown code fences
+        t = t.replaceAll("```(?:json|html|text)?\\s*", "")
+             .replaceAll("```", "");
+
+        // 3. Extract text from JSON wrappers — if the model outputs {"key": "actual text", ...}
+        //    try to pull out the longest string value (the actual clause content)
+        if (t.trim().startsWith("{") && t.trim().contains("\"")) {
+            String extracted = extractProseFromJson(t);
+            if (extracted != null && extracted.length() > 80) {
+                t = extracted;
+            }
+        }
+
+        // 4. Remove standalone JSON lines: lines that are just {"key": "value"} or JSON punctuation
+        String[] lines = t.split("\\r?\\n");
+        StringBuilder cleaned = new StringBuilder();
+        for (String line : lines) {
+            String trimmed = line.trim();
+            // Skip lines that are pure JSON syntax
+            if (trimmed.matches("^[{}\\[\\],]+$")) continue;
+            if (trimmed.matches("^\"[a-z_]+\"\\s*:\\s*[\"\\[{].*")) continue;
+            if (trimmed.matches("^\"[a-z_]+\"\\s*:\\s*\\d+.*")) continue;
+            // Skip lines that are just JSON key with empty value
+            if (trimmed.matches("^\"[a-z_]+\"\\s*:\\s*\"\"\\s*,?$")) continue;
+            cleaned.append(line).append("\n");
+        }
+        t = cleaned.toString();
+
+        // 5. Strip LaTeX notation: $\text{Name}$ → Name, \textbf{text} → text
+        t = t.replaceAll("\\$\\\\text\\{([^}]*)\\}\\$", "$1")
+             .replaceAll("\\\\text\\{([^}]*)\\}", "$1")
+             .replaceAll("\\\\textbf\\{([^}]*)\\}", "$1")
+             .replaceAll("\\\\textit\\{([^}]*)\\}", "$1")
+             .replaceAll("\\\\section\\*?\\{([^}]*)\\}", "$1")
+             .replaceAll("\\\\subsection\\*?\\{([^}]*)\\}", "$1")
+             .replaceAll("\\\\emph\\{([^}]*)\\}", "$1");
+
+        // 6. Strip code comments (// ... and /* ... */ and + // ...)
+        t = t.replaceAll("\\+\\s*//[^\n]*", "")
+             .replaceAll("(?m)^\\s*//[^\n]*$", "")
+             .replaceAll("/\\*.*?\\*/", "");
+
+        // 7. Fix broken unicode escapes rendered as literal text
+        t = t.replace("\\u201c", "\u201c")
+             .replace("\\u201d", "\u201d")
+             .replace("\\u2019", "\u2019")
+             .replace("\\u2014", "\u2014")
+             .replace("\\u2013", "\u2013")
+             .replace("\\xef\\x84\\xbc", ",");
+
+        // 8. Strip ASCII table garbage (---|---|--- patterns)
+        t = t.replaceAll("(?m)^[\\s|\\-]{10,}$", "");
+
+        // 9. Remove residual JSON field names that leaked inline
+        t = t.replaceAll("\"clause_name\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
+             .replaceAll("\"clause_type\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
+             .replaceAll("\"risk_level\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
+             .replaceAll("\"rule_set\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
+             .replaceAll("\"issue_id\"\\s*:\\s*\\d+\\s*,?", "")
+             .replaceAll("\"issue_type\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
+             .replaceAll("\"issue\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
+             .replaceAll("\"rationale\"\\s*:\\s*\"[^\"]*\"\\s*,?", "");
+
+        // 10. Extract content from "output", "suggested_language", or "fix_text" JSON fields
+        t = t.replaceAll("\"(?:output|suggested_language|fix_text|fix)\"\\s*:\\s*\"", "")
+             .replaceAll("\"\\s*,?\\s*$", "");
+
+        // 11. Clean up multiple blank lines and trailing commas
+        t = t.replaceAll("\\n{3,}", "\n\n")
+             .replaceAll(",\\s*\\n\\s*\\}", "")
+             .replaceAll("\\{\\s*\\}", "")
+             .trim();
+
+        return t;
+    }
+
+    /**
+     * Attempts to extract the longest prose content from a JSON-wrapped LLM response.
+     * Handles cases where the model wraps its output like: {"clause_name":"X","suggested_language":"actual text"}
+     */
+    private String extractProseFromJson(String jsonLike) {
+        try {
+            // Try to find all quoted string values and return the longest one
+            java.util.regex.Pattern valuePattern = java.util.regex.Pattern.compile(
+                    "\"(?:output|suggested_language|fix_text|fix|content|text|clause_text)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+            java.util.regex.Matcher m = valuePattern.matcher(jsonLike);
+            String longest = null;
+            while (m.find()) {
+                String val = m.group(1)
+                        .replace("\\n", "\n")
+                        .replace("\\t", " ")
+                        .replace("\\\"", "\"");
+                if (longest == null || val.length() > longest.length()) {
+                    longest = val;
+                }
+            }
+            return longest;
+        } catch (Exception e) {
+            log.debug("Failed to extract prose from JSON-like output: {}", e.getMessage());
+            return null;
+        }
+    }
+
     // ── Clause text sanitizer ──────────────────────────────────────────────────
 
     private static final java.util.regex.Pattern DEGENERATE_LINE =
@@ -732,6 +870,10 @@ public class DraftService {
             } else if (w.contains("too short")) {
                 sb.append("TOO SHORT: Expand every sub-clause. Each must be a standalone enforceable provision ")
                   .append("of at least 2 sentences. Do not use bullet points or lists — write full prose.\n");
+            } else if (w.contains("LLM artifact")) {
+                sb.append("FORMAT ERROR: Your output contains non-prose artifacts (JSON, LaTeX, code comments, or instruction tokens). ")
+                  .append("Output ONLY plain English legal text. No JSON objects, no \\text{}, no // comments, no [INST] tokens. ")
+                  .append("Write numbered sub-clauses as plain prose sentences.\n");
             } else {
                 sb.append("FIX: ").append(w).append("\n");
             }

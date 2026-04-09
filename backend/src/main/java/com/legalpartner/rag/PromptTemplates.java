@@ -612,6 +612,16 @@ public final class PromptTemplates {
             - Do NOT write a clause heading or topic label without drafting the full legal text for that sub-clause.
             - Every sub-clause must be a complete, grammatically correct sentence of at least 10 words.
             - Do NOT repeat any sub-clause. If you have nothing more to add, STOP immediately.
+
+            OUTPUT FORMAT — non-negotiable:
+            - Output ONLY plain English legal prose. Nothing else.
+            - Do NOT output JSON, curly braces, square brackets with keys, or any structured data format.
+            - Do NOT use LaTeX commands such as \\text{}, \\textbf{}, \\section{}, or dollar-sign math mode.
+            - Do NOT include code comments (// or /* */), string concatenation (+), or programming syntax.
+            - Do NOT include model tokens like [INST], [/INST], <<SYS>>, <s>, or </s>.
+            - Do NOT wrap your response in ```code fences``` or any markup besides the numbered clause text.
+            - Do NOT output metadata fields like "clause_name", "rationale", "issue", or "suggested_language".
+            - Your output must read as a finished legal document — no analysis, no commentary, no JSON.
             """;
 
     /** %1$s=contractType, %2$s=partyA, %3$s=partyB, %4$s=practiceArea, %5$s=industry, %6$s=dealBrief */
