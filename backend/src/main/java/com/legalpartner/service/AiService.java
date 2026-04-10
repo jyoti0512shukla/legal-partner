@@ -712,8 +712,13 @@ public class AiService {
             return new RiskDrilldownResult(request.categoryName(), request.rating(),
                     "Document has not been indexed yet.", null, null, null);
         }
-        // Cap context — drilldown is focused, doesn't need the full document
-        if (context.length() > 5000) context = context.substring(0, 5000);
+        // Cap context to fit model window. Previous 5000-char cap caused false
+        // "missing clause" hallucinations because clauses past the cap weren't visible.
+        // 12000 chars ≈ 3000 tokens, leaving room for prompt + 800 token output.
+        if (context.length() > 12000) {
+            // Extract sections relevant to the category being drilled down on
+            context = extractRelevantSection(context, request.categoryName(), 12000);
+        }
 
         String prompt = String.format(PromptTemplates.RISK_DRILLDOWN_USER,
                 context,
@@ -727,6 +732,50 @@ public class AiService {
         ).content();
 
         return parseDrilldownResponse(request.categoryName(), request.rating(), response.text());
+    }
+
+    /**
+     * When the document is too long for the model window, extract sections most
+     * relevant to the risk category being analyzed. Searches for the matching
+     * article/section header and includes surrounding context.
+     */
+    private String extractRelevantSection(String fullText, String categoryName, int maxChars) {
+        if (fullText.length() <= maxChars) return fullText;
+
+        // Map risk category names to keywords likely to appear in section headers
+        java.util.Map<String, String[]> categoryKeywords = java.util.Map.of(
+                "Liability",       new String[]{"liability", "limitation of liability", "limit of liability"},
+                "Indemnity",       new String[]{"indemnity", "indemnification", "indemnif"},
+                "Termination",     new String[]{"termination", "expiry", "expiration"},
+                "IP Rights",       new String[]{"intellectual property", "ip rights", "copyright", "patent"},
+                "Confidentiality", new String[]{"confidential", "non-disclosure", "nda"},
+                "Governing Law",   new String[]{"governing law", "jurisdiction", "dispute resolution", "arbitration"},
+                "Force Majeure",   new String[]{"force majeure", "act of god", "frustration"}
+        );
+
+        String[] keywords = categoryKeywords.getOrDefault(categoryName, new String[]{categoryName.toLowerCase()});
+        String lowerText = fullText.toLowerCase();
+
+        // Find the earliest match for any keyword
+        int matchIdx = -1;
+        for (String kw : keywords) {
+            int idx = lowerText.indexOf(kw);
+            if (idx >= 0 && (matchIdx < 0 || idx < matchIdx)) matchIdx = idx;
+        }
+
+        if (matchIdx < 0) {
+            // No keyword found — fall back to first + last chunks (preserves both ends)
+            int half = maxChars / 2;
+            return fullText.substring(0, half) + "\n\n[...middle truncated...]\n\n" +
+                   fullText.substring(fullText.length() - half);
+        }
+
+        // Center the window on the matched section: 30% before, 70% after
+        int before = (int) (maxChars * 0.3);
+        int after = (int) (maxChars * 0.7);
+        int start = Math.max(0, matchIdx - before);
+        int end = Math.min(fullText.length(), matchIdx + after);
+        return fullText.substring(start, end);
     }
 
     private RiskDrilldownResult parseDrilldownResponse(String categoryName, String rating, String raw) {
