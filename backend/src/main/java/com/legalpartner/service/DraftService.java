@@ -428,14 +428,19 @@ public class DraftService {
                 + manifestConstraint + ragGrounding + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
         String fullSystemAndInitial = localizedSystemPrompt + "\n\n" + initialPrompt;
 
+        // Generate initial attempt
         String generated = sanitizeClauseText(stripLlmArtifacts(
                 chatModel.generate(UserMessage.from(fullSystemAndInitial)).content().text().trim()));
-
         List<String> qaWarnings = qaClause(clauseKey, generated, expectedSubclauses, contractType);
 
+        // Best-of-N tracking — keep the highest-scoring attempt across retries
+        String bestGenerated = generated;
+        List<String> bestWarnings = qaWarnings;
+        int bestScore = scoreAttempt(generated, qaWarnings);
+
         for (int attempt = 1; attempt <= QA_MAX_RETRIES && !qaWarnings.isEmpty(); attempt++) {
-            String directiveRetry = buildDirectiveRetry(qaWarnings, clauseKey, expectedSubclauses);
-            log.warn("QA [{}] attempt {}/{}: {} issues — retrying", clauseKey, attempt, QA_MAX_RETRIES, qaWarnings.size());
+            log.warn("QA [{}] attempt {}/{}: {} issues — retrying (current best score: {})",
+                    clauseKey, attempt, QA_MAX_RETRIES, qaWarnings.size(), bestScore);
 
             if (emitter != null) {
                 try {
@@ -449,10 +454,41 @@ public class DraftService {
                 } catch (IOException ignored) {}
             }
 
-            generated = sanitizeClauseText(stripLlmArtifacts(
-                    chatModel.generate(UserMessage.from(fullSystemAndInitial + "\n\n" + directiveRetry)).content().text().trim()));
-            qaWarnings = qaClause(clauseKey, generated, expectedSubclauses, contractType);
+            // PHASE 3: Per-sub-clause regeneration when only sub-clauses are missing
+            boolean onlyMissingSubclauses = qaWarnings.stream()
+                    .allMatch(w -> w.startsWith("Incomplete:") || w.contains("Heading-only"));
+            String retryGenerated;
+            if (onlyMissingSubclauses && countSubClauses(generated) > 0) {
+                retryGenerated = regenerateMissingSubclauses(
+                        generated, expectedSubclauses, localizedSystemPrompt, initialPrompt);
+            } else {
+                // PHASE 2: Isolated retry — fresh prompt, NOT concatenated with original.
+                String isolatedRetryPrompt = buildIsolatedRetryPrompt(
+                        localizedSystemPrompt, initialPrompt, qaWarnings, expectedSubclauses, clauseKey);
+                retryGenerated = sanitizeClauseText(stripLlmArtifacts(
+                        chatModel.generate(UserMessage.from(isolatedRetryPrompt)).content().text().trim()));
+            }
+
+            List<String> retryWarnings = qaClause(clauseKey, retryGenerated, expectedSubclauses, contractType);
+            int retryScore = scoreAttempt(retryGenerated, retryWarnings);
+
+            // Best-of-N: keep whichever scored higher
+            if (retryScore > bestScore) {
+                log.info("QA [{}] attempt {}: improved (score {} -> {})", clauseKey, attempt, bestScore, retryScore);
+                bestGenerated = retryGenerated;
+                bestWarnings = retryWarnings;
+                bestScore = retryScore;
+            } else {
+                log.info("QA [{}] attempt {}: no improvement (score {} <= {}), keeping previous", clauseKey, attempt, retryScore, bestScore);
+            }
+
+            generated = retryGenerated;
+            qaWarnings = retryWarnings;
         }
+
+        // Use the best attempt across all retries, not necessarily the latest
+        generated = bestGenerated;
+        qaWarnings = bestWarnings;
 
         if (!qaWarnings.isEmpty()) {
             log.warn("QA [{}]: {} residual warning(s) after {} retries — applying post-processor", clauseKey, qaWarnings.size(), QA_MAX_RETRIES);
@@ -460,6 +496,94 @@ public class DraftService {
         // Always post-process to replace any remaining placeholders with sensible defaults
         generated = postProcessPlaceholders(generated, request);
         return new ClauseResult(generated, qaClause(clauseKey, generated, expectedSubclauses, contractType));
+    }
+
+    /**
+     * Score a generation attempt: higher is better.
+     * Penalises QA warnings, artifacts, and short content. Rewards length up to a sane cap.
+     */
+    private int scoreAttempt(String html, List<String> warnings) {
+        int score = 1000;
+        // Each warning = -100 points
+        score -= warnings.size() * 100;
+        // Hard penalty for serious artifacts
+        for (String w : warnings) {
+            if (w.contains("LLM artifact")) score -= 200;
+        }
+        // Penalty for very short output
+        String plain = html.replaceAll("<[^>]+>", " ").trim();
+        if (plain.length() < 200) score -= 300;
+        else if (plain.length() < 400) score -= 100;
+        // Reward longer, substantive output (capped at 2000 chars to avoid runaway)
+        score += Math.min(plain.length(), 2000) / 10;
+        return score;
+    }
+
+    /**
+     * Build an isolated retry prompt — the directive becomes a fresh user message,
+     * not concatenated to the failed output. Prevents the model from regurgitating
+     * the previous broken output or echoing the directive itself.
+     */
+    private String buildIsolatedRetryPrompt(String systemPrompt, String originalUserPrompt,
+                                             List<String> warnings, int expectedSubclauses, String clauseKey) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(systemPrompt).append("\n\n");
+        sb.append(originalUserPrompt).append("\n\n");
+        sb.append("Your previous attempt had the following issues:\n");
+        for (String w : warnings) {
+            sb.append("  - ").append(w).append("\n");
+        }
+        sb.append("\nWrite a fresh, complete ").append(clauseKey).append(" clause with exactly ")
+          .append(expectedSubclauses).append(" numbered sub-clauses. ")
+          .append("Output ONLY the numbered legal text. No commentary, no JSON, no chat tokens.");
+        return sb.toString();
+    }
+
+    /**
+     * Count the number of sub-clauses in HTML output by counting "clause-sub" markers.
+     */
+    private int countSubClauses(String html) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = html.indexOf("clause-sub", idx)) >= 0) {
+            count++;
+            idx += "clause-sub".length();
+        }
+        return count;
+    }
+
+    /**
+     * PHASE 3: Generate ONLY the missing sub-clauses and splice them into the existing HTML.
+     * Preserves sub-clauses that already exist instead of regenerating from scratch.
+     */
+    private String regenerateMissingSubclauses(String existingHtml, int expectedSubclauses,
+                                                 String systemPrompt, String originalUserPrompt) {
+        int existing = countSubClauses(existingHtml);
+        int missing = expectedSubclauses - existing;
+        if (missing <= 0) return existingHtml;
+
+        log.info("Regenerating {} missing sub-clauses (have {}, need {})", missing, existing, expectedSubclauses);
+
+        // Build a focused prompt asking only for the missing sub-clauses
+        StringBuilder sb = new StringBuilder();
+        sb.append(systemPrompt).append("\n\n");
+        sb.append(originalUserPrompt).append("\n\n");
+        sb.append("You have already drafted ").append(existing).append(" sub-clauses for this clause. ");
+        sb.append("Now write ONLY sub-clauses ").append(existing + 1).append(" through ").append(expectedSubclauses).append(". ");
+        sb.append("Begin each with the appropriate number (e.g. \"").append(existing + 1).append(".\"). ");
+        sb.append("Output ONLY the new numbered sub-clauses as plain legal prose. ");
+        sb.append("Do not repeat the existing sub-clauses. Do not add commentary.");
+
+        String additionalText = sanitizeClauseText(stripLlmArtifacts(
+                chatModel.generate(UserMessage.from(sb.toString())).content().text().trim()));
+
+        if (additionalText.isBlank()) {
+            log.warn("Sub-clause regeneration returned empty result, keeping original");
+            return existingHtml;
+        }
+
+        // Splice: append the new sub-clauses to the existing HTML
+        return existingHtml + "\n" + additionalText;
     }
 
     /**
@@ -670,10 +794,37 @@ public class DraftService {
         if (raw == null || raw.isBlank()) return "";
         String t = raw;
 
-        // 1. Strip instruction tokens ([INST], [/INST], <<SYS>>, <s>, </s>)
+        // 0. Truncate at retry directive bleed-through — model echoed our retry prompt
+        //    These markers indicate the model started regurgitating the system prompt.
+        String[] bleedMarkers = {
+            "REWRITE REQUIRED",
+            "MISSING SUB-CLAUSES:",
+            "RULES FOR THIS REWRITE:",
+            "INSTRUCTIONS: Perform rewrite",
+            "ANCHOR: Follow the firm precedent",
+            "PRESERVE sub-clauses that do NOT have issues"
+        };
+        for (String marker : bleedMarkers) {
+            int idx = t.indexOf(marker);
+            if (idx > 0) {
+                log.warn("Draft sanitizer: retry directive bleed detected at marker '{}', truncating", marker);
+                t = t.substring(0, idx);
+            }
+        }
+
+        // 1. Strip instruction tokens
+        // Mistral/Llama: [INST], [/INST], <<SYS>>, <s>, </s>
+        // Gemma: <|end_of_turn|>, <|start_of_turn|>user, <|start_of_turn|>model, <|start_of_turn|>assistant
+        // Qwen/ChatML: <|im_start|>, <|im_end|>
         t = t.replaceAll("\\[/?INST\\]", "")
              .replaceAll("<</?SYS>>", "")
-             .replaceAll("</?s>", "");
+             .replaceAll("</?s>", "")
+             .replaceAll("<\\|end_of_turn\\|>", "")
+             .replaceAll("<\\|start_of_turn\\|>(?:user|model|assistant|thought|system)?", "")
+             .replaceAll("<\\|im_start\\|>(?:user|assistant|system)?", "")
+             .replaceAll("<\\|im_end\\|>", "")
+             // Also strip the bare role labels that appear after stripping <|start_of_turn|>
+             .replaceAll("(?m)^\\s*(?:user|model|assistant|thought)\\s*$", "");
 
         // 2. Strip markdown code fences
         t = t.replaceAll("```(?:json|html|text)?\\s*", "")
@@ -748,7 +899,40 @@ public class DraftService {
              .replaceAll("\\{\\s*\\}", "")
              .trim();
 
+        // 12. Loop detection — truncate if same sentence appears 3+ times
+        t = truncateOnRepetition(t);
+
         return t;
+    }
+
+    /**
+     * Detects when the model gets stuck in a loop repeating the same sentence/phrase.
+     * Truncates output at the second occurrence of any 40+ char fragment.
+     */
+    private String truncateOnRepetition(String text) {
+        if (text == null || text.length() < 200) return text;
+        // Split into sentences/segments
+        String[] segments = text.split("(?<=[.!?\\n])");
+        java.util.Map<String, Integer> seen = new java.util.HashMap<>();
+        StringBuilder kept = new StringBuilder();
+        for (String seg : segments) {
+            String norm = seg.trim().toLowerCase().replaceAll("\\s+", " ");
+            if (norm.length() < 40) {
+                kept.append(seg);
+                continue;
+            }
+            // Use first 60 chars as fingerprint
+            String fp = norm.substring(0, Math.min(60, norm.length()));
+            int count = seen.getOrDefault(fp, 0) + 1;
+            seen.put(fp, count);
+            if (count >= 2) {
+                log.warn("Draft sanitizer: repetition loop detected, truncating at: {}",
+                        fp.substring(0, Math.min(50, fp.length())));
+                break;
+            }
+            kept.append(seg);
+        }
+        return kept.toString();
     }
 
     /**
