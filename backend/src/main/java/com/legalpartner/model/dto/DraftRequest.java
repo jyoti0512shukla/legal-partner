@@ -54,4 +54,11 @@ public class DraftRequest {
      * Values: FIRST_DRAFT | BALANCED | FINAL_OFFER
      */
     private String draftStance;
+
+    /**
+     * Optional matter context. When set, the draft is generated in the context
+     * of this matter — pre-fills missing fields from matter metadata and uses
+     * matter documents as RAG precedent.
+     */
+    private String matterId;
 }

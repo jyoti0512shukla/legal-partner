@@ -96,6 +96,50 @@ public class DocumentService {
      * Ingest a document from bytes (e.g. from cloud storage or EDGAR import).
      * source: "USER" (default), "EDGAR" (corpus seed), "CLOUD" (cloud import)
      */
+    /**
+     * Save an AI-generated draft as a Document. Skips Tika parsing (HTML is already text).
+     * If matter is provided, links the document to it and triggers the matter agent.
+     * Returns the saved DocumentMetadata immediately; indexing happens async.
+     */
+    public DocumentMetadata saveDraftAsDocument(
+            String draftHtml, String fileName,
+            com.legalpartner.model.entity.Matter matter,
+            String jurisdiction, String username
+    ) {
+        DocumentMetadata doc = DocumentMetadata.builder()
+                .fileName(fileName)
+                .contentType("text/html")
+                .jurisdiction(jurisdiction)
+                .documentType(DocumentType.OTHER)
+                .practiceArea(matter != null && matter.getPracticeArea() != null
+                        ? matter.getPracticeArea() : PracticeArea.OTHER)
+                .clientName(matter != null ? matter.getClientName() : null)
+                .matter(matter)
+                .matterId(matter != null ? matter.getId().toString() : null)
+                .uploadedBy(username)
+                .fileSizeBytes((long) draftHtml.length())
+                .processingStatus(ProcessingStatus.PENDING)
+                .source("DRAFTED")
+                .build();
+        doc = repository.save(doc);
+
+        // Store HTML for the editor
+        try {
+            String storedPath = fileStorageService.store(doc.getId(), doc.getFileName(), draftHtml.getBytes());
+            doc.setStoredPath(storedPath);
+            doc.setFileSize((long) draftHtml.length());
+            repository.save(doc);
+        } catch (Exception e) {
+            log.warn("Failed to store draft file: {}", e.getMessage());
+        }
+
+        // Index async (uses HTML as text — no Tika needed since draft is already prose)
+        processDocumentAsync(doc.getId(), draftHtml.getBytes());
+        log.info("Draft saved as document {} (matter={})", doc.getId(),
+                matter != null ? matter.getMatterRef() : "none");
+        return doc;
+    }
+
     public DocumentMetadata ingestFromBytes(
             byte[] fileBytes, String fileName, String contentType,
             String jurisdiction, Integer year, boolean confidential,

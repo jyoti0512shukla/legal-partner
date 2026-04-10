@@ -6,9 +6,11 @@ import com.legalpartner.config.LegalSystemConfig;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.dto.DraftResponse;
 import com.legalpartner.model.dto.DraftResponse.ClauseSuggestion;
+import com.legalpartner.model.entity.Matter;
 import com.legalpartner.rag.DraftContextRetriever;
 import com.legalpartner.rag.DraftContextRetriever.DraftContext;
 import com.legalpartner.rag.PromptTemplates;
+import com.legalpartner.repository.MatterRepository;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
@@ -25,6 +27,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
 
@@ -37,19 +40,60 @@ public class DraftService {
     private final ChatLanguageModel chatModel;
     private final Semaphore draftSemaphore;
     private final LegalSystemConfig legalSystemConfig;
+    private final MatterRepository matterRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
                         DraftContextRetriever draftContextRetriever,
                         ChatLanguageModel chatModel,
                         LegalSystemConfig legalSystemConfig,
+                        MatterRepository matterRepository,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
         this.chatModel = chatModel;
         this.legalSystemConfig = legalSystemConfig;
+        this.matterRepository = matterRepository;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
+
+    /**
+     * If matterId is provided, hydrate missing request fields from the matter.
+     * Existing fields take precedence — only blanks get filled.
+     */
+    private void hydrateFromMatter(DraftRequest request) {
+        if (request.getMatterId() == null || request.getMatterId().isBlank()) return;
+        try {
+            UUID matterUuid = UUID.fromString(request.getMatterId());
+            Matter matter = matterRepository.findById(matterUuid).orElse(null);
+            if (matter == null) {
+                log.warn("Draft hydrate: matter {} not found", request.getMatterId());
+                return;
+            }
+            // Pre-fill only blank fields
+            if (isBlank(request.getPartyA()) && matter.getClientName() != null) {
+                request.setPartyA(matter.getClientName());
+            }
+            if (isBlank(request.getPracticeArea()) && matter.getPracticeArea() != null) {
+                request.setPracticeArea(matter.getPracticeArea().name());
+            }
+            // Append matter name to deal brief if not already mentioned
+            String existingBrief = request.getDealBrief() != null ? request.getDealBrief() : "";
+            if (!existingBrief.contains(matter.getName())) {
+                String matterContext = "Matter: " + matter.getName() + " (" + matter.getMatterRef() + ")";
+                if (matter.getDealType() != null) {
+                    matterContext += ", Deal Type: " + matter.getDealType();
+                }
+                request.setDealBrief(matterContext + (existingBrief.isBlank() ? "" : ". " + existingBrief));
+            }
+            log.info("Draft hydrated from matter {}: client={}, practice={}",
+                    matter.getMatterRef(), matter.getClientName(), matter.getPracticeArea());
+        } catch (IllegalArgumentException e) {
+            log.warn("Draft hydrate: invalid matterId format {}", request.getMatterId());
+        }
+    }
+
+    private static boolean isBlank(String s) { return s == null || s.isBlank(); }
 
     private record ClauseSpec(String title, String systemPrompt, String userPromptTemplate, int expectedSubclauses) {}
 
@@ -82,6 +126,7 @@ public class DraftService {
     // ── Public API ─────────────────────────────────────────────────────────────
 
     public DraftResponse generateDraft(DraftRequest request, String username) {
+        hydrateFromMatter(request);
         if (!draftSemaphore.tryAcquire()) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Draft generation is busy. Please try again in a moment.");
@@ -94,6 +139,7 @@ public class DraftService {
     }
 
     public SseEmitter streamDraft(DraftRequest request, String username) {
+        hydrateFromMatter(request);
         SseEmitter emitter = new SseEmitter(300_000L);
         if (!draftSemaphore.tryAcquire()) {
             try {

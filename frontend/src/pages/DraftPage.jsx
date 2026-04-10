@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save, FolderOpen, Pencil, AlertTriangle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save, FolderOpen, Pencil, AlertTriangle, Briefcase } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
 
@@ -37,8 +37,12 @@ const CLAUSE_SPECS_LABELS = {
 
 export default function DraftPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const matterIdFromUrl = searchParams.get('matterId');
+
   const [templates, setTemplates] = useState([]);
   const [docs, setDocs] = useState([]);
+  const [matters, setMatters] = useState([]); // matters user has access to
   const [refMode, setRefMode] = useState('manual'); // 'manual' | 'system'
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState(null);
@@ -76,12 +80,32 @@ export default function DraftPage() {
     clientPosition: 'NEUTRAL',
     industry: 'GENERAL',
     draftStance: 'BALANCED',
+    matterId: matterIdFromUrl || '',
   });
 
   useEffect(() => {
     api.get('/ai/templates').then(r => setTemplates(r.data || [])).catch(() => setTemplates([]));
     api.get('/documents?size=100&sort=uploadDate,desc').then(r => setDocs(r.data.content || [])).catch(() => setDocs([]));
+    // Load matters the user has access to (backend already filters by membership)
+    api.get('/matters').then(r => {
+      const list = r.data?.content || r.data || [];
+      setMatters(Array.isArray(list) ? list : []);
+    }).catch(() => setMatters([]));
   }, []);
+
+  // If matterId came from URL, hydrate the form fields once matters are loaded
+  useEffect(() => {
+    if (!matterIdFromUrl || matters.length === 0) return;
+    const matter = matters.find(m => m.id === matterIdFromUrl);
+    if (matter) {
+      setForm(f => ({
+        ...f,
+        matterId: matter.id,
+        partyA: f.partyA || matter.clientName || '',
+        practiceArea: f.practiceArea || matter.practiceArea || 'CORPORATE',
+      }));
+    }
+  }, [matterIdFromUrl, matters]);
 
   const handlePreviewMouseUp = useCallback(() => {
     const sel = window.getSelection();
@@ -285,26 +309,28 @@ export default function DraftPage() {
     setPendingRefinement(null);
   };
 
-  const handleSaveToSystem = async () => {
+  const handleSaveDraft = async () => {
     if (!draft?.draftHtml) return;
     setSaving(true);
     setSaveSuccess(false);
     try {
-      const fileName = `draft-${form.templateId}-${form.effectiveDate || 'draft'}.html`;
-      const blob = new Blob([draft.draftHtml], { type: 'text/html' });
-      const file = new File([blob], fileName, { type: 'text/html' });
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('jurisdiction', form.jurisdiction || '');
-      fd.append('year', form.effectiveDate ? form.effectiveDate.slice(0, 4) : new Date().getFullYear());
-      fd.append('documentType', 'DRAFT');
-      fd.append('practiceArea', form.practiceArea || 'CORPORATE');
-      if (form.partyA) fd.append('clientName', form.partyA);
-      await api.post('/documents/upload', fd, { headers: { 'Content-Type': undefined } });
+      await api.post('/ai/draft/save', {
+        draftHtml: draft.draftHtml,
+        matterId: form.matterId || null,
+        contractTypeName: form.contractTypeName || form.templateId,
+        partyA: form.partyA || null,
+        partyB: form.partyB || null,
+        jurisdiction: form.jurisdiction || null,
+      });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 4000);
     } catch (e) {
-      setError(e.response?.data?.message || e.message || 'Save failed');
+      const status = e.response?.status;
+      if (status === 403) {
+        setError('You do not have access to that matter.');
+      } else {
+        setError(e.response?.data?.message || e.message || 'Save failed');
+      }
     } finally {
       setSaving(false);
     }
@@ -489,16 +515,37 @@ export default function DraftPage() {
 
           {draft && (
             <>
-              <div className="card flex items-center justify-between flex-wrap gap-3">
-                <span className="text-text-secondary text-sm">Select text in the preview to improve it inline</span>
+              <div className="card space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <span className="text-text-secondary text-sm">Select text in the preview to improve it inline</span>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Briefcase className="w-4 h-4 text-text-muted" />
+                  <label className="text-sm text-text-secondary">Save to Matter:</label>
+                  <select
+                    value={form.matterId || ''}
+                    onChange={(e) => setForm(f => ({ ...f, matterId: e.target.value }))}
+                    className="input-field text-sm flex-1 min-w-[200px] max-w-xs"
+                  >
+                    <option value="">— No matter (standalone) —</option>
+                    {matters.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} {m.matterRef ? `(${m.matterRef})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {matters.length === 0 && (
+                    <span className="text-xs text-text-muted">No matters available</span>
+                  )}
+                </div>
                 <div className="flex gap-2 flex-wrap">
                   <button
-                    onClick={handleSaveToSystem}
+                    onClick={handleSaveDraft}
                     disabled={saving}
                     className="btn-primary flex items-center gap-2 text-sm"
                   >
                     {saving ? <Loader className="w-4 h-4 animate-spin" /> : saveSuccess ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                    {saving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save to System'}
+                    {saving ? 'Saving...' : saveSuccess ? 'Saved!' : (form.matterId ? 'Save to Matter' : 'Save')}
                   </button>
                   <button onClick={() => setShowSaveToCloud(true)} className="btn-secondary flex items-center gap-2 text-sm">
                     <CloudUpload className="w-4 h-4" />

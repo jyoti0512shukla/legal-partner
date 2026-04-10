@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
-  ArrowLeft, FileText, Shield, Workflow, Users, Clock, Plus, Upload, Trash2, X,
+  ArrowLeft, FileText, FileEdit, Shield, Workflow, Users, Clock, Plus, Upload, Trash2, X,
   Loader2, CheckCircle2, XCircle, AlertTriangle, Edit2, Play,
   GitPullRequest, ChevronRight, RotateCcw, Flag, Send, MessageSquare
 } from 'lucide-react';
@@ -116,16 +116,23 @@ export default function MatterDetailPage() {
             {matter.description && <p className="text-sm text-text-secondary mt-2">{matter.description}</p>}
           </div>
 
-          {canEdit && (
-            <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => navigate(`/draft?matterId=${id}`)}
+              className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5"
+              title="Generate a new draft in the context of this matter"
+            >
+              <FileEdit className="w-3.5 h-3.5" /> New Draft
+            </button>
+            {canEdit && (
               <select value={matter.status} onChange={e => handleStatusChange(e.target.value)}
                 className="input-field text-xs py-1">
                 <option value="ACTIVE">Active</option>
                 <option value="CLOSED">Closed</option>
                 <option value="ARCHIVED">Archived</option>
               </select>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Stats bar */}
