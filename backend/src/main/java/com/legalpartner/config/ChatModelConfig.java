@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * LLM provider configuration — switch via LEGALPARTNER_CHAT_PROVIDER env var.
@@ -70,12 +71,29 @@ public class ChatModelConfig {
                     .timeout(Duration.ofSeconds(300))
                     .maxTokens(6000)
                     .frequencyPenalty(0.1)
+                    // Stop the moment v3 emits any of its training-format markers.
+                    // These appeared inside generated drafts (e.g. "__PROCESSED_REQUEST__"
+                    // followed by pages of federal-contracting boilerplate).
+                    .stop(DRAFT_STOP_SEQUENCES)
                     .build();
         }
 
         log.warn("No LLM provider configured — chat features will fail");
         return null;
     }
+
+    /** vLLM stop sequences: strings whose emission halts sampling immediately. */
+    private static final List<String> DRAFT_STOP_SEQUENCES = List.of(
+            "__PROCESSED_REQUEST__",
+            "__INSTRUCTION__",
+            "__RESPONSE__",
+            "__FOLLOW_UP_QUESTIONS__",
+            "__FORBIDDEN_ACTIONS",
+            "__CONFIRMATION_OF_UNDERSTANDING__",
+            "__BEGIN_PREMIUM_INSTRUCTIONS__",
+            "\nCFR § ",
+            "\nFAR § "
+    );
 
     @Bean("jsonChatModel")
     ChatLanguageModel jsonChatModel() {

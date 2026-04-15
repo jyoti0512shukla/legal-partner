@@ -809,6 +809,30 @@ public class DraftService {
             warnings.add("LLM artifact: instruction tokens detected — output must not contain model control tokens");
             log.warn("QA [{}]: instruction token artifacts in output", clauseKey);
         }
+        // Training-format markers from v3 (leaked past stripLlmArtifacts via e.g. slightly
+        // different punctuation). Force a retry rather than keep the corrupted clause.
+        java.util.regex.Matcher trainingToken = java.util.regex.Pattern
+                .compile("__[A-Z][A-Z0-9_]{2,}__")
+                .matcher(plain);
+        if (trainingToken.find()) {
+            warnings.add("LLM artifact: training-format marker '" + trainingToken.group()
+                    + "' leaked into output — rewrite the clause without any __TOKEN__ markers");
+            log.warn("QA [{}]: training marker {} in output", clauseKey, trainingToken.group());
+        }
+        // Federal-contracting regulation dumps (CFR / FAR) — only surface if not the user's domain.
+        // If the contract is for federal government work, these are legit; otherwise flag.
+        boolean federalDomain = contractType != null
+                && (contractType.toLowerCase().contains("federal") || contractType.toLowerCase().contains("government"));
+        if (!federalDomain) {
+            java.util.regex.Matcher fedBoiler = java.util.regex.Pattern
+                    .compile("\\b(?:CFR|FAR)\\s*§\\s*\\d")
+                    .matcher(plain);
+            if (fedBoiler.find()) {
+                warnings.add("LLM artifact: federal regulation citation (" + fedBoiler.group()
+                        + ") leaked into a non-federal contract — rewrite without CFR/FAR boilerplate");
+                log.warn("QA [{}]: federal citation {} leaked into '{}'", clauseKey, fedBoiler.group(), contractType);
+            }
+        }
 
         // 6. Contract-type contamination check
         if (contractType != null) {
@@ -947,7 +971,25 @@ public class DraftService {
             "RULES FOR THIS REWRITE:",
             "INSTRUCTIONS: Perform rewrite",
             "ANCHOR: Follow the firm precedent",
-            "PRESERVE sub-clauses that do NOT have issues"
+            "PRESERVE sub-clauses that do NOT have issues",
+            // Training-format markers leaked from v3's instruction-tuning corpus
+            "__PROCESSED_REQUEST__",
+            "__INSTRUCTION__",
+            "__RESPONSE__",
+            "__FOLLOW_UP_QUESTIONS__",
+            "__FORBIDDEN_ACTIONS",
+            "__CONFIRMATION_OF_UNDERSTANDING__",
+            "__BEGIN_PREMIUM_INSTRUCTIONS__",
+            "INSTRUCTION: Write an additional clause",
+            "CONFIRMATION_OF_UNDERSTANDING",
+            "FORBIDDEN_ACTIONS_I_WILL_NOT_TAKE",
+            // Federal-contracting boilerplate that tended to pour in after legal-prose saturation
+            "\nCFR § ",
+            "\nFAR § ",
+            "\nFAR §",
+            "\nCFR §",
+            "UNDERSTANDINGS AND ACKNOWLEDGMENTS, IN FEDERAL CONTRACTING FORM",
+            "The Government Contractor"
         };
         for (String marker : bleedMarkers) {
             int idx = t.indexOf(marker);
@@ -955,6 +997,16 @@ public class DraftService {
                 log.warn("Draft sanitizer: retry directive bleed detected at marker '{}', truncating", marker);
                 t = t.substring(0, idx);
             }
+        }
+        // Generic catch-all for any __CAPS_WITH_UNDERSCORES__ pattern not listed above
+        java.util.regex.Matcher genericArtifact = java.util.regex.Pattern
+                .compile("__[A-Z][A-Z0-9_]{2,}__")
+                .matcher(t);
+        if (genericArtifact.find()) {
+            int idx = genericArtifact.start();
+            log.warn("Draft sanitizer: generic __TOKEN__ artifact at offset {} ('{}'), truncating",
+                    idx, genericArtifact.group());
+            t = t.substring(0, idx);
         }
 
         // 1. Strip instruction tokens
