@@ -113,8 +113,29 @@ public class DocumentMetadata {
     @Builder.Default
     private ExtractionStatus extractionStatus = ExtractionStatus.PENDING;
 
-    /** Origin of the document: USER (uploaded), EDGAR (corpus seed), CLOUD (cloud import) */
+    /** Origin of the document: USER (uploaded), EDGAR (corpus seed), CLOUD (cloud import), DRAFT_ASYNC (background-generated draft) */
     @Column(length = 20, nullable = false)
     @Builder.Default
     private String source = "USER";
+
+    // ── Async draft progress (populated when source = 'DRAFT_ASYNC') ──
+    /** Total number of clauses the section planner chose for this draft. */
+    @Column(name = "total_clauses")
+    private Integer totalClauses;
+
+    /** Number of clauses fully generated so far. */
+    @Column(name = "completed_clauses")
+    private Integer completedClauses;
+
+    /** Human-readable label of the clause currently being generated (e.g., "Payment"). */
+    @Column(name = "current_clause_label", length = 255)
+    private String currentClauseLabel;
+
+    /** Timestamp of the last progress update. Used by the stuck-job sweeper. */
+    @Column(name = "last_progress_at")
+    private Instant lastProgressAt;
+
+    /** If processingStatus = FAILED, the reason. */
+    @Column(name = "error_message", length = 1000)
+    private String errorMessage;
 }

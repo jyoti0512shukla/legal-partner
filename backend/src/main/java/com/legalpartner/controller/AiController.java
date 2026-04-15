@@ -6,9 +6,14 @@ import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.model.entity.Matter;
 import com.legalpartner.model.entity.User;
 import com.legalpartner.repository.MatterRepository;
+import com.legalpartner.model.enums.DocumentType;
+import com.legalpartner.model.enums.PracticeArea;
+import com.legalpartner.model.enums.ProcessingStatus;
+import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.service.AiService;
 import com.legalpartner.service.DocumentService;
 import com.legalpartner.service.DraftService;
+import com.legalpartner.service.FileStorageService;
 import com.legalpartner.service.MatterAccessService;
 import com.legalpartner.service.TemplateService;
 import org.springframework.http.HttpStatus;
@@ -36,6 +41,8 @@ public class AiController {
     private final DocumentService documentService;
     private final MatterAccessService matterAccessService;
     private final MatterRepository matterRepository;
+    private final DocumentMetadataRepository documentRepository;
+    private final FileStorageService fileStorageService;
 
     @GetMapping("/templates")
     public List<TemplateInfo> listTemplates() {
@@ -60,6 +67,122 @@ public class AiController {
     @PostMapping(value = "/draft/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamDraft(@Valid @RequestBody DraftRequest request, Authentication auth) {
         return draftService.streamDraft(request, auth.getName());
+    }
+
+    // ── Async drafts: submit + poll + list ─────────────────────────────────
+
+    /**
+     * Kick off a draft that runs in the background. Returns immediately with
+     * a draft id the UI can poll. Survives tab close, logout, and device switch.
+     */
+    @PostMapping("/draft/async")
+    public java.util.Map<String, Object> submitAsyncDraft(
+            @Valid @RequestBody DraftRequest request,
+            Authentication auth) {
+
+        Matter matter = null;
+        if (request.getMatterId() != null && !request.getMatterId().isBlank()) {
+            UUID matterUuid;
+            try { matterUuid = UUID.fromString(request.getMatterId()); }
+            catch (IllegalArgumentException e) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid matterId"); }
+            matter = matterRepository.findById(matterUuid)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Matter not found"));
+            User user = matterAccessService.resolveUser(auth);
+            matterAccessService.requireMembership(matterUuid, user.getId(), user.getRole());
+        }
+
+        String fileName = buildAsyncDraftFileName(request, matter);
+
+        DocumentMetadata doc = DocumentMetadata.builder()
+                .fileName(fileName)
+                .contentType("text/html")
+                .jurisdiction(request.getJurisdiction())
+                .documentType(DocumentType.OTHER)
+                .practiceArea(matter != null && matter.getPracticeArea() != null
+                        ? matter.getPracticeArea() : PracticeArea.OTHER)
+                .clientName(matter != null ? matter.getClientName() : null)
+                .matter(matter)
+                .matterId(matter != null ? matter.getId().toString() : null)
+                .uploadedBy(auth.getName())
+                .processingStatus(ProcessingStatus.PENDING)
+                .source("DRAFT_ASYNC")
+                .build();
+        doc = documentRepository.save(doc);
+
+        // @Async — returns immediately; Spring runs generateDraftAsync on the async pool.
+        draftService.generateDraftAsync(doc.getId(), request, auth.getName());
+
+        return java.util.Map.of("id", doc.getId().toString(), "fileName", doc.getFileName());
+    }
+
+    /**
+     * Poll for a specific async draft's current state. Returns status + progress
+     * counters + the latest-persisted partial HTML so the UI can show live updates.
+     */
+    @GetMapping("/draft/async/{id}")
+    public java.util.Map<String, Object> pollAsyncDraft(@PathVariable UUID id, Authentication auth) {
+        DocumentMetadata doc = documentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Draft not found"));
+        if (!auth.getName().equals(doc.getUploadedBy())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your draft");
+        }
+
+        String html = "";
+        if (doc.getStoredPath() != null && fileStorageService.exists(doc.getStoredPath())) {
+            try { html = new String(fileStorageService.read(doc.getStoredPath())); }
+            catch (java.io.IOException ignored) {}
+        }
+
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("id", doc.getId().toString());
+        out.put("fileName", doc.getFileName());
+        out.put("status", doc.getProcessingStatus().name());
+        out.put("totalClauses", doc.getTotalClauses());
+        out.put("completedClauses", doc.getCompletedClauses());
+        out.put("currentClauseLabel", doc.getCurrentClauseLabel());
+        out.put("lastProgressAt", doc.getLastProgressAt() != null ? doc.getLastProgressAt().toString() : null);
+        out.put("errorMessage", doc.getErrorMessage());
+        out.put("draftHtml", html);
+        out.put("createdAt", doc.getUploadDate() != null ? doc.getUploadDate().toString() : null);
+        return out;
+    }
+
+    /**
+     * List this user's recent async drafts — the "Recent drafts" strip on the
+     * Draft page. Returns most recent 20, newest first. No HTML to keep it light.
+     */
+    @GetMapping("/drafts")
+    public List<java.util.Map<String, Object>> listAsyncDrafts(Authentication auth) {
+        List<DocumentMetadata> docs = documentRepository
+                .findTop20ByUploadedByAndSourceOrderByUploadDateDesc(auth.getName(), "DRAFT_ASYNC");
+        return docs.stream().map(d -> {
+            java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("id", d.getId().toString());
+            m.put("fileName", d.getFileName());
+            m.put("status", d.getProcessingStatus().name());
+            m.put("totalClauses", d.getTotalClauses());
+            m.put("completedClauses", d.getCompletedClauses());
+            m.put("currentClauseLabel", d.getCurrentClauseLabel());
+            m.put("errorMessage", d.getErrorMessage());
+            m.put("createdAt", d.getUploadDate() != null ? d.getUploadDate().toString() : null);
+            m.put("lastProgressAt", d.getLastProgressAt() != null ? d.getLastProgressAt().toString() : null);
+            return m;
+        }).collect(java.util.stream.Collectors.toList());
+    }
+
+    private String buildAsyncDraftFileName(DraftRequest request, Matter matter) {
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        if (matter != null && matter.getName() != null) parts.add(matter.getName());
+        else if (request.getTemplateId() != null) parts.add(request.getTemplateId().toUpperCase() + " Draft");
+        else parts.add("Draft");
+        if (request.getPartyA() != null && !request.getPartyA().isBlank()) parts.add(request.getPartyA());
+        if (request.getPartyB() != null && !request.getPartyB().isBlank()) parts.add(request.getPartyB());
+        parts.add(java.time.LocalDate.now().toString());
+        String name = parts.stream()
+                .map(p -> p.replaceAll("[^a-zA-Z0-9\\s-]", "").trim().replaceAll("\\s+", "-"))
+                .filter(p -> !p.isEmpty())
+                .collect(java.util.stream.Collectors.joining("-"));
+        return name + ".html";
     }
 
     /**
