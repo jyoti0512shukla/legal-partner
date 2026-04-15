@@ -172,7 +172,7 @@ public class DraftService {
         List<ClauseSuggestion> suggestions = new ArrayList<>();
         Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
-        TerminologyManifest manifest = buildInitialManifest(request);
+        TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
         int articleIndex = 0;
         for (String key : plannedSections) {
             ClauseSpec spec = CLAUSE_SPECS.get(key);
@@ -241,7 +241,7 @@ public class DraftService {
         Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
         // Phase 2: generate each planned section
-        TerminologyManifest manifest = buildInitialManifest(request);
+        TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
             ClauseSpec spec = CLAUSE_SPECS.get(key);
@@ -436,28 +436,39 @@ public class DraftService {
             String partyBName,
             List<String> definedTerms,
             String styleFingerprint,
+            List<String> fullArticlePlan,
             List<String> sectionOutlines,
             String lastClauseText) {
 
         TerminologyManifest withDefinedTerms(List<String> terms) {
-            return new TerminologyManifest(partyAName, partyBName, terms, styleFingerprint, sectionOutlines, lastClauseText);
+            return new TerminologyManifest(partyAName, partyBName, terms, styleFingerprint, fullArticlePlan, sectionOutlines, lastClauseText);
         }
 
         TerminologyManifest withAppendedClause(String outline, String fullText) {
             List<String> next = new ArrayList<>(sectionOutlines);
             next.add(outline);
-            return new TerminologyManifest(partyAName, partyBName, definedTerms, styleFingerprint, next, fullText);
+            return new TerminologyManifest(partyAName, partyBName, definedTerms, styleFingerprint, fullArticlePlan, next, fullText);
         }
     }
 
-    private TerminologyManifest buildInitialManifest(DraftRequest request) {
+    private TerminologyManifest buildInitialManifest(DraftRequest request, List<String> plannedSectionKeys) {
         return new TerminologyManifest(
                 nullToDefault(request.getPartyA(), "the Service Provider"),
                 nullToDefault(request.getPartyB(), "the Client"),
                 List.of(),
                 buildStyleFingerprint(request),
+                buildArticlePlan(plannedSectionKeys),
                 new ArrayList<>(),
                 "");
+    }
+
+    private List<String> buildArticlePlan(List<String> sectionKeys) {
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < sectionKeys.size(); i++) {
+            ClauseSpec spec = CLAUSE_SPECS.get(sectionKeys.get(i));
+            if (spec != null) out.add("Article " + (i + 1) + " \u2014 " + spec.title());
+        }
+        return out;
     }
 
     private String buildStyleFingerprint(DraftRequest request) {
@@ -467,7 +478,7 @@ public class DraftService {
                 : "formal legal English appropriate to the governing law";
         return register
                 + "; sentences \u2264 35 words; sub-clause numbering \"<article>.<sub>\" (e.g. 2.1, 2.2, 2.3); "
-                + "use defined terms with exact capitalisation; cite prior sections only as \"Clause X.Y\" once drafted.";
+                + "use defined terms with exact capitalisation; cite any article by number and title (e.g., \"Clause 8 (Termination)\") \u2014 forward references permitted.";
     }
 
     private List<String> extractDefinedTerms(String definitionsHtml) {
@@ -507,6 +518,10 @@ public class DraftService {
         }
         if (manifest.styleFingerprint() != null && !manifest.styleFingerprint().isBlank()) {
             sb.append("\nSTYLE MANDATE: ").append(manifest.styleFingerprint()).append("\n");
+        }
+        if (!manifest.fullArticlePlan().isEmpty()) {
+            sb.append("\nFULL ARTICLE MAP for this contract (forward references are allowed \u2014 cite any article by its number and title, even if it is drafted later):\n");
+            for (String a : manifest.fullArticlePlan()) sb.append("  - ").append(a).append("\n");
         }
         if (!manifest.sectionOutlines().isEmpty()) {
             sb.append("\nPRIOR SECTIONS ALREADY DRAFTED (keep the same structure, numbering, and register):\n");
