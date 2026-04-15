@@ -182,6 +182,7 @@ public class DocumentService {
             Map<String, String> docMeta = new HashMap<>();
             docMeta.put("file_name", doc.getFileName());
             docMeta.put("document_id", doc.getId().toString());
+            if (doc.getSource() != null) docMeta.put("source", doc.getSource());
             if (doc.getJurisdiction() != null) docMeta.put("jurisdiction", doc.getJurisdiction());
             if (doc.getYear() != null) docMeta.put("year", doc.getYear().toString());
             if (doc.getDocumentType() != null) docMeta.put("document_type", doc.getDocumentType().name());

@@ -188,6 +188,11 @@ public class DraftContextRetriever {
 
         List<EmbeddingMatch<TextSegment>> filtered = candidates.stream()
                 .filter(m -> {
+                    // Hard exclude EDGAR-sourced chunks for drafting — they carry binary
+                    // blobs, source tags, and unrelated-deal prose that the model parrots.
+                    String source = m.embedded().metadata().getString("source");
+                    if ("EDGAR".equalsIgnoreCase(source)) return false;
+
                     String docType = m.embedded().metadata().getString("document_type");
                     String jurisdiction = m.embedded().metadata().getString("jurisdiction");
                     String chunkClauseType = m.embedded().metadata().getString("clause_type");

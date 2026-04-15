@@ -552,12 +552,11 @@ public class DraftService {
 
         String manifestConstraint = (manifest != null) ? buildManifestConstraint(manifest) : "";
         String ragGrounding = ctx.chunkCount() > 0
-                ? "\n\nRAG AUTHORITY MANDATE — CRITICAL:\n" +
-                  "The firm's precedent clauses in the user message are your ONLY permitted structural source.\n" +
-                  "STEP 1: Read the precedent and identify the exact structure it uses.\n" +
-                  "STEP 2: Use that EXACT structure. Do NOT invent different structure.\n" +
-                  "STEP 3: Substitute party names and deal-specific terms from the contract context.\n" +
-                  "Generating structure not found in the precedent is a DRAFTING ERROR.\n"
+                ? "\n\nRAG PRECEDENT — reference only, NOT text to copy:\n" +
+                  "The firm's precedent clauses in the user message are reference material for STYLE and STRUCTURE only.\n" +
+                  "Write an ORIGINAL clause in the same register, tailored to THIS contract's parties and deal context.\n" +
+                  "Never copy source tags, filenames, party names, or deal-specific details from the precedent.\n" +
+                  "If the precedent contains text that looks like a different deal (different parties, different industry, different transaction type), ignore that text and draft fresh.\n"
                 : "";
         String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction)
                 + manifestConstraint + ragGrounding + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;

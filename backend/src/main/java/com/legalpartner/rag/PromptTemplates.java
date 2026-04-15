@@ -613,6 +613,13 @@ public final class PromptTemplates {
             - Every sub-clause must be a complete, grammatically correct sentence of at least 10 words.
             - Do NOT repeat any sub-clause. If you have nothing more to add, STOP immediately.
 
+            LENGTH DISCIPLINE — read this before deciding how much to write:
+            - Typical clause length: 250-600 words. Shorter is fine if the clause is simple.
+            - Write only the sub-clauses required by the contract type and STOP.
+            - Do NOT pad with irrelevant defined terms, cross-references to non-existent schedules, or boilerplate borrowed from unrelated agreements (credit facilities, M&A, SEC filings, distributor programmes, export control, etc.).
+            - Do NOT copy source tags, filenames, company names (e.g., "NeuroPace", "AT&T", "Distributor"), or deal-specific details from any precedent shown to you.
+            - When the clause is complete, emit the closing tag and stop generating. Do not continue writing additional articles or unrelated material.
+
             OUTPUT FORMAT — non-negotiable:
             - Output ONLY plain English legal prose. Nothing else.
             - Do NOT output JSON, curly braces, square brackets with keys, or any structured data format.
