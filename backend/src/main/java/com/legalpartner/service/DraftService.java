@@ -172,13 +172,18 @@ public class DraftService {
         List<ClauseSuggestion> suggestions = new ArrayList<>();
         Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
-        TerminologyManifest manifest = null;
+        TerminologyManifest manifest = buildInitialManifest(request);
+        int articleIndex = 0;
         for (String key : plannedSections) {
             ClauseSpec spec = CLAUSE_SPECS.get(key);
+            articleIndex++;
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
             ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), null, manifest);
             sectionValues.put(key, result.html());
-            if ("DEFINITIONS".equals(key)) manifest = extractTerminology(result.html(), request);
+            if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(result.html()));
+            manifest = manifest.withAppendedClause(
+                    summarizeClauseOutline(articleIndex, spec.title(), result.html()),
+                    stripToPlainWithCap(result.html(), 1500));
             if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
 
             String reasoning = "Generated using RAG from firm's corpus.";
@@ -236,7 +241,7 @@ public class DraftService {
         Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
         // Phase 2: generate each planned section
-        TerminologyManifest manifest = null;
+        TerminologyManifest manifest = buildInitialManifest(request);
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
             ClauseSpec spec = CLAUSE_SPECS.get(key);
@@ -251,7 +256,10 @@ public class DraftService {
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
             ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), emitter, manifest);
             sectionValues.put(key, result.html());
-            if ("DEFINITIONS".equals(key)) manifest = extractTerminology(result.html(), request);
+            if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(result.html()));
+            manifest = manifest.withAppendedClause(
+                    summarizeClauseOutline(i + 1, spec.title(), result.html()),
+                    stripToPlainWithCap(result.html(), 1500));
             List<String> qaWarnings = result.qaWarnings();
             if (!qaWarnings.isEmpty()) allQaWarnings.put(key, qaWarnings);
 
@@ -416,31 +424,97 @@ public class DraftService {
      */
     record ClauseResult(String html, List<String> qaWarnings) {}
 
-    /** Party names and defined terms extracted from the DEFINITIONS clause — injected into all subsequent clauses. */
-    private record TerminologyManifest(String partyAName, String partyBName, List<String> definedTerms) {}
+    /**
+     * Running state propagated across clause generations:
+     *   - Party names + defined terms: ensure consistent terminology.
+     *   - Style fingerprint: one-line directive (register, numbering, sentence length) fixed once per draft.
+     *   - Section outlines: numbered summary of every prior article, so subsequent clauses know the structure.
+     *   - Last clause text: full (capped) text of the immediately preceding clause for style continuity.
+     */
+    private record TerminologyManifest(
+            String partyAName,
+            String partyBName,
+            List<String> definedTerms,
+            String styleFingerprint,
+            List<String> sectionOutlines,
+            String lastClauseText) {
 
-    private TerminologyManifest extractTerminology(String definitionsHtml, DraftRequest request) {
-        String partyA = nullToDefault(request.getPartyA(), "the Service Provider");
-        String partyB = nullToDefault(request.getPartyB(), "the Client");
+        TerminologyManifest withDefinedTerms(List<String> terms) {
+            return new TerminologyManifest(partyAName, partyBName, terms, styleFingerprint, sectionOutlines, lastClauseText);
+        }
+
+        TerminologyManifest withAppendedClause(String outline, String fullText) {
+            List<String> next = new ArrayList<>(sectionOutlines);
+            next.add(outline);
+            return new TerminologyManifest(partyAName, partyBName, definedTerms, styleFingerprint, next, fullText);
+        }
+    }
+
+    private TerminologyManifest buildInitialManifest(DraftRequest request) {
+        return new TerminologyManifest(
+                nullToDefault(request.getPartyA(), "the Service Provider"),
+                nullToDefault(request.getPartyB(), "the Client"),
+                List.of(),
+                buildStyleFingerprint(request),
+                new ArrayList<>(),
+                "");
+    }
+
+    private String buildStyleFingerprint(DraftRequest request) {
+        String jurisdiction = nullToDefault(request.getJurisdiction(), "India").toLowerCase();
+        String register = jurisdiction.contains("india")
+                ? "formal Indian legal English (Indian Contract Act, 1872 conventions)"
+                : "formal legal English appropriate to the governing law";
+        return register
+                + "; sentences \u2264 35 words; sub-clause numbering \"<article>.<sub>\" (e.g. 2.1, 2.2, 2.3); "
+                + "use defined terms with exact capitalisation; cite prior sections only as \"Clause X.Y\" once drafted.";
+    }
+
+    private List<String> extractDefinedTerms(String definitionsHtml) {
         List<String> terms = new ArrayList<>();
         String plain = definitionsHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
-        // Extract "Term" means... patterns
         java.util.regex.Matcher m = java.util.regex.Pattern
                 .compile("[\"'\\u201C\\u2018]([A-Z][A-Za-z ]{2,40})[\"'\\u201D\\u2019]\\s+means")
                 .matcher(plain);
         while (m.find() && terms.size() < 20) terms.add(m.group(1).trim());
-        return new TerminologyManifest(partyA, partyB, terms);
+        return terms;
+    }
+
+    private String summarizeClauseOutline(int articleIndex, String title, String html) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("class=\"clause-sub\"><strong>([^<]+)</strong>")
+                .matcher(html);
+        List<String> nums = new ArrayList<>();
+        while (m.find()) nums.add(m.group(1).replace(".", "").trim());
+        String base = "Article " + articleIndex + " \u2014 " + title;
+        return nums.isEmpty() ? base : base + " (sub-clauses: " + String.join(", ", nums) + ")";
+    }
+
+    private String stripToPlainWithCap(String html, int maxChars) {
+        String plain = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+        return plain.length() <= maxChars ? plain : plain.substring(0, maxChars) + "\u2026";
     }
 
     private String buildManifestConstraint(TerminologyManifest manifest) {
         StringBuilder sb = new StringBuilder(
-                "\n\nTERMINOLOGY MANDATE — non-negotiable:\n" +
-                "- Refer to the service provider/vendor ONLY as \"" + manifest.partyAName() + "\" — never Vendor, Supplier, Company, or any other name.\n" +
-                "- Refer to the client/customer ONLY as \"" + manifest.partyBName() + "\" — never Customer, Buyer, or any other name.\n" +
+                "\n\nTERMINOLOGY MANDATE \u2014 non-negotiable:\n" +
+                "- Refer to the service provider/vendor ONLY as \"" + manifest.partyAName() + "\" \u2014 never Vendor, Supplier, Company, or any other name.\n" +
+                "- Refer to the client/customer ONLY as \"" + manifest.partyBName() + "\" \u2014 never Customer, Buyer, or any other name.\n" +
                 "- Do NOT introduce any party name not listed above.\n");
         if (!manifest.definedTerms().isEmpty()) {
             sb.append("- Use these defined terms consistently (exact capitalisation): ")
               .append(String.join(", ", manifest.definedTerms())).append(".\n");
+        }
+        if (manifest.styleFingerprint() != null && !manifest.styleFingerprint().isBlank()) {
+            sb.append("\nSTYLE MANDATE: ").append(manifest.styleFingerprint()).append("\n");
+        }
+        if (!manifest.sectionOutlines().isEmpty()) {
+            sb.append("\nPRIOR SECTIONS ALREADY DRAFTED (keep the same structure, numbering, and register):\n");
+            for (String o : manifest.sectionOutlines()) sb.append("  - ").append(o).append("\n");
+        }
+        if (manifest.lastClauseText() != null && !manifest.lastClauseText().isBlank()) {
+            sb.append("\nIMMEDIATELY PRECEDING CLAUSE (for style continuity \u2014 do NOT repeat its content):\n")
+              .append(manifest.lastClauseText()).append("\n");
         }
         return sb.toString();
     }

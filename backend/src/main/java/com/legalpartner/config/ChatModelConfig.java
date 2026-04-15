@@ -55,7 +55,7 @@ public class ChatModelConfig {
                     .apiKey(geminiApiKey)
                     .modelName(geminiModel)
                     .timeout(Duration.ofSeconds(120))
-                    .maxOutputTokens(900)
+                    .maxOutputTokens(8000)
                     .temperature(0.3)
                     .build();
         }
@@ -68,8 +68,8 @@ public class ChatModelConfig {
                     .apiKey("no-op")
                     .modelName(vllmModel)
                     .timeout(Duration.ofSeconds(300))
-                    .maxTokens(900)
-                    .frequencyPenalty(0.7)
+                    .maxTokens(8000)
+                    .frequencyPenalty(0.1)
                     .build();
         }
 
