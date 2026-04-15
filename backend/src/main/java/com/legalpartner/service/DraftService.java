@@ -140,7 +140,9 @@ public class DraftService {
 
     public SseEmitter streamDraft(DraftRequest request, String username) {
         hydrateFromMatter(request);
-        SseEmitter emitter = new SseEmitter(300_000L);
+        // 20 min — a full 9-clause SaaS/MSA at ~95 tok/s can reach ~9 min, plus QA retries push it further.
+        // The prior 5 min ceiling was killing streams mid-generation and leaving the user with 2-3 clauses.
+        SseEmitter emitter = new SseEmitter(1_200_000L);
         if (!draftSemaphore.tryAcquire()) {
             try {
                 emitter.send(SseEmitter.event().data(toJson(Map.of("type", "error", "message", "Draft generation is busy. Please try again."))));
