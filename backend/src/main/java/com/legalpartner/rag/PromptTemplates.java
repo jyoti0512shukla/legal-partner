@@ -568,10 +568,13 @@ public final class PromptTemplates {
             Rules:
             - Return ONLY a valid JSON array of section key strings, in logical contract order.
             - For an NDA: always include DEFINITIONS, CONFIDENTIALITY, LIABILITY, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS.
-            - For services/MSA: always include SERVICES, PAYMENT, CONFIDENTIALITY, IP_RIGHTS, LIABILITY, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS.
+            - For services/MSA: always include DEFINITIONS, SERVICES, PAYMENT, CONFIDENTIALITY, IP_RIGHTS, LIABILITY, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS.
+            - For SaaS / subscription / software-as-a-service: always include DEFINITIONS, SERVICES, PAYMENT, CONFIDENTIALITY, DATA_PROTECTION, LIABILITY, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS — minimum 9 sections.
+            - For employment: always include DEFINITIONS, SERVICES, PAYMENT, CONFIDENTIALITY, IP_RIGHTS, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS.
+            - A full commercial contract has 8-10 sections. Returning fewer than 5 is ALMOST ALWAYS wrong.
             - Add FORCE_MAJEURE if the deal involves long-term obligations, infrastructure, or high-value commitments.
             - Add REPRESENTATIONS_WARRANTIES if the deal involves acquisition, investment, or regulated activities.
-            - Add DATA_PROTECTION if the deal involves personal data processing, IT services, or healthcare.
+            - Add DATA_PROTECTION if the deal involves personal data processing, IT services, SaaS, healthcare, or fintech.
             - GOVERNING_LAW and GENERAL_PROVISIONS should always be the last two sections.
             - Output ONLY the JSON array — no explanation, no preamble.
 
@@ -580,6 +583,9 @@ public final class PromptTemplates {
 
             Example MSA output:
             ["DEFINITIONS","SERVICES","PAYMENT","CONFIDENTIALITY","IP_RIGHTS","LIABILITY","TERMINATION","FORCE_MAJEURE","GOVERNING_LAW","GENERAL_PROVISIONS"]
+
+            Example SaaS output:
+            ["DEFINITIONS","SERVICES","PAYMENT","CONFIDENTIALITY","DATA_PROTECTION","LIABILITY","TERMINATION","GOVERNING_LAW","GENERAL_PROVISIONS"]
             """;
 
     // ── Content guardrails — appended to every draft clause system prompt ──────

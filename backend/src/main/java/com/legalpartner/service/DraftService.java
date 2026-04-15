@@ -339,7 +339,16 @@ public class DraftService {
             List<String> known = parsed.stream()
                     .filter(CLAUSE_SPECS::containsKey)
                     .collect(Collectors.toList());
+            List<String> defaults = defaultSections(request.getTemplateId());
             if (!known.isEmpty()) {
+                // Guard: if the planner returns fewer sections than the template's default, the
+                // defaults win. Prevents the planner from silently truncating a 9-clause SaaS
+                // draft down to [DEFINITIONS, CONFIDENTIALITY] (observed behaviour).
+                if (known.size() < defaults.size()) {
+                    log.warn("Section planner returned {} sections {} — fewer than template defaults ({}); using defaults {}",
+                             known.size(), known, defaults.size(), defaults);
+                    return defaults;
+                }
                 log.info("Section planner returned: {}", known);
                 return known;
             }
