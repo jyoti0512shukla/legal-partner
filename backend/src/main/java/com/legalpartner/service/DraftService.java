@@ -2,6 +2,8 @@ package com.legalpartner.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.legalpartner.config.ClauseTypeRegistry;
+import com.legalpartner.config.ClauseTypeRegistry.ClauseTypeConfig;
 import com.legalpartner.config.LegalSystemConfig;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.dto.DraftResponse;
@@ -52,6 +54,7 @@ public class DraftService {
     private final DocumentMetadataRepository documentRepository;
     private final FileStorageService fileStorageService;
     private final AnonymizationService anonymizationService;
+    private final ClauseTypeRegistry clauseRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -64,6 +67,7 @@ public class DraftService {
                         DocumentMetadataRepository documentRepository,
                         FileStorageService fileStorageService,
                         AnonymizationService anonymizationService,
+                        ClauseTypeRegistry clauseRegistry,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
@@ -73,6 +77,7 @@ public class DraftService {
         this.matterRepository = matterRepository;
         this.documentRepository = documentRepository;
         this.anonymizationService = anonymizationService;
+        this.clauseRegistry = clauseRegistry;
         this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
@@ -115,23 +120,10 @@ public class DraftService {
 
     private static boolean isBlank(String s) { return s == null || s.isBlank(); }
 
-    private record ClauseSpec(String title, String systemPrompt, String userPromptTemplate, int expectedSubclauses) {}
-
-    private static final Map<String, ClauseSpec> CLAUSE_SPECS = new LinkedHashMap<>();
-    static {
-        CLAUSE_SPECS.put("DEFINITIONS",               new ClauseSpec("Definitions",                    PromptTemplates.DRAFT_DEFINITIONS_SYSTEM,               PromptTemplates.DRAFT_DEFINITIONS_USER,               7));
-        CLAUSE_SPECS.put("SERVICES",                  new ClauseSpec("Services",                       PromptTemplates.DRAFT_SERVICES_SYSTEM,                  PromptTemplates.DRAFT_SERVICES_USER,                  3));
-        CLAUSE_SPECS.put("PAYMENT",                   new ClauseSpec("Fees and Payment",               PromptTemplates.DRAFT_PAYMENT_SYSTEM,                   PromptTemplates.DRAFT_PAYMENT_USER,                   4));
-        CLAUSE_SPECS.put("CONFIDENTIALITY",           new ClauseSpec("Confidentiality",                PromptTemplates.DRAFT_CONFIDENTIALITY_SYSTEM,           PromptTemplates.DRAFT_CONFIDENTIALITY_USER,           5));
-        CLAUSE_SPECS.put("IP_RIGHTS",                 new ClauseSpec("Intellectual Property Rights",   PromptTemplates.DRAFT_IP_RIGHTS_SYSTEM,                 PromptTemplates.DRAFT_IP_RIGHTS_USER,                 4));
-        CLAUSE_SPECS.put("LIABILITY",                 new ClauseSpec("Liability and Indemnity",        PromptTemplates.DRAFT_LIABILITY_SYSTEM,                 PromptTemplates.DRAFT_LIABILITY_USER,                 5));
-        CLAUSE_SPECS.put("TERMINATION",               new ClauseSpec("Termination",                    PromptTemplates.DRAFT_TERMINATION_SYSTEM,               PromptTemplates.DRAFT_TERMINATION_USER,               4));
-        CLAUSE_SPECS.put("FORCE_MAJEURE",             new ClauseSpec("Force Majeure",                  PromptTemplates.DRAFT_FORCE_MAJEURE_SYSTEM,             PromptTemplates.DRAFT_FORCE_MAJEURE_USER,             5));
-        CLAUSE_SPECS.put("REPRESENTATIONS_WARRANTIES",new ClauseSpec("Representations and Warranties", PromptTemplates.DRAFT_REPRESENTATIONS_WARRANTIES_SYSTEM, PromptTemplates.DRAFT_REPRESENTATIONS_WARRANTIES_USER, 5));
-        CLAUSE_SPECS.put("DATA_PROTECTION",           new ClauseSpec("Data Protection and Privacy",    PromptTemplates.DRAFT_DATA_PROTECTION_SYSTEM,           PromptTemplates.DRAFT_DATA_PROTECTION_USER,           5));
-        CLAUSE_SPECS.put("GOVERNING_LAW",             new ClauseSpec("Governing Law and Dispute Resolution", PromptTemplates.DRAFT_GOVERNING_LAW_SYSTEM,       PromptTemplates.DRAFT_GOVERNING_LAW_USER,             4));
-        CLAUSE_SPECS.put("GENERAL_PROVISIONS",        new ClauseSpec("General Provisions",             PromptTemplates.DRAFT_GENERAL_PROVISIONS_SYSTEM,        PromptTemplates.DRAFT_GENERAL_PROVISIONS_USER,        8));
-    }
+    // Clause-type configuration lives in resources/config/clauses.yml (loaded
+    // at startup by ClauseTypeRegistry). No more hardcoded CLAUSE_SPECS here —
+    // use clauseRegistry.get(key) wherever you need title / prompts / expected
+    // subclauses. Adding a clause type: one YAML block, no code changes.
 
     // ── QA: placeholder detection pattern ─────────────────────────────────────
     private static final java.util.regex.Pattern QA_PLACEHOLDER_PATTERN =
@@ -232,7 +224,7 @@ public class DraftService {
 
         Map<String, String> sectionValues = new LinkedHashMap<>();
         for (String key : plannedSections) {
-            ClauseSpec spec = CLAUSE_SPECS.get(key);
+            ClauseTypeConfig spec = clauseRegistry.get(key);
             sectionValues.put(key, "<em style='color:#9CA3AF'>&#x23F3; Generating " + spec.title() + " clause…</em>");
         }
         // Persist initial skeleton + totals
@@ -248,7 +240,7 @@ public class DraftService {
 
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
-            ClauseSpec spec = CLAUSE_SPECS.get(key);
+            ClauseTypeConfig spec = clauseRegistry.get(key);
 
             doc.setCurrentClauseLabel(spec.title());
             doc.setLastProgressAt(Instant.now());
@@ -325,7 +317,7 @@ public class DraftService {
         TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
         int articleIndex = 0;
         for (String key : plannedSections) {
-            ClauseSpec spec = CLAUSE_SPECS.get(key);
+            ClauseTypeConfig spec = clauseRegistry.get(key);
             articleIndex++;
             DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
             ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), null, manifest);
@@ -377,7 +369,7 @@ public class DraftService {
         // Initialise all section slots with "Generating…" placeholders
         Map<String, String> sectionValues = new LinkedHashMap<>();
         for (String key : plannedSections) {
-            ClauseSpec spec = CLAUSE_SPECS.get(key);
+            ClauseTypeConfig spec = clauseRegistry.get(key);
             sectionValues.put(key, "<em style='color:#9CA3AF'>&#x23F3; Generating " + spec.title() + " clause…</em>");
         }
 
@@ -394,7 +386,7 @@ public class DraftService {
         TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
-            ClauseSpec spec = CLAUSE_SPECS.get(key);
+            ClauseTypeConfig spec = clauseRegistry.get(key);
 
             emitter.send(SseEmitter.event().data(toJson(Map.of(
                     "type", "clause_start",
@@ -485,7 +477,7 @@ public class DraftService {
             }
             List<String> parsed = objectMapper.readValue(text, new TypeReference<List<String>>() {});
             List<String> known = parsed.stream()
-                    .filter(CLAUSE_SPECS::containsKey)
+                    .filter(clauseRegistry::contains)
                     .collect(Collectors.toList());
             List<String> defaults = defaultSections(request.getTemplateId());
             if (!known.isEmpty()) {
@@ -562,7 +554,7 @@ public class DraftService {
         StringBuilder sb = new StringBuilder(metadataHtml);
         for (int i = 0; i < sections.size(); i++) {
             String key = sections.get(i);
-            ClauseSpec spec = CLAUSE_SPECS.get(key);
+            ClauseTypeConfig spec = clauseRegistry.get(key);
             String content = sectionValues.getOrDefault(key, "");
             sb.append("\n<h2>ARTICLE ").append(i + 1)
               .append(" \u2014 ").append(spec.title().toUpperCase()).append("</h2>\n");
@@ -624,7 +616,7 @@ public class DraftService {
     private List<String> buildArticlePlan(List<String> sectionKeys) {
         List<String> out = new ArrayList<>();
         for (int i = 0; i < sectionKeys.size(); i++) {
-            ClauseSpec spec = CLAUSE_SPECS.get(sectionKeys.get(i));
+            ClauseTypeConfig spec = clauseRegistry.get(sectionKeys.get(i));
             if (spec != null) out.add("Article " + (i + 1) + " \u2014 " + spec.title());
         }
         return out;
@@ -996,32 +988,12 @@ public class DraftService {
 
     /** Phrases that clearly belong to a different clause type. Returns any that appeared. */
     private List<String> detectCrossArticleBleed(String clauseKey, String plain) {
-        // Heading phrases that, if seen INSIDE this clause, mean the model pasted in
-        // content from a different clause type. Keyed by "clause being drafted".
-        Map<String, List<String>> forbidden = Map.of(
-            "SERVICES", List.of("Termination for Convenience", "Termination for Cause",
-                                 "Effect of Termination", "Force Majeure Event", "Limitation of Liability",
-                                 "Indemnification Obligations"),
-            "PAYMENT",  List.of("Termination for Convenience", "Termination for Cause",
-                                 "Force Majeure Event", "Limitation of Liability",
-                                 "Indemnification Obligations", "Confidential Information"),
-            "CONFIDENTIALITY", List.of("Termination for Convenience", "Force Majeure Event",
-                                 "Limitation of Liability", "Payment Schedule", "Scope of Services"),
-            "IP_RIGHTS", List.of("Termination for Convenience", "Force Majeure Event",
-                                 "Payment Schedule", "Scope of Services", "Limitation of Liability"),
-            "LIABILITY", List.of("Scope of Services", "Payment Schedule", "Force Majeure Event",
-                                 "Confidential Information obligations"),
-            "TERMINATION", List.of("Scope of Services", "Payment Schedule", "Force Majeure Event",
-                                 "Limitation of Liability"),
-            "FORCE_MAJEURE", List.of("Scope of Services", "Payment Schedule", "Limitation of Liability",
-                                 "Termination for Convenience"),
-            "GOVERNING_LAW", List.of("Scope of Services", "Payment Schedule", "Force Majeure Event",
-                                 "Limitation of Liability", "Termination for Convenience"),
-            "DATA_PROTECTION", List.of("Scope of Services", "Payment Schedule", "Force Majeure Event",
-                                 "Termination for Convenience", "Limitation of Liability")
-        );
-        List<String> blacklist = forbidden.get(clauseKey);
-        if (blacklist == null) return List.of();
+        // Forbidden-heading list per clause type is configured in clauses.yml
+        // (loaded by ClauseTypeRegistry). If YAML doesn't list any for this
+        // clause, we skip — no silent false positives.
+        if (!clauseRegistry.contains(clauseKey)) return List.of();
+        List<String> blacklist = clauseRegistry.get(clauseKey).forbiddenHeadings();
+        if (blacklist == null || blacklist.isEmpty()) return List.of();
         List<String> hits = new ArrayList<>();
         for (String phrase : blacklist) {
             if (plain.contains(phrase)) hits.add(phrase);
@@ -1163,22 +1135,25 @@ public class DraftService {
             }
         }
 
-        // 7. Semantic requirement check — clause must address expected legal concepts
-        List<String> semanticReqs = CLAUSE_SEMANTIC_REQUIREMENTS.get(clauseKey);
-        if (semanticReqs != null) {
-            String lowerPlain = plain.toLowerCase();
-            List<String> missingConcepts = new ArrayList<>();
-            for (String req : semanticReqs) {
-                if (!lowerPlain.contains(req.toLowerCase())) {
-                    missingConcepts.add(req);
+        // 7. Semantic requirement check — clause must address expected legal concepts.
+        // Configured per clause type in clauses.yml (semantic_requirements).
+        if (clauseRegistry.contains(clauseKey)) {
+            List<String> semanticReqs = clauseRegistry.get(clauseKey).semanticRequirements();
+            if (!semanticReqs.isEmpty()) {
+                String lowerPlain = plain.toLowerCase();
+                List<String> missingConcepts = new ArrayList<>();
+                for (String req : semanticReqs) {
+                    if (!lowerPlain.contains(req.toLowerCase())) {
+                        missingConcepts.add(req);
+                    }
                 }
-            }
-            if (!missingConcepts.isEmpty()) {
-                String msg = "Missing required legal concepts for " + clauseKey + ": "
-                        + String.join(", ", missingConcepts)
-                        + " — your clause MUST address each of these";
-                warnings.add(msg);
-                log.warn("QA [{}]: missing semantic requirements: {}", clauseKey, missingConcepts);
+                if (!missingConcepts.isEmpty()) {
+                    String msg = "Missing required legal concepts for " + clauseKey + ": "
+                            + String.join(", ", missingConcepts)
+                            + " — your clause MUST address each of these";
+                    warnings.add(msg);
+                    log.warn("QA [{}]: missing semantic requirements: {}", clauseKey, missingConcepts);
+                }
             }
         }
 
@@ -1248,17 +1223,8 @@ public class DraftService {
      * These represent the minimum legally meaningful content each clause type must address.
      * If absent, QA flags with a targeted warning so the retry knows exactly what to add.
      */
-    private static final Map<String, List<String>> CLAUSE_SEMANTIC_REQUIREMENTS = Map.of(
-        "PAYMENT",          List.of("invoice", "net ", "due date", "late payment"),
-        "LIABILITY",        List.of("shall not exceed", "aggregate", "indemnif"),
-        "TERMINATION",      List.of("written notice", "material breach", "effect"),
-        "CONFIDENTIALITY",  List.of("confidential information", "shall not disclose", "exception"),
-        "IP_RIGHTS",        List.of("ownership", "license", "intellectual property"),
-        "FORCE_MAJEURE",    List.of("force majeure", "notification", "suspend"),
-        "GOVERNING_LAW",    List.of("governed by", "jurisdiction", "dispute"),
-        "DATA_PROTECTION",  List.of("personal data", "security", "breach"),
-        "REPRESENTATIONS_WARRANTIES", List.of("authoris", "compliance", "conflict")
-    );
+    // CLAUSE_SEMANTIC_REQUIREMENTS now lives in clauses.yml (semantic_requirements
+    // per clause). Access via clauseRegistry.get(key).semanticRequirements().
 
     private List<String> detectContamination(String plain, String contractType) {
         String lowerPlain = plain.toLowerCase();

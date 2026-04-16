@@ -1,5 +1,6 @@
 package com.legalpartner.rag;
 
+import com.legalpartner.config.ClauseTypeRegistry;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.entity.ClauseLibraryEntry;
 import com.legalpartner.service.ClauseLibraryService;
@@ -41,6 +42,7 @@ public class DraftContextRetriever {
     private final ReRanker reRanker;
     private final EncryptionService encryptionService;
     private final ClauseLibraryService clauseLibraryService;
+    private final ClauseTypeRegistry clauseRegistry;
 
     @Value("${legalpartner.draft.retrieval.candidate-count:30}")
     private int candidateCount;
@@ -54,62 +56,8 @@ public class DraftContextRetriever {
     @Value("${legalpartner.draft.retrieval.context-max-chars:8000}")
     private int contextMaxChars;
 
-    private static final Map<String, List<String>> CLAUSE_QUERIES = Map.ofEntries(
-        Map.entry("LIABILITY", List.of(
-            "liability limitation indemnity cap damages exclusion consequential",
-            "limitation of liability aggregate cap direct damages indirect",
-            "indemnify hold harmless defend claims breach",
-            "Indian Contract Act Section 73 74 liquidated damages"
-        )),
-        Map.entry("TERMINATION", List.of(
-            "termination notice period right to terminate exit clause",
-            "termination for cause material breach cure period",
-            "termination for convenience effects survival obligations",
-            "Indian Contract Act Section 39 repudiation"
-        )),
-        Map.entry("CONFIDENTIALITY", List.of(
-            "confidential information non-disclosure NDA proprietary",
-            "confidentiality obligations exceptions public domain prior knowledge",
-            "return destroy confidential information on termination survival",
-            "IT Act trade secret data protection"
-        )),
-        Map.entry("GOVERNING_LAW", List.of(
-            "governing law jurisdiction arbitration dispute resolution",
-            "arbitration seat venue ICC SIAC LCIA Arbitration Act 1996",
-            "mediation conciliation negotiation tiered dispute",
-            "applicable law choice of law courts India"
-        )),
-        Map.entry("IP_RIGHTS", List.of(
-            "intellectual property rights ownership work product license",
-            "copyright patent trademark background IP foreground IP",
-            "moral rights Copyright Act 1957 Patents Act assignment",
-            "IP indemnification infringement third party claims"
-        )),
-        Map.entry("PAYMENT", List.of(
-            "payment terms invoice due date late payment interest",
-            "compensation fees charges GST tax MSMED Act",
-            "payment schedule milestone billing disputed invoice",
-            "consideration remuneration advance payment"
-        )),
-        Map.entry("SERVICES", List.of(
-            "scope of services deliverables statement of work SOW",
-            "service standards acceptance criteria change request",
-            "subcontracting obligations performance service level",
-            "Indian Contract Act Section 10 lawful object services"
-        )),
-        Map.entry("DEFINITIONS", List.of(
-            "definitions interpretation meaning terms agreement",
-            "confidential information disclosing receiving party purpose",
-            "affiliate subsidiary intellectual property business day",
-            "defined terms contract definitions schedule annexure"
-        )),
-        Map.entry("GENERAL_PROVISIONS", List.of(
-            "entire agreement amendment modification waiver severability",
-            "notices assignment subcontracting independent contractor",
-            "counterparts force majeure survival governing law general",
-            "boilerplate provisions miscellaneous general terms"
-        ))
-    );
+    // Per-clause search queries now live in resources/config/clauses.yml
+    // (loaded by ClauseTypeRegistry). Use clauseRegistry.get(key).searchQueries().
 
     private static final List<String> DEFAULT_QUERIES = List.of(
         "contract clause obligations rights duties",
@@ -122,7 +70,10 @@ public class DraftContextRetriever {
      */
     public DraftContext retrieveForClause(String clauseType, DraftRequest request) {
         String normalizedType = clauseType != null ? clauseType.toUpperCase() : "LIABILITY";
-        List<String> queries = CLAUSE_QUERIES.getOrDefault(normalizedType, DEFAULT_QUERIES);
+        List<String> queries = clauseRegistry.contains(normalizedType)
+                && !clauseRegistry.get(normalizedType).searchQueries().isEmpty()
+                ? clauseRegistry.get(normalizedType).searchQueries()
+                : DEFAULT_QUERIES;
 
         // Phase 1: inject firm clause library entries (golden first, then others)
         String contractType = mapTemplateToDocumentType(request.getTemplateId());
@@ -135,7 +86,13 @@ public class DraftContextRetriever {
         List<EmbeddingMatch<TextSegment>> allCandidates = multiQueryRetrieve(queries);
         List<EmbeddingMatch<TextSegment>> filtered = filterByMetadata(allCandidates, request, normalizedType);
         List<EmbeddingMatch<TextSegment>> diversified = applyDocumentDiversity(filtered);
-        List<EmbeddingMatch<TextSegment>> ranked = reRanker.rerank(diversified, queries.get(0), topK);
+        // Rerank against the CONCATENATION of all query variants rather than just
+        // the first. The query variants capture different angles (e.g. "limitation
+        // of liability" vs "indemnify hold harmless"); the reranker should score
+        // against the full intent, not a single facet.
+        String rerankQuery = String.join(" ", queries);
+        List<EmbeddingMatch<TextSegment>> ranked = reRanker.rerank(diversified, rerankQuery, topK);
+        ranked = diversifyForContext(ranked);
 
         // Combine: library entries consume some of the context budget; remainder for vector results
         int libraryChars = libraryContext.length();
@@ -151,26 +108,72 @@ public class DraftContextRetriever {
         return new DraftContext(structuredContext, ranked.size() + libraryEntries.size(), provenance);
     }
 
+    /**
+     * Multi-query retrieval with primary-query score boosting. Each query
+     * variant retrieves its own top-N, but matches from the FIRST query
+     * (the "canonical" phrasing of what we want) get a small multiplicative
+     * boost. Keeps the recall benefit of multiple queries while letting the
+     * primary intent dominate when there's agreement.
+     */
     private List<EmbeddingMatch<TextSegment>> multiQueryRetrieve(List<String> queries) {
-        Set<String> seen = new HashSet<>();
-        List<EmbeddingMatch<TextSegment>> merged = new ArrayList<>();
+        Map<String, EmbeddingMatch<TextSegment>> best = new HashMap<>();
+        Map<String, Double> bestScore = new HashMap<>();
 
-        for (String q : queries) {
+        for (int qi = 0; qi < queries.size(); qi++) {
+            String q = queries.get(qi);
+            // Primary query gets a 1.2× boost; secondaries decay by 0.05 per rank.
+            double queryWeight = Math.max(0.7, 1.2 - (qi * 0.05));
+
             String expanded = queryExpander.expand(q);
             Embedding embedding = embeddingModel.embed(expanded).content();
             List<EmbeddingMatch<TextSegment>> matches = embeddingStore.findRelevant(embedding, candidateCount / 2);
             for (EmbeddingMatch<TextSegment> m : matches) {
                 String key = keyFor(m);
-                if (seen.add(key)) {
-                    merged.add(m);
+                double weighted = m.score() * queryWeight;
+                // Keep the highest-weighted occurrence per chunk across all queries
+                if (!best.containsKey(key) || weighted > bestScore.get(key)) {
+                    best.put(key, m);
+                    bestScore.put(key, weighted);
                 }
             }
         }
 
-        return merged.stream()
-                .sorted(Comparator.comparingDouble((EmbeddingMatch<TextSegment> m) -> m.score()).reversed())
+        return best.entrySet().stream()
+                .sorted((a, b) -> Double.compare(bestScore.get(b.getKey()), bestScore.get(a.getKey())))
+                .map(Map.Entry::getValue)
                 .limit(candidateCount)
                 .toList();
+    }
+
+    /**
+     * Interleave chunks across source documents so that when the final
+     * char-budget truncation hits, EVERY source has contributed at least
+     * one chunk before any source contributes its second. Previously the
+     * naive ranked list could fill the budget with one document's top-3
+     * before the next document's top-1 was even considered.
+     */
+    private List<EmbeddingMatch<TextSegment>> diversifyForContext(List<EmbeddingMatch<TextSegment>> ranked) {
+        Map<String, List<EmbeddingMatch<TextSegment>>> byDoc = new LinkedHashMap<>();
+        for (EmbeddingMatch<TextSegment> m : ranked) {
+            String docId = m.embedded().metadata().getString("document_id");
+            if (docId == null) docId = keyFor(m);
+            byDoc.computeIfAbsent(docId, k -> new ArrayList<>()).add(m);
+        }
+        // Round-robin: first chunk from each doc, then second, then third...
+        List<EmbeddingMatch<TextSegment>> out = new ArrayList<>();
+        int round = 0;
+        boolean added;
+        do {
+            added = false;
+            for (List<EmbeddingMatch<TextSegment>> docChunks : byDoc.values()) {
+                if (round < docChunks.size()) {
+                    out.add(docChunks.get(round));
+                    added = true;
+                }
+            }
+            round++;
+        } while (added);
+        return out;
     }
 
     private List<EmbeddingMatch<TextSegment>> filterByMetadata(
@@ -263,18 +266,11 @@ public class DraftContextRetriever {
     }
 
     private Set<String> getAcceptableClauseTypes(String clauseType) {
-        return switch (clauseType) {
-            case "LIABILITY" -> Set.of("LIABILITY", "INDEMNITY", "GENERAL");
-            case "TERMINATION" -> Set.of("TERMINATION", "GENERAL");
-            case "CONFIDENTIALITY" -> Set.of("CONFIDENTIALITY", "GENERAL");
-            case "GOVERNING_LAW" -> Set.of("GOVERNING_LAW", "GENERAL");
-            case "IP_RIGHTS" -> Set.of("IP_RIGHTS", "GENERAL");
-            case "PAYMENT" -> Set.of("PAYMENT", "GENERAL");
-            case "SERVICES" -> Set.of("SERVICES", "GENERAL");
-            case "DEFINITIONS" -> Set.of("DEFINITIONS", "GENERAL");
-            case "GENERAL_PROVISIONS" -> Set.of("GENERAL");
-            default -> Set.of("GENERAL", clauseType);
-        };
+        if (clauseRegistry.contains(clauseType)) {
+            Set<String> types = clauseRegistry.get(clauseType).acceptableClauseTypes();
+            if (!types.isEmpty()) return types;
+        }
+        return Set.of("GENERAL", clauseType);
     }
 
     private boolean isRelatedDocType(String docType, String target) {

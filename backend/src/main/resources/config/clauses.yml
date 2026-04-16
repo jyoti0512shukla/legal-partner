@@ -1,0 +1,232 @@
+# Clause-type registry — single source of truth for everything that varies
+# per clause type. Add a new clause? One entry here. Don't edit Java.
+#
+# Fields per clause:
+#   title                — display-name shown in article headings
+#   expected_subclauses  — QA target count (0 = no structural constraint)
+#   system_prompt_id     — name of the Java constant in PromptTemplates
+#                          (e.g. DRAFT_LIABILITY_SYSTEM). Phase 2 will move
+#                          the bodies into resources/prompts/ files.
+#   user_prompt_id       — same, for the user template
+#   search_queries       — 2-4 query variants for multi-query RAG retrieval
+#   acceptable_clause_types — metadata filter for precedent chunks
+#   semantic_requirements  — keywords the final output MUST contain (lowercased)
+#   forbidden_headings     — phrases that, if present, indicate content from
+#                          a DIFFERENT clause type was pasted in (triggers retry)
+#
+# Note: DEFAULTS ONLY. Runtime still allows overrides via individual service
+# logic where needed (e.g. localeConfig for jurisdiction).
+
+clauses:
+
+  DEFINITIONS:
+    title: "Definitions"
+    expected_subclauses: 7
+    system_prompt_id: DRAFT_DEFINITIONS_SYSTEM
+    user_prompt_id: DRAFT_DEFINITIONS_USER
+    search_queries:
+      - "definitions interpretation meaning terms agreement"
+      - "confidential information disclosing receiving party purpose"
+      - "affiliate subsidiary intellectual property business day"
+      - "defined terms contract definitions schedule annexure"
+    acceptable_clause_types: [DEFINITIONS, GENERAL]
+    semantic_requirements: []
+    forbidden_headings: []
+
+  SERVICES:
+    title: "Services"
+    expected_subclauses: 3
+    system_prompt_id: DRAFT_SERVICES_SYSTEM
+    user_prompt_id: DRAFT_SERVICES_USER
+    search_queries:
+      - "scope of services deliverables statement of work SOW"
+      - "service standards acceptance criteria change request"
+      - "subcontracting obligations performance service level"
+      - "Indian Contract Act Section 10 lawful object services"
+    acceptable_clause_types: [SERVICES, GENERAL]
+    semantic_requirements: []
+    forbidden_headings:
+      - "Termination for Convenience"
+      - "Termination for Cause"
+      - "Effect of Termination"
+      - "Force Majeure Event"
+      - "Limitation of Liability"
+      - "Indemnification Obligations"
+
+  PAYMENT:
+    title: "Fees and Payment"
+    expected_subclauses: 4
+    system_prompt_id: DRAFT_PAYMENT_SYSTEM
+    user_prompt_id: DRAFT_PAYMENT_USER
+    search_queries:
+      - "payment terms invoice due date late payment interest"
+      - "compensation fees charges GST tax MSMED Act"
+      - "payment schedule milestone billing disputed invoice"
+      - "consideration remuneration advance payment"
+    acceptable_clause_types: [PAYMENT, GENERAL]
+    semantic_requirements: ["invoice", "net ", "due date", "late payment"]
+    forbidden_headings:
+      - "Termination for Convenience"
+      - "Termination for Cause"
+      - "Force Majeure Event"
+      - "Limitation of Liability"
+      - "Indemnification Obligations"
+      - "Confidential Information"
+
+  CONFIDENTIALITY:
+    title: "Confidentiality"
+    expected_subclauses: 5
+    system_prompt_id: DRAFT_CONFIDENTIALITY_SYSTEM
+    user_prompt_id: DRAFT_CONFIDENTIALITY_USER
+    search_queries:
+      - "confidential information non-disclosure NDA proprietary"
+      - "confidentiality obligations exceptions public domain prior knowledge"
+      - "return destroy confidential information on termination survival"
+      - "IT Act trade secret data protection"
+    acceptable_clause_types: [CONFIDENTIALITY, GENERAL]
+    semantic_requirements: ["confidential information", "shall not disclose", "exception"]
+    forbidden_headings:
+      - "Termination for Convenience"
+      - "Force Majeure Event"
+      - "Limitation of Liability"
+      - "Payment Schedule"
+      - "Scope of Services"
+
+  IP_RIGHTS:
+    title: "Intellectual Property Rights"
+    expected_subclauses: 4
+    system_prompt_id: DRAFT_IP_RIGHTS_SYSTEM
+    user_prompt_id: DRAFT_IP_RIGHTS_USER
+    search_queries:
+      - "intellectual property rights ownership work product license"
+      - "copyright patent trademark background IP foreground IP"
+      - "moral rights Copyright Act 1957 Patents Act assignment"
+      - "IP indemnification infringement third party claims"
+    acceptable_clause_types: [IP_RIGHTS, GENERAL]
+    semantic_requirements: ["ownership", "license", "intellectual property"]
+    forbidden_headings:
+      - "Termination for Convenience"
+      - "Force Majeure Event"
+      - "Payment Schedule"
+      - "Scope of Services"
+      - "Limitation of Liability"
+
+  LIABILITY:
+    title: "Liability and Indemnity"
+    expected_subclauses: 5
+    system_prompt_id: DRAFT_LIABILITY_SYSTEM
+    user_prompt_id: DRAFT_LIABILITY_USER
+    search_queries:
+      - "liability limitation indemnity cap damages exclusion consequential"
+      - "limitation of liability aggregate cap direct damages indirect"
+      - "indemnify hold harmless defend claims breach"
+      - "Indian Contract Act Section 73 74 liquidated damages"
+    acceptable_clause_types: [LIABILITY, INDEMNITY, GENERAL]
+    semantic_requirements: ["shall not exceed", "aggregate", "indemnif"]
+    forbidden_headings:
+      - "Scope of Services"
+      - "Payment Schedule"
+      - "Force Majeure Event"
+      - "Confidential Information obligations"
+
+  TERMINATION:
+    title: "Termination"
+    expected_subclauses: 4
+    system_prompt_id: DRAFT_TERMINATION_SYSTEM
+    user_prompt_id: DRAFT_TERMINATION_USER
+    search_queries:
+      - "termination notice period right to terminate exit clause"
+      - "termination for cause material breach cure period"
+      - "termination for convenience effects survival obligations"
+      - "Indian Contract Act Section 39 repudiation"
+    acceptable_clause_types: [TERMINATION, GENERAL]
+    semantic_requirements: ["written notice", "material breach", "effect"]
+    forbidden_headings:
+      - "Scope of Services"
+      - "Payment Schedule"
+      - "Force Majeure Event"
+      - "Limitation of Liability"
+
+  FORCE_MAJEURE:
+    title: "Force Majeure"
+    expected_subclauses: 5
+    system_prompt_id: DRAFT_FORCE_MAJEURE_SYSTEM
+    user_prompt_id: DRAFT_FORCE_MAJEURE_USER
+    search_queries:
+      - "force majeure act of god pandemic natural disaster war"
+      - "excused performance suspension obligations unforeseen circumstances"
+      - "notification mitigation reasonable efforts alternative performance"
+      - "termination force majeure prolonged event cumulative duration"
+    acceptable_clause_types: [FORCE_MAJEURE, GENERAL]
+    semantic_requirements: ["force majeure", "notification", "suspend"]
+    forbidden_headings:
+      - "Scope of Services"
+      - "Payment Schedule"
+      - "Limitation of Liability"
+      - "Termination for Convenience"
+
+  REPRESENTATIONS_WARRANTIES:
+    title: "Representations and Warranties"
+    expected_subclauses: 5
+    system_prompt_id: DRAFT_REPRESENTATIONS_WARRANTIES_SYSTEM
+    user_prompt_id: DRAFT_REPRESENTATIONS_WARRANTIES_USER
+    search_queries:
+      - "representations warranties covenants corporate authority power"
+      - "no conflicts no violations no breach organizational"
+      - "compliance laws regulations permits licenses authorisations"
+      - "accuracy information financial statements material adverse"
+    acceptable_clause_types: [REPRESENTATIONS_WARRANTIES, GENERAL]
+    semantic_requirements: ["authoris", "compliance", "conflict"]
+    forbidden_headings: []
+
+  DATA_PROTECTION:
+    title: "Data Protection and Privacy"
+    expected_subclauses: 5
+    system_prompt_id: DRAFT_DATA_PROTECTION_SYSTEM
+    user_prompt_id: DRAFT_DATA_PROTECTION_USER
+    search_queries:
+      - "personal data processing controller processor GDPR DPDP"
+      - "security measures encryption access control breach notification"
+      - "data subject rights consent purpose limitation retention"
+      - "cross-border transfer standard contractual clauses adequacy"
+    acceptable_clause_types: [DATA_PROTECTION, GENERAL]
+    semantic_requirements: ["personal data", "security", "breach"]
+    forbidden_headings:
+      - "Scope of Services"
+      - "Payment Schedule"
+      - "Force Majeure Event"
+      - "Termination for Convenience"
+      - "Limitation of Liability"
+
+  GOVERNING_LAW:
+    title: "Governing Law and Dispute Resolution"
+    expected_subclauses: 4
+    system_prompt_id: DRAFT_GOVERNING_LAW_SYSTEM
+    user_prompt_id: DRAFT_GOVERNING_LAW_USER
+    search_queries:
+      - "governing law jurisdiction arbitration dispute resolution"
+      - "arbitration seat venue ICC SIAC LCIA Arbitration Act 1996"
+      - "mediation conciliation negotiation tiered dispute"
+      - "applicable law choice of law courts India"
+    acceptable_clause_types: [GOVERNING_LAW, GENERAL]
+    semantic_requirements: ["governed by", "jurisdiction", "dispute"]
+    forbidden_headings:
+      - "Scope of Services"
+      - "Payment Schedule"
+      - "Force Majeure Event"
+      - "Limitation of Liability"
+      - "Termination for Convenience"
+
+  GENERAL_PROVISIONS:
+    title: "General Provisions"
+    expected_subclauses: 8
+    system_prompt_id: DRAFT_GENERAL_PROVISIONS_SYSTEM
+    user_prompt_id: DRAFT_GENERAL_PROVISIONS_USER
+    search_queries:
+      - "entire agreement amendment modification waiver severability"
+      - "notices assignment subcontracting independent contractor"
+      - "counterparts force majeure survival governing law general"
+      - "boilerplate provisions miscellaneous general terms"
+    acceptable_clause_types: [GENERAL]
+    semantic_requirements: []
+    forbidden_headings: []
