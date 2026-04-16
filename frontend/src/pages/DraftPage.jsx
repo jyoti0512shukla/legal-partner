@@ -58,6 +58,7 @@ export default function DraftPage() {
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [submittingAsync, setSubmittingAsync] = useState(false);
+  const [submitToast, setSubmitToast] = useState('');
   // When set, the right panel shows an existing async draft (polled from the server)
   // instead of whatever `draft` held from a fresh live stream.
   const [activeAsyncId, setActiveAsyncId] = useState(null);
@@ -142,25 +143,21 @@ export default function DraftPage() {
   }, []);
 
   // Submit an async draft — returns immediately with an id; the strip polls progress.
+  // Every "Generate" click runs async. The draft appears in the Recent Drafts
+  // strip; the preview pane stays on whatever the user was looking at. User
+  // clicks the strip entry to watch it (or see the finished result).
   const handleGenerateAsync = async () => {
     if (!form.templateId) return;
     if (form.templateId === 'custom' && !form.contractTypeName.trim()) return;
     setSubmittingAsync(true);
     setError('');
     try {
-      const r = await api.post('/ai/draft/async', form);
-      const newId = r.data?.id;
-      // Refresh the strip so the new entry appears immediately.
+      await api.post('/ai/draft/async', form);
       if (stripRef.current?.refresh) await stripRef.current.refresh();
-      if (newId) {
-        setActiveAsyncId(newId);
-        // Clear any previous live-stream state — the poller below will populate.
-        setDraft(null);
-        setGeneratingStatus({ label: 'Planning sections…', index: 0, total: 0 });
-        setLoading(true);
-      }
+      setSubmitToast('Draft started — watch it in “Your recent drafts” above.');
+      setTimeout(() => setSubmitToast(''), 6000);
     } catch (e) {
-      setError(e.response?.data?.message || e.message || 'Failed to submit async draft');
+      setError(e.response?.data?.message || e.message || 'Failed to submit draft');
     } finally {
       setSubmittingAsync(false);
     }
@@ -589,15 +586,16 @@ export default function DraftPage() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <button onClick={handleGenerate} disabled={loading || submittingAsync || !form.templateId} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
-                  {loading && !activeAsyncId ? <Loader className="w-5 h-5 animate-spin" /> : <FileEdit className="w-5 h-5" />}
-                  {loading && !activeAsyncId ? 'Generating...' : 'Generate Draft'}
+                <button onClick={handleGenerateAsync} disabled={submittingAsync || !form.templateId} className="btn-primary w-full flex items-center justify-center gap-2 py-3"
+                        title="Runs the draft on the server. You can keep working, close the tab, or come back later — click the entry in the strip above to watch or open it.">
+                  {submittingAsync ? <Loader className="w-5 h-5 animate-spin" /> : <FileEdit className="w-5 h-5" />}
+                  {submittingAsync ? 'Starting…' : 'Generate Draft'}
                 </button>
-                <button onClick={handleGenerateAsync} disabled={loading || submittingAsync || !form.templateId} className="btn-secondary w-full flex items-center justify-center gap-2 py-2 text-sm"
-                        title="Starts the draft on the server. You can close this tab and come back later — it'll keep running.">
-                  {submittingAsync ? <Loader className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
-                  Generate in background
-                </button>
+                {submitToast && (
+                  <p className="text-xs text-success flex items-center gap-1.5 py-1">
+                    <Clock className="w-3 h-3" /> {submitToast}
+                  </p>
+                )}
               </div>
             </div>
           </div>
