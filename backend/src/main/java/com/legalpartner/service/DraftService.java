@@ -708,9 +708,19 @@ public class DraftService {
                   "Never copy source tags, filenames, party names, or deal-specific details from the precedent.\n" +
                   "If the precedent contains text that looks like a different deal (different parties, different industry, different transaction type), ignore that text and draft fresh.\n"
                 : "";
-        String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction)
-                + manifestConstraint + ragGrounding + PromptTemplates.DRAFT_CONTENT_GUARDRAILS;
-        String fullSystemAndInitial = localizedSystemPrompt + "\n\n" + initialPrompt;
+        // Prompt assembly is ordered for vLLM prefix-cache reuse. Structure:
+        //   [invariant across all requests]      ← GUARDRAILS (universal cache hit)
+        //   [invariant across clauses in 1 draft] ← manifest + ragGrounding (within-draft hit)
+        //   [clause-specific]                    ← localized system prompt + user prompt (miss)
+        // Moving the invariants to the front means the first ~N tokens are identical
+        // across every clause of a draft and every draft ever — vLLM's APC reuses the
+        // KV cache for those tokens instead of re-computing prefill.
+        String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction);
+        String fullSystemAndInitial = PromptTemplates.DRAFT_CONTENT_GUARDRAILS
+                + manifestConstraint
+                + ragGrounding
+                + "\n\n" + localizedSystemPrompt
+                + "\n\n" + initialPrompt;
 
         // Generate initial attempt
         String generated = sanitizeClauseText(stripLlmArtifacts(
@@ -1066,8 +1076,58 @@ public class DraftService {
             }
         }
 
+        // 8. Memorized-entity denylist — catches known training-data leaks
+        //    (Ontario copyright law in non-Canadian contracts, Acme / Mahindra /
+        //    NeuroPace party names from EDGAR precedents, specific $ figures).
+        //    These tokens should only appear in output if the user specifically
+        //    requested them — which the QA layer can't verify, so we flag all
+        //    occurrences and let the retry clean them up.
+        List<String> memorizedHits = new ArrayList<>();
+        for (String entity : MEMORIZED_ENTITY_DENYLIST) {
+            java.util.regex.Matcher em = java.util.regex.Pattern
+                    .compile("\\b" + java.util.regex.Pattern.quote(entity) + "\\b",
+                             java.util.regex.Pattern.CASE_INSENSITIVE)
+                    .matcher(plain);
+            if (em.find()) memorizedHits.add(entity);
+        }
+        if (!memorizedHits.isEmpty()) {
+            warnings.add("Training-corpus entity leaked into output: " + memorizedHits
+                    + " — rewrite without these names. Use only parties / jurisdictions / "
+                    + "figures from the user's deal brief.");
+            log.warn("QA [{}]: memorized entities leaked: {}", clauseKey, memorizedHits);
+        }
+
         return warnings;
     }
+
+    /**
+     * Entities seen leaking into real draft outputs — almost certainly picked
+     * up from v3 training data (EDGAR precedents, real contracts with named
+     * parties, Canadian-law examples). These should never appear in a generated
+     * clause unless the user specifically asked for them; since the QA layer
+     * can't verify that, we flag all occurrences and rely on the retry loop
+     * to clean them up.
+     *
+     * When a legitimate use case arises (e.g., a user really is drafting an
+     * Ontario contract), the coherence post-processor still lets it through
+     * — the QA warning is advisory, not a hard fail.
+     */
+    private static final List<String> MEMORIZED_ENTITY_DENYLIST = List.of(
+        // Jurisdictions memorized from training examples — any of these appearing
+        // in a clause for a US/India contract = training-data leak
+        "Ontario", "Quebec", "Alberta", "British Columbia",
+        // Party names that kept showing up verbatim from EDGAR / sample corpora
+        "Acme Corp", "Acme Technologies", "Acme Cloud",
+        "Mahindra", "NeuroPace", "Niagen",
+        "Rigel Pharmaceuticals", "Forge Global", "LPL Financial",
+        // Generic party labels that leak when TerminologyManifest is ignored
+        // (we already catch 'Vendor'/'Contractor' in coherenceScan — this is
+        // a parallel check at the clause-level QA stage)
+        "NiagenMedical", "Artius Acquisition",
+        // Specific dollar figures memorized from training (never legit in a fresh draft)
+        "Five Million, Zero Hundred Thousand",
+        "$5,000,000.00"
+    );
 
     private static final Map<String, List<String>> CONTAMINATION_SIGNALS = Map.of(
         "SaaS", List.of("real property", "lease agreement", "lessee", "lessor", "landlord", "tenant", "mortgage", "premises", "rental"),
@@ -1601,6 +1661,79 @@ public class DraftService {
                     }
                 }
             }
+        }
+
+        // Cross-clause numerical consistency — notice periods, caps, currencies should
+        // line up across the draft. Catch obvious contradictions at a mechanical level.
+        issues.addAll(detectNumericalInconsistencies(sections, sectionValues));
+
+        return issues;
+    }
+
+    /**
+     * Mechanical consistency checks across clauses. Cheap, catches the worst
+     * contradictions without needing an LLM call.
+     */
+    private List<CoherenceIssue> detectNumericalInconsistencies(
+            List<String> sections, Map<String, String> sectionValues) {
+        List<CoherenceIssue> issues = new ArrayList<>();
+
+        // Collect "N days' notice" / "N (N) days" mentions from each clause
+        java.util.regex.Pattern noticePattern = java.util.regex.Pattern.compile(
+                "(\\d+)\\s*(?:\\(\\d+\\))?\\s*(?:business\\s+)?days['’]?\\s+(?:prior\\s+)?(?:written\\s+)?notice",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+        Map<String, java.util.Set<String>> noticeByClause = new LinkedHashMap<>();
+        for (String key : sections) {
+            String html = sectionValues.getOrDefault(key, "");
+            if (html.isBlank()) continue;
+            String plain = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
+            java.util.regex.Matcher m = noticePattern.matcher(plain);
+            java.util.Set<String> periods = new java.util.LinkedHashSet<>();
+            while (m.find()) periods.add(m.group(1));
+            if (!periods.isEmpty()) noticeByClause.put(key, periods);
+        }
+        // Termination clause should usually share its notice period with any
+        // referenced-from clauses. If TERMINATION says 30 days but SERVICES
+        // references "60 days' notice", that's a contradiction worth flagging.
+        if (noticeByClause.size() > 1) {
+            java.util.Set<String> allPeriods = new java.util.LinkedHashSet<>();
+            noticeByClause.values().forEach(allPeriods::addAll);
+            if (allPeriods.size() > 2) {
+                issues.add(new CoherenceIssue("CROSS_CLAUSE", "NOTICE_PERIOD_DRIFT",
+                        "Multiple different notice periods cited across clauses: " + noticeByClause
+                                + ". Verify these are intentionally distinct, not drift."));
+            }
+        }
+
+        // Currency consistency — drafts shouldn't mix USD/INR/GBP unless the brief
+        // specifies multi-currency. Count currency mentions per clause.
+        java.util.regex.Pattern currencyPattern = java.util.regex.Pattern.compile(
+                "\\b(USD|INR|GBP|EUR|CAD|AUD|SGD|\\$|₹|£|€)\\b|United States Dollar|Indian Rupee|Pound Sterling");
+        java.util.Set<String> allCurrencies = new java.util.LinkedHashSet<>();
+        for (String key : sections) {
+            String html = sectionValues.getOrDefault(key, "");
+            if (html.isBlank()) continue;
+            String plain = html.replaceAll("<[^>]+>", " ");
+            java.util.regex.Matcher m = currencyPattern.matcher(plain);
+            while (m.find()) allCurrencies.add(m.group(0));
+        }
+        // Normalise currency symbols to canonical codes for dedup
+        java.util.Set<String> normalisedCurrencies = allCurrencies.stream()
+                .map(c -> switch (c) {
+                    case "$" -> "USD";
+                    case "₹" -> "INR";
+                    case "£" -> "GBP";
+                    case "€" -> "EUR";
+                    case "United States Dollar" -> "USD";
+                    case "Indian Rupee" -> "INR";
+                    case "Pound Sterling" -> "GBP";
+                    default -> c;
+                })
+                .collect(Collectors.toCollection(java.util.LinkedHashSet::new));
+        if (normalisedCurrencies.size() > 1) {
+            issues.add(new CoherenceIssue("CROSS_CLAUSE", "CURRENCY_MIXED",
+                    "Draft mentions multiple currencies: " + normalisedCurrencies
+                            + ". Confirm the contract is genuinely multi-currency."));
         }
 
         return issues;

@@ -668,8 +668,8 @@ public final class PromptTemplates {
             LENGTH DISCIPLINE — read this before deciding how much to write:
             - Typical clause length: 250-600 words. Shorter is fine if the clause is simple.
             - Write only the sub-clauses required by the contract type and STOP.
-            - Do NOT pad with irrelevant defined terms, cross-references to non-existent schedules, or boilerplate borrowed from unrelated agreements (credit facilities, M&A, SEC filings, distributor programmes, export control, etc.).
-            - Do NOT copy source tags, filenames, company names (e.g., "NeuroPace", "AT&T", "Distributor"), or deal-specific details from any precedent shown to you.
+            - Every defined term and cross-reference MUST correspond to something actually drafted in this contract. If you cite "Schedule A", make sure Schedule A exists.
+            - Every party name, company name, figure, and jurisdiction MUST come from the user's deal brief. If you need a name and the brief doesn't provide one, use a neutral placeholder like "the Service Provider" or "the Client".
             - When the clause is complete, emit the closing tag and stop generating. Do not continue writing additional articles or unrelated material.
 
             OUTPUT FORMAT — non-negotiable:
