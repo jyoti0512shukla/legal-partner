@@ -878,11 +878,74 @@ public class DraftService {
         return qaClause(clauseKey, htmlText, expectedSubclauses, null);
     }
 
+    /** Phrases that clearly belong to a different clause type. Returns any that appeared. */
+    private List<String> detectCrossArticleBleed(String clauseKey, String plain) {
+        // Heading phrases that, if seen INSIDE this clause, mean the model pasted in
+        // content from a different clause type. Keyed by "clause being drafted".
+        Map<String, List<String>> forbidden = Map.of(
+            "SERVICES", List.of("Termination for Convenience", "Termination for Cause",
+                                 "Effect of Termination", "Force Majeure Event", "Limitation of Liability",
+                                 "Indemnification Obligations"),
+            "PAYMENT",  List.of("Termination for Convenience", "Termination for Cause",
+                                 "Force Majeure Event", "Limitation of Liability",
+                                 "Indemnification Obligations", "Confidential Information"),
+            "CONFIDENTIALITY", List.of("Termination for Convenience", "Force Majeure Event",
+                                 "Limitation of Liability", "Payment Schedule", "Scope of Services"),
+            "IP_RIGHTS", List.of("Termination for Convenience", "Force Majeure Event",
+                                 "Payment Schedule", "Scope of Services", "Limitation of Liability"),
+            "LIABILITY", List.of("Scope of Services", "Payment Schedule", "Force Majeure Event",
+                                 "Confidential Information obligations"),
+            "TERMINATION", List.of("Scope of Services", "Payment Schedule", "Force Majeure Event",
+                                 "Limitation of Liability"),
+            "FORCE_MAJEURE", List.of("Scope of Services", "Payment Schedule", "Limitation of Liability",
+                                 "Termination for Convenience"),
+            "GOVERNING_LAW", List.of("Scope of Services", "Payment Schedule", "Force Majeure Event",
+                                 "Limitation of Liability", "Termination for Convenience"),
+            "DATA_PROTECTION", List.of("Scope of Services", "Payment Schedule", "Force Majeure Event",
+                                 "Termination for Convenience", "Limitation of Liability")
+        );
+        List<String> blacklist = forbidden.get(clauseKey);
+        if (blacklist == null) return List.of();
+        List<String> hits = new ArrayList<>();
+        for (String phrase : blacklist) {
+            if (plain.contains(phrase)) hits.add(phrase);
+        }
+        return hits;
+    }
+
     private List<String> qaClause(String clauseKey, String htmlText, int expectedSubclauses, String contractType) {
         List<String> warnings = new ArrayList<>();
 
         // Strip HTML tags for plain-text analysis
         String plain = htmlText.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+
+        // 0. Sub-clause numbering consistency — all sub-clauses inside a single
+        //    article must share the same leading number. Seen in the wild: a
+        //    Services article with sub-clauses 4.1, 4.2, 4.3 (copied verbatim
+        //    from a precedent where this was Article 4). Any mixed prefixes here
+        //    means the model dumped a different article wholesale.
+        java.util.regex.Matcher numMatcher = java.util.regex.Pattern
+                .compile("class=\"clause-sub\"><strong>(\\d+)\\.(\\d+)\\.?</strong>")
+                .matcher(htmlText);
+        java.util.Set<String> articlePrefixes = new java.util.LinkedHashSet<>();
+        while (numMatcher.find()) articlePrefixes.add(numMatcher.group(1));
+        if (articlePrefixes.size() > 1) {
+            warnings.add("Sub-clause numbering inconsistent — mixed article prefixes " + articlePrefixes
+                    + ". All sub-clauses in a single clause must share the same leading number.");
+            log.warn("QA [{}]: mixed sub-clause prefixes {}", clauseKey, articlePrefixes);
+        }
+
+        // 0b. Cross-article content bleed — a clause must not include headings
+        //    that belong to a DIFFERENT clause type. Seen in the wild: Article 2
+        //    (Services) containing "Termination for Convenience", "Termination
+        //    for Cause", "Effect of Termination" sub-clauses.
+        java.util.List<String> bleedHeadings = detectCrossArticleBleed(clauseKey, plain);
+        if (!bleedHeadings.isEmpty()) {
+            warnings.add("Cross-article content bleed — this " + clauseKey
+                    + " clause contains headings from other articles: " + bleedHeadings
+                    + ". Rewrite using only " + clauseKey + "-appropriate sub-clauses.");
+            log.warn("QA [{}]: cross-article bleed {}", clauseKey, bleedHeadings);
+        }
 
         // 1. Placeholder detection
         java.util.regex.Matcher m = QA_PLACEHOLDER_PATTERN.matcher(plain);
