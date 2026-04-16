@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save, FolderOpen, Pencil, AlertTriangle, Briefcase } from 'lucide-react';
+import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save, FolderOpen, Pencil, AlertTriangle, Briefcase, Clock } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
+import DraftsRecentStrip from '../components/DraftsRecentStrip';
 
 function stripHtml(html) {
   const div = document.createElement('div');
@@ -56,6 +57,11 @@ export default function DraftPage() {
   const [qaWarnings, setQaWarnings] = useState({}); // clauseKey → string[]
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [submittingAsync, setSubmittingAsync] = useState(false);
+  // When set, the right panel shows an existing async draft (polled from the server)
+  // instead of whatever `draft` held from a fresh live stream.
+  const [activeAsyncId, setActiveAsyncId] = useState(null);
+  const stripRef = useRef(null);
   const previewRef = useRef(null);
   const floatRef = useRef(null);
 
@@ -135,6 +141,89 @@ export default function DraftPage() {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, []);
 
+  // Submit an async draft — returns immediately with an id; the strip polls progress.
+  const handleGenerateAsync = async () => {
+    if (!form.templateId) return;
+    if (form.templateId === 'custom' && !form.contractTypeName.trim()) return;
+    setSubmittingAsync(true);
+    setError('');
+    try {
+      const r = await api.post('/ai/draft/async', form);
+      const newId = r.data?.id;
+      // Refresh the strip so the new entry appears immediately.
+      if (stripRef.current?.refresh) await stripRef.current.refresh();
+      if (newId) {
+        setActiveAsyncId(newId);
+        // Clear any previous live-stream state — the poller below will populate.
+        setDraft(null);
+        setGeneratingStatus({ label: 'Planning sections…', index: 0, total: 0 });
+        setLoading(true);
+      }
+    } catch (e) {
+      setError(e.response?.data?.message || e.message || 'Failed to submit async draft');
+    } finally {
+      setSubmittingAsync(false);
+    }
+  };
+
+  // Poll a single async draft when the user selects one from the strip (or just
+  // submitted one). Renders identically to the live-stream path — it just updates
+  // `draft.draftHtml` + `generatingStatus` as each clause lands server-side.
+  useEffect(() => {
+    if (!activeAsyncId) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const r = await api.get(`/ai/draft/async/${activeAsyncId}`);
+        if (cancelled) return;
+        const d = r.data;
+        // Always update the preview with whatever is persisted server-side.
+        setDraft({ draftHtml: d.draftHtml || '', suggestions: [] });
+
+        if (d.status === 'PENDING') {
+          setGeneratingStatus({ label: 'Queued — waiting for capacity', index: 0, total: d.totalClauses || 0 });
+          setLoading(true);
+        } else if (d.status === 'PROCESSING') {
+          setGeneratingStatus({
+            label: d.currentClauseLabel || 'Generating',
+            index: d.completedClauses || 0,
+            total: d.totalClauses || 9,
+          });
+          setLoading(true);
+        } else if (d.status === 'INDEXED') {
+          setGeneratingStatus(null);
+          setLoading(false);
+          return 'done';
+        } else if (d.status === 'FAILED') {
+          setGeneratingStatus(null);
+          setLoading(false);
+          setError(d.errorMessage || 'Draft failed');
+          return 'done';
+        }
+      } catch (e) {
+        // swallow transient polling errors; try again on next tick
+      }
+      return null;
+    };
+
+    // Fire once, then set up a 3s interval until status is terminal.
+    let intervalId = null;
+    (async () => {
+      const first = await poll();
+      if (first === 'done' || cancelled) return;
+      intervalId = setInterval(async () => {
+        const r = await poll();
+        if (r === 'done' && intervalId) { clearInterval(intervalId); intervalId = null; }
+      }, 3000);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [activeAsyncId]);
+
   const handleGenerate = async () => {
     if (!form.templateId) return;
     if (form.templateId === 'custom' && !form.contractTypeName.trim()) return;
@@ -145,6 +234,8 @@ export default function DraftPage() {
     setSelectionInfo(null);
     setPendingRefinement(null);
     setQaWarnings({});
+    // Stop any async-draft polling — we're taking over with a live stream.
+    setActiveAsyncId(null);
     try {
       const response = await fetch('/api/v1/ai/draft/stream', {
         method: 'POST',
@@ -497,16 +588,35 @@ export default function DraftPage() {
                 </div>
               </div>
 
-              <button onClick={handleGenerate} disabled={loading || !form.templateId} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
-                {loading ? <Loader className="w-5 h-5 animate-spin" /> : <FileEdit className="w-5 h-5" />}
-                {loading ? 'Generating...' : 'Generate Draft'}
-              </button>
+              <div className="flex flex-col gap-2">
+                <button onClick={handleGenerate} disabled={loading || submittingAsync || !form.templateId} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
+                  {loading && !activeAsyncId ? <Loader className="w-5 h-5 animate-spin" /> : <FileEdit className="w-5 h-5" />}
+                  {loading && !activeAsyncId ? 'Generating...' : 'Generate Draft'}
+                </button>
+                <button onClick={handleGenerateAsync} disabled={loading || submittingAsync || !form.templateId} className="btn-secondary w-full flex items-center justify-center gap-2 py-2 text-sm"
+                        title="Starts the draft on the server. You can close this tab and come back later — it'll keep running.">
+                  {submittingAsync ? <Loader className="w-4 h-4 animate-spin" /> : <Clock className="w-4 h-4" />}
+                  Generate in background
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Right preview panel */}
         <div className="lg:col-span-2 space-y-6">
+          <DraftsRecentStrip
+            activeId={activeAsyncId}
+            onSelect={(id) => {
+              setActiveAsyncId(id);
+              setError('');
+              setDraft(null);
+              setGeneratingStatus({ label: 'Loading…', index: 0, total: 0 });
+              setLoading(true);
+            }}
+            onReady={(api) => { stripRef.current = api; }}
+          />
+
           {error && (
             <div className="card border-l-4 border-danger bg-danger/5">
               <p className="text-danger text-sm">{error}</p>

@@ -6,10 +6,13 @@ import com.legalpartner.config.LegalSystemConfig;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.dto.DraftResponse;
 import com.legalpartner.model.dto.DraftResponse.ClauseSuggestion;
+import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.model.entity.Matter;
+import com.legalpartner.model.enums.ProcessingStatus;
 import com.legalpartner.rag.DraftContextRetriever;
 import com.legalpartner.rag.DraftContextRetriever.DraftContext;
 import com.legalpartner.rag.PromptTemplates;
+import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.MatterRepository;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -17,11 +20,13 @@ import dev.langchain4j.model.chat.ChatLanguageModel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -41,6 +46,8 @@ public class DraftService {
     private final Semaphore draftSemaphore;
     private final LegalSystemConfig legalSystemConfig;
     private final MatterRepository matterRepository;
+    private final DocumentMetadataRepository documentRepository;
+    private final FileStorageService fileStorageService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -48,12 +55,16 @@ public class DraftService {
                         ChatLanguageModel chatModel,
                         LegalSystemConfig legalSystemConfig,
                         MatterRepository matterRepository,
+                        DocumentMetadataRepository documentRepository,
+                        FileStorageService fileStorageService,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
         this.chatModel = chatModel;
         this.legalSystemConfig = legalSystemConfig;
         this.matterRepository = matterRepository;
+        this.documentRepository = documentRepository;
+        this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
 
@@ -160,6 +171,134 @@ public class DraftService {
             } finally { draftSemaphore.release(); }
         }).start();
         return emitter;
+    }
+
+    // ── Async draft generation ─────────────────────────────────────────────────
+
+    /**
+     * Kick off an async draft, persisting progress + partial HTML to the given
+     * DocumentMetadata row. The caller creates the row first (status=PENDING)
+     * and hands us the id; we flip it to PROCESSING, stream updates, and end
+     * at INDEXED (success) or FAILED (exception).
+     *
+     * Blocking semaphore acquire — if the 2 concurrent slots are busy, we queue
+     * rather than reject. Users expect "submit and come back later" to eventually
+     * run, not to error out.
+     */
+    @Async
+    public void generateDraftAsync(UUID docId, DraftRequest request, String username) {
+        try {
+            draftSemaphore.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            markDraftFailed(docId, "Interrupted waiting for draft capacity");
+            return;
+        }
+        try {
+            doAsyncDraft(docId, request, username);
+        } catch (Exception e) {
+            log.error("Async draft {} failed", docId, e);
+            markDraftFailed(docId, truncate(e.getMessage() != null ? e.getMessage() : "Generation failed", 500));
+        } finally {
+            draftSemaphore.release();
+        }
+    }
+
+    private void doAsyncDraft(UUID docId, DraftRequest request, String username) throws Exception {
+        hydrateFromMatter(request);
+
+        DocumentMetadata doc = documentRepository.findById(docId)
+                .orElseThrow(() -> new IllegalStateException("Async draft row " + docId + " vanished"));
+
+        // ── Phase 0: move PENDING → PROCESSING ──
+        doc.setProcessingStatus(ProcessingStatus.PROCESSING);
+        doc.setLastProgressAt(Instant.now());
+        doc.setCurrentClauseLabel("Planning sections");
+        doc = documentRepository.save(doc);
+
+        // ── Phase 1: plan sections ──
+        String[] templateParts = loadTemplateParts(request.getTemplateId(), buildPlaceholderMap(request));
+        List<String> plannedSections = planSections(request);
+        log.info("Async draft {} section planner chose {} sections: {}", docId, plannedSections.size(), plannedSections);
+
+        Map<String, String> sectionValues = new LinkedHashMap<>();
+        for (String key : plannedSections) {
+            ClauseSpec spec = CLAUSE_SPECS.get(key);
+            sectionValues.put(key, "<em style='color:#9CA3AF'>&#x23F3; Generating " + spec.title() + " clause…</em>");
+        }
+        // Persist initial skeleton + totals
+        doc.setTotalClauses(plannedSections.size());
+        doc.setCompletedClauses(0);
+        doc.setLastProgressAt(Instant.now());
+        storeHtml(doc, buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
+        doc = documentRepository.save(doc);
+
+        // ── Phase 2: generate each section ──
+        TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
+        Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
+
+        for (int i = 0; i < plannedSections.size(); i++) {
+            String key = plannedSections.get(i);
+            ClauseSpec spec = CLAUSE_SPECS.get(key);
+
+            doc.setCurrentClauseLabel(spec.title());
+            doc.setLastProgressAt(Instant.now());
+            doc = documentRepository.save(doc);
+
+            DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
+            ClauseResult result = generateClauseWithQa(
+                    request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(),
+                    spec.expectedSubclauses(), null, manifest);
+            sectionValues.put(key, result.html());
+            if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(result.html()));
+            manifest = manifest.withAppendedClause(
+                    summarizeClauseOutline(i + 1, spec.title(), result.html()),
+                    stripToPlainWithCap(result.html(), 1500));
+            if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
+
+            // Persist partial HTML + progress after each clause
+            doc.setCompletedClauses(i + 1);
+            doc.setLastProgressAt(Instant.now());
+            storeHtml(doc, buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
+            doc = documentRepository.save(doc);
+        }
+
+        // ── Phase 3: mark complete ──
+        runCoherenceScan(plannedSections, sectionValues, manifest); // log-only; result ignored for async
+        doc.setCurrentClauseLabel(null);
+        doc.setProcessingStatus(ProcessingStatus.INDEXED);
+        doc.setLastProgressAt(Instant.now());
+        documentRepository.save(doc);
+        log.info("Async draft {} completed ({} clauses, {} qa warnings)",
+                 docId, plannedSections.size(), allQaWarnings.size());
+    }
+
+    private void storeHtml(DocumentMetadata doc, String html) {
+        try {
+            String path = fileStorageService.store(doc.getId(), doc.getFileName(), html.getBytes());
+            doc.setStoredPath(path);
+            doc.setFileSize((long) html.length());
+        } catch (IOException e) {
+            log.warn("Async draft {}: partial HTML store failed — {}", doc.getId(), e.getMessage());
+        }
+    }
+
+    private void markDraftFailed(UUID docId, String reason) {
+        try {
+            documentRepository.findById(docId).ifPresent(doc -> {
+                doc.setProcessingStatus(ProcessingStatus.FAILED);
+                doc.setErrorMessage(reason);
+                doc.setLastProgressAt(Instant.now());
+                documentRepository.save(doc);
+            });
+        } catch (Exception e) {
+            log.error("Couldn't mark draft {} failed: {}", docId, e.getMessage());
+        }
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return null;
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     // ── Core generation ────────────────────────────────────────────────────────

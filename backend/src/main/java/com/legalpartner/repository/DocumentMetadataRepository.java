@@ -45,6 +45,12 @@ public interface DocumentMetadataRepository extends JpaRepository<DocumentMetada
 
     List<DocumentMetadata> findByExtractionStatus(ExtractionStatus status);
 
+    /** Async drafts for the Recent Drafts strip. Most recent first. */
+    List<DocumentMetadata> findTop20ByUploadedByAndSourceOrderByUploadDateDesc(String uploadedBy, String source);
+
+    /** Used by the startup + stuck-job sweepers. */
+    List<DocumentMetadata> findBySourceAndProcessingStatus(String source, ProcessingStatus status);
+
     @Query("SELECT CAST(d.id AS string) FROM DocumentMetadata d WHERE d.matter.id = :matterUuid")
     List<String> findIdStringsByMatterUuid(@Param("matterUuid") UUID matterUuid);
 }
