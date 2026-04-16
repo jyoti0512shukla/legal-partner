@@ -242,6 +242,9 @@ public class DocumentService {
             if (doc.getPracticeArea() != null) docMeta.put("practice_area", doc.getPracticeArea().name());
             if (doc.getIndustry() != null) docMeta.put("industry", doc.getIndustry());
             if (doc.getClientName() != null) docMeta.put("client_name", doc.getClientName());
+            // is_anonymized flag — chunks from pre-anonymization-era docs are excluded
+            // from drafting retrieval by default. Run the re-index endpoint to process them.
+            docMeta.put("is_anonymized", Boolean.toString(doc.isAnonymized()));
             // matter_id enables matter-scoped RAG retrieval — only pull precedents from
             // the same matter when drafting within that matter.
             if (doc.getMatter() != null) docMeta.put("matter_id", doc.getMatter().getId().toString());

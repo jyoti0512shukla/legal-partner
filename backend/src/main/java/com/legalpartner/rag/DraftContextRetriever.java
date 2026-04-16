@@ -194,6 +194,15 @@ public class DraftContextRetriever {
                     String source = m.embedded().metadata().getString("source");
                     if ("EDGAR".equalsIgnoreCase(source)) return false;
 
+                    // Hard exclude non-anonymized chunks — cross-client confidentiality
+                    // fail-safe. Chunks ingested before the anonymization pipeline landed
+                    // (or where anonymization failed) have their original party names /
+                    // amounts / jurisdictions in the embedded text, and can leak into
+                    // other clients' drafts. They must be re-indexed (see
+                    // AdminController.reindexAnonymization) before becoming retrievable.
+                    String anonFlag = m.embedded().metadata().getString("is_anonymized");
+                    if (!"true".equalsIgnoreCase(anonFlag)) return false;
+
                     String docType = m.embedded().metadata().getString("document_type");
                     String matterId = m.embedded().metadata().getString("matter_id");
                     String jurisdiction = m.embedded().metadata().getString("jurisdiction");
