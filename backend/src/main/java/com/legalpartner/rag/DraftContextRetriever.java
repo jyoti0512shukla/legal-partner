@@ -299,7 +299,11 @@ public class DraftContextRetriever {
         int total = 0;
         for (int i = 0; i < matches.size() && total < maxChars; i++) {
             EmbeddingMatch<TextSegment> m = matches.get(i);
-            String fileName = m.embedded().metadata().getString("file_name");
+            // We deliberately OMIT the file_name from the header. Filenames often
+            // contain client names ("Contract_AcmeCorp.docx") — even if the
+            // body is anonymized, a raw filename in the RAG payload is a leak
+            // channel. The model doesn't need it; Source N is enough for
+            // internal referencing.
             String section = m.embedded().metadata().getString("section_path");
             String docType = m.embedded().metadata().getString("document_type");
             String jurisdiction = m.embedded().metadata().getString("jurisdiction");
@@ -311,10 +315,9 @@ public class DraftContextRetriever {
                 text = m.embedded().text();
             }
 
-            String header = String.format("[Source %d: %s | %s | %s | %s]",
+            String header = String.format("[Source %d | %s | %s | %s]",
                     i + 1,
-                    fileName != null ? fileName : "Unknown",
-                    section != null ? section : "",
+                    section != null && !section.isBlank() ? section : "clause",
                     docType != null ? docType : "",
                     jurisdiction != null ? jurisdiction : "");
 
