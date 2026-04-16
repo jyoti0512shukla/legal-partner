@@ -1,0 +1,39 @@
+# Runtime output denylists. Entities listed here are flagged by the draft
+# QA layer when they appear in model output AND weren't in the user's brief —
+# a signal the model memorized them during training or copied from a precedent.
+#
+# Categories exist for observability / future per-category logic. At check
+# time we flatten them into a single set.
+#
+# Adding entries: edit this file, restart. No code change.
+
+memorized_entities:
+
+  # Jurisdictions that keep showing up in non-matching contracts (v3 training
+  # data had Canadian examples; any Ontario-in-a-California draft is a leak).
+  jurisdictions:
+    - "Ontario"
+    - "Quebec"
+    - "Alberta"
+    - "British Columbia"
+
+  # Party names that kept showing up verbatim from EDGAR / sample corpora.
+  # These are public-company names the model learned during training.
+  party_names:
+    - "Acme Corp"
+    - "Acme Technologies"
+    - "Acme Cloud"
+    - "Mahindra"
+    - "NeuroPace"
+    - "Niagen"
+    - "NiagenMedical"
+    - "Rigel Pharmaceuticals"
+    - "Forge Global"
+    - "LPL Financial"
+    - "Artius Acquisition"
+
+  # Specific dollar figures memorized from training — never legit in a fresh
+  # draft unless the user explicitly asked for them.
+  monetary_amounts:
+    - "Five Million, Zero Hundred Thousand"
+    - "$5,000,000.00"

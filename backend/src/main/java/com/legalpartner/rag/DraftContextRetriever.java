@@ -1,6 +1,7 @@
 package com.legalpartner.rag;
 
 import com.legalpartner.config.ClauseTypeRegistry;
+import com.legalpartner.config.ContractTypeRegistry;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.entity.ClauseLibraryEntry;
 import com.legalpartner.service.ClauseLibraryService;
@@ -43,6 +44,7 @@ public class DraftContextRetriever {
     private final EncryptionService encryptionService;
     private final ClauseLibraryService clauseLibraryService;
     private final ClauseTypeRegistry clauseRegistry;
+    private final ContractTypeRegistry contractRegistry;
 
     @Value("${legalpartner.draft.retrieval.candidate-count:30}")
     private int candidateCount;
@@ -346,20 +348,13 @@ public class DraftContextRetriever {
 
     /**
      * Map a drafting template id (what the user is authoring) to the uploaded
-     * DocumentType tag (what precedents we should retrieve). Strict: templates
-     * without a mapping get NO retrieval — better empty than wrong.
+     * DocumentType tag (what precedents we should retrieve). Now driven by
+     * resources/config/contract_types.yml. Strict: templates without a mapping
+     * get NO retrieval — better empty than wrong.
      */
     private String mapTemplateToDocumentType(String templateId) {
         if (templateId == null) return null;
-        return switch (templateId.toLowerCase()) {
-            case "nda" -> "NDA";
-            case "msa" -> "MSA";
-            case "saas", "fintech_msa", "clinical_services" -> "SAAS";
-            case "employment" -> "EMPLOYMENT";
-            case "supply" -> "SUPPLY";
-            case "software_license", "ip_license" -> "IP_LICENSE";
-            default -> null;
-        };
+        return contractRegistry.documentType(templateId);
     }
 
     public record DraftContext(String structuredContext, int chunkCount, List<String> sourceDocuments) {}

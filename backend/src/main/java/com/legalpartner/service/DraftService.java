@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.config.ClauseTypeRegistry;
 import com.legalpartner.config.ClauseTypeRegistry.ClauseTypeConfig;
+import com.legalpartner.config.ContractTypeRegistry;
+import com.legalpartner.config.DenylistRegistry;
 import com.legalpartner.config.LegalSystemConfig;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.dto.DraftResponse;
@@ -55,6 +57,8 @@ public class DraftService {
     private final FileStorageService fileStorageService;
     private final AnonymizationService anonymizationService;
     private final ClauseTypeRegistry clauseRegistry;
+    private final ContractTypeRegistry contractRegistry;
+    private final DenylistRegistry denylistRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -68,6 +72,8 @@ public class DraftService {
                         FileStorageService fileStorageService,
                         AnonymizationService anonymizationService,
                         ClauseTypeRegistry clauseRegistry,
+                        ContractTypeRegistry contractRegistry,
+                        DenylistRegistry denylistRegistry,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
@@ -78,6 +84,8 @@ public class DraftService {
         this.documentRepository = documentRepository;
         this.anonymizationService = anonymizationService;
         this.clauseRegistry = clauseRegistry;
+        this.contractRegistry = contractRegistry;
+        this.denylistRegistry = denylistRegistry;
         this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
@@ -499,30 +507,13 @@ public class DraftService {
         return defaultSections(request.getTemplateId());
     }
 
+    /**
+     * Default clause sections for a given contract template. Now sourced from
+     * resources/config/contract_types.yml — add a new template there, no Java
+     * change needed here.
+     */
     private List<String> defaultSections(String templateId) {
-        if (templateId == null) return defaultMsaSections();
-        return switch (templateId.toLowerCase()) {
-            case "nda"              -> List.of("DEFINITIONS", "CONFIDENTIALITY", "LIABILITY",
-                                               "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
-            case "software_license",
-                 "ip_license"      -> List.of("DEFINITIONS", "IP_RIGHTS", "PAYMENT", "LIABILITY",
-                                               "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
-            case "employment"      -> List.of("DEFINITIONS", "SERVICES", "PAYMENT", "CONFIDENTIALITY",
-                                               "IP_RIGHTS", "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
-            case "supply"          -> List.of("DEFINITIONS", "SERVICES", "PAYMENT", "FORCE_MAJEURE",
-                                               "LIABILITY", "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
-            case "saas",
-                 "fintech_msa",
-                 "clinical_services" -> List.of("DEFINITIONS", "SERVICES", "PAYMENT", "CONFIDENTIALITY",
-                                               "DATA_PROTECTION", "LIABILITY", "TERMINATION",
-                                               "GOVERNING_LAW", "GENERAL_PROVISIONS");
-            default                -> defaultMsaSections(); // vendor, msa, custom, unknown
-        };
-    }
-
-    private static List<String> defaultMsaSections() {
-        return List.of("DEFINITIONS", "SERVICES", "PAYMENT", "CONFIDENTIALITY", "IP_RIGHTS",
-                "LIABILITY", "TERMINATION", "GOVERNING_LAW", "GENERAL_PROVISIONS");
+        return contractRegistry.defaultSections(templateId);
     }
 
     // ── HTML assembly ──────────────────────────────────────────────────────────
@@ -1164,7 +1155,7 @@ public class DraftService {
         //    requested them — which the QA layer can't verify, so we flag all
         //    occurrences and let the retry clean them up.
         List<String> memorizedHits = new ArrayList<>();
-        for (String entity : MEMORIZED_ENTITY_DENYLIST) {
+        for (String entity : denylistRegistry.all()) {
             java.util.regex.Matcher em = java.util.regex.Pattern
                     .compile("\\b" + java.util.regex.Pattern.quote(entity) + "\\b",
                              java.util.regex.Pattern.CASE_INSENSITIVE)
@@ -1181,34 +1172,8 @@ public class DraftService {
         return warnings;
     }
 
-    /**
-     * Entities seen leaking into real draft outputs — almost certainly picked
-     * up from v3 training data (EDGAR precedents, real contracts with named
-     * parties, Canadian-law examples). These should never appear in a generated
-     * clause unless the user specifically asked for them; since the QA layer
-     * can't verify that, we flag all occurrences and rely on the retry loop
-     * to clean them up.
-     *
-     * When a legitimate use case arises (e.g., a user really is drafting an
-     * Ontario contract), the coherence post-processor still lets it through
-     * — the QA warning is advisory, not a hard fail.
-     */
-    private static final List<String> MEMORIZED_ENTITY_DENYLIST = List.of(
-        // Jurisdictions memorized from training examples — any of these appearing
-        // in a clause for a US/India contract = training-data leak
-        "Ontario", "Quebec", "Alberta", "British Columbia",
-        // Party names that kept showing up verbatim from EDGAR / sample corpora
-        "Acme Corp", "Acme Technologies", "Acme Cloud",
-        "Mahindra", "NeuroPace", "Niagen",
-        "Rigel Pharmaceuticals", "Forge Global", "LPL Financial",
-        // Generic party labels that leak when TerminologyManifest is ignored
-        // (we already catch 'Vendor'/'Contractor' in coherenceScan — this is
-        // a parallel check at the clause-level QA stage)
-        "NiagenMedical", "Artius Acquisition",
-        // Specific dollar figures memorized from training (never legit in a fresh draft)
-        "Five Million, Zero Hundred Thousand",
-        "$5,000,000.00"
-    );
+    // Entity denylist now lives in resources/config/denylists.yml (loaded by
+    // DenylistRegistry). Access via denylistRegistry.all() / .byCategory().
 
     private static final Map<String, List<String>> CONTAMINATION_SIGNALS = Map.of(
         "SaaS", List.of("real property", "lease agreement", "lessee", "lessor", "landlord", "tenant", "mortgage", "premises", "rental"),

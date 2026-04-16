@@ -1,0 +1,141 @@
+# Contract-type registry — single source of truth for each template the app
+# supports. Drives:
+#   - Frontend template selector (display_name)
+#   - RAG retrieval scoping (document_type used to match uploaded precedents)
+#   - Section planner fallback (default_sections when the LLM planner fails
+#     or returns fewer sections than the floor)
+#
+# Adding a new contract template: one YAML block. No Java changes.
+#
+# Fields:
+#   document_type    — value used to tag uploaded precedents of this kind;
+#                      must match a DocumentType enum value (NDA, MSA, SAAS,
+#                      EMPLOYMENT, etc.). Determines which precedents are
+#                      retrievable when drafting this template.
+#   display_name     — shown in UI
+#   default_sections — ordered list of clause-type keys the section planner
+#                      falls back to if the LLM fails. Must beat the planner's
+#                      count for the "floor" logic in DraftService.planSections
+#                      to kick in and prevent undercounting.
+
+contract_types:
+
+  nda:
+    document_type: NDA
+    display_name: "Non-Disclosure Agreement"
+    default_sections:
+      - DEFINITIONS
+      - CONFIDENTIALITY
+      - LIABILITY
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  msa:
+    document_type: MSA
+    display_name: "Master Services Agreement"
+    default_sections:
+      - DEFINITIONS
+      - SERVICES
+      - PAYMENT
+      - CONFIDENTIALITY
+      - IP_RIGHTS
+      - LIABILITY
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  saas:
+    document_type: SAAS
+    display_name: "SaaS Subscription Agreement"
+    default_sections:
+      - DEFINITIONS
+      - SERVICES
+      - PAYMENT
+      - CONFIDENTIALITY
+      - DATA_PROTECTION
+      - LIABILITY
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  fintech_msa:
+    document_type: SAAS
+    display_name: "Fintech Master Services Agreement"
+    default_sections:
+      - DEFINITIONS
+      - SERVICES
+      - PAYMENT
+      - CONFIDENTIALITY
+      - DATA_PROTECTION
+      - LIABILITY
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  clinical_services:
+    document_type: SAAS
+    display_name: "Clinical Services Agreement"
+    default_sections:
+      - DEFINITIONS
+      - SERVICES
+      - PAYMENT
+      - CONFIDENTIALITY
+      - DATA_PROTECTION
+      - LIABILITY
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  employment:
+    document_type: EMPLOYMENT
+    display_name: "Employment Agreement"
+    default_sections:
+      - DEFINITIONS
+      - SERVICES
+      - PAYMENT
+      - CONFIDENTIALITY
+      - IP_RIGHTS
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  supply:
+    document_type: SUPPLY
+    display_name: "Supply Agreement"
+    default_sections:
+      - DEFINITIONS
+      - SERVICES
+      - PAYMENT
+      - FORCE_MAJEURE
+      - LIABILITY
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  software_license:
+    document_type: IP_LICENSE
+    display_name: "Software License Agreement"
+    default_sections:
+      - DEFINITIONS
+      - IP_RIGHTS
+      - PAYMENT
+      - LIABILITY
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  ip_license:
+    document_type: IP_LICENSE
+    display_name: "IP License Agreement"
+    default_sections:
+      - DEFINITIONS
+      - IP_RIGHTS
+      - PAYMENT
+      - LIABILITY
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+# If a template id isn't listed above, the system falls back to the "msa"
+# default_sections. Edit that entry to change the generic fallback.
