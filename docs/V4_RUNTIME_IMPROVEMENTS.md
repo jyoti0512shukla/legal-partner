@@ -240,6 +240,151 @@ Item 9 — add only if phases 1-3 don't close the quality gap.
 
 ---
 
+---
+
+## Why v3 evals cleanly standalone but degrades through the production system
+
+Observation worth investigating: the 35-prompt direct eval after training
+showed v3 producing "solid legal output" across drafting, extraction, QA,
+risk, and summary. In production, we see Ontario-in-California, Acme/Mahindra
+party-name leaks, SaaS→MSA mode blur, RAG filename copying, numbering
+collapse. Same model, different quality. Why?
+
+Ranked hypotheses (highest probability first):
+
+1. **RAG contamination is the biggest single delta.** The direct eval was
+   prompt-only — no retrieved precedent chunks in the input. Production
+   stuffs chunks from the firm corpus (until recently permissively, now
+   scoped). When the chunk contains `Acme / Mahindra / Ontario / $5M /
+   Contractor-Company`, the model copies it verbatim. Most of our visible
+   defects trace directly to this.
+   - **Test to confirm:** re-run the 35-prompt eval through the production
+     code path with `ctx = empty DraftContext`. If drafts come out clean,
+     RAG was the entire problem. If they still leak, something else.
+
+2. **Prompt shape drift.** The eval prompt is ~500 tokens (clean template).
+   The production prompt is 2-4K tokens (GUARDRAILS + manifest + RAG +
+   localized system + scratchpad + user prompt). Long prompts dilute
+   attention — the model is more likely to latch onto a memorable token
+   (Ontario, Mahindra) when the signal-to-noise ratio drops.
+
+3. **Multi-clause continuity drift.** Eval tested one clause in isolation.
+   Production drafts 9 clauses sequentially, each seeing prior outlines
+   and (until recently) the last clause's full text. Small biases compound
+   across clauses.
+
+4. **Sampling differences.** Eval may have used greedy decoding or
+   low-temperature; production uses vLLM defaults. N-gram speculative
+   decoding (just added) is quality-neutral but worth verifying.
+
+5. **max_tokens disparity.** Eval used a reasonable cap matching training
+   distribution. Production had maxTokens=6000 until the bean split. A
+   bigger budget lets the model ramble into memorized material instead
+   of stopping naturally.
+
+### What to do
+
+Before v4 training, run a **production-path replay** of the 35-prompt
+eval set:
+- `data/raw/v3_eval_results.json` already has v3 direct-eval outputs
+- Run those same 35 prompts through `DraftService.generateClauseWithQa`
+  with and without RAG context
+- Diff the outputs
+- Whatever gap remains after removing RAG is the "prompt-shape + multi-
+  clause + sampling" delta
+
+This single experiment tells us whether v4 training is even the right
+lever — if turning off RAG fixes 80% of defects, the training-scrub
+work is lower priority than fixing the RAG pipeline.
+
+---
+
+## Speculative novel research directions (not yet evaluated)
+
+These are ideas for genuinely novel methods that *might* be worth
+exploring if we want a publishable contribution. Each is generated
+speculatively — novelty is NOT verified against the full literature.
+Stress-test each before committing engineering effort.
+
+### A. Mode-Token-Gated LoRA
+
+Add `<MODE:SAAS>`, `<MODE:MSA>`, `<MODE:NDA>` etc. as special tokens to
+the vocabulary during a short v4 fine-tune. At inference, force the
+model to emit the mode token first (grammar-constrained). The mode
+token gates which LoRA sub-adapter activates. Attacks contract-type
+blur at the weight level, not the prompt level.
+
+**Prior art risk:** LoRA MoE routing (LoRA-Switch, LoraHub) and
+conditional-computation via prompt tokens both exist. The *legal-
+specific framing with mode-token-gated drafting sub-adapters* may be
+new, but the underlying architecture probably isn't truly novel.
+
+**Next step if pursued:** literature search for "mode-conditioned
+LoRA" + "special-token-gated adapter routing" + "contract-type
+conditional generation".
+
+### B. Contrastive Decoding for Memorization Scrubbing
+
+At each generation step, run two inferences in parallel:
+- Model A = fine-tuned (v3 adapter + base)
+- Model B = base model without the adapter
+For each token, if A's top candidate is in a denylist (Ontario,
+Acme, Mahindra, $5M) AND A's distribution diverges from B's by
+threshold τ, use B's distribution instead. Keeps adapter's learned
+legal knowledge; blocks specifically memorized tokens.
+
+**Prior art risk:** Contrastive decoding (Li et al. 2023) is an
+established technique for hallucination reduction. Applying it
+specifically to memorization mitigation in fine-tuned models may
+or may not be published — would need a targeted search.
+
+**Next step if pursued:** literature survey for "contrastive
+decoding memorization" + "fine-tuning unlearning via decoding" +
+"PII leakage mitigation inference-time".
+
+### C. Dynamic Grammar Composition from Structure Metadata
+
+Compose vLLM's `guided_grammar` dynamically at inference: the
+TerminologyManifest + article plan + expected sub-clause counts
+feed a grammar generator that outputs a CFG specific to THIS
+draft. Article 2 with 3 sub-clauses gets a grammar forcing the
+pattern `2\.1 ... 2\.2 ... 2\.3` in order. Cross-article content
+bleed becomes structurally impossible, not just QA-flagged after
+the fact.
+
+**Prior art risk:** Grammar-constrained generation (XGrammar,
+Guidance, Outlines) is well-known. Dynamic per-document grammar
+synthesis from structured metadata — I don't know of a published
+paper on this specifically for legal drafting, but careful
+literature search is needed. Closest published work is probably
+"Parsel" (Zelikman et al. 2023) which does code generation with
+dynamic grammars.
+
+**Next step if pursued:** literature survey for "dynamic grammar
+constrained decoding" + "schema-driven generation" + "document-
+structure-aware decoding".
+
+### Honest assessment of these
+
+None of these are guaranteed novel. "Generate a candidate" is cheap;
+"verify it's novel and shows it works" is hard. The path from any of
+A/B/C to a publishable paper:
+
+1. Thorough literature survey against the specific framing
+2. Prototype implementation (A probably needs a new fine-tune; B/C
+   are inference-time and cheaper)
+3. Design experiments comparing against our existing baseline +
+   published alternatives
+4. Run on a proper held-out eval (100+ drafting prompts)
+5. Ablation study + error analysis
+6. Write up with reproducibility
+
+Weeks to months of work each. The lowest-risk research publication
+path is still the *taxonomy + eval harness + systematic ablation*
+approach, not inventing new methods.
+
+---
+
 ## Sources
 
 - [Harvey: Introducing Agents](https://www.harvey.ai/blog/introducing-harvey-agents)
