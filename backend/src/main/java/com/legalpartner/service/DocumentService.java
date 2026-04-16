@@ -44,6 +44,7 @@ public class DocumentService {
     private final FileStorageService fileStorageService;
     private final ContextualRetrievalService contextualRetrieval;
     private final AnonymizationService anonymizationService;
+    private final DynamicEntityDenylistService dynamicDenylist;
 
     private final Tika tika = new Tika();
 
@@ -288,6 +289,13 @@ public class DocumentService {
 
             log.info("Document {} indexed: {} segments", doc.getFileName(), chunks.size());
             eventPublisher.publishEvent(new DocumentIndexedEvent(doc.getId(), doc.getUploadedBy(), doc.getFileName()));
+
+            // Refresh the dynamic entity denylist — this doc's real entities
+            // are now stored in its anonymization map and should be blocked
+            // from appearing in other matters' drafts.
+            if (doc.isAnonymized()) {
+                dynamicDenylist.refreshNow();
+            }
 
             // Trigger Deal Intelligence Agent if document is linked to a matter
             if (doc.getMatter() != null) {

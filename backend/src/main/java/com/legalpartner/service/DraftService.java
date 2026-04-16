@@ -59,6 +59,7 @@ public class DraftService {
     private final ClauseTypeRegistry clauseRegistry;
     private final ContractTypeRegistry contractRegistry;
     private final DenylistRegistry denylistRegistry;
+    private final DynamicEntityDenylistService dynamicDenylist;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -74,6 +75,7 @@ public class DraftService {
                         ClauseTypeRegistry clauseRegistry,
                         ContractTypeRegistry contractRegistry,
                         DenylistRegistry denylistRegistry,
+                        DynamicEntityDenylistService dynamicDenylist,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
@@ -86,6 +88,7 @@ public class DraftService {
         this.clauseRegistry = clauseRegistry;
         this.contractRegistry = contractRegistry;
         this.denylistRegistry = denylistRegistry;
+        this.dynamicDenylist = dynamicDenylist;
         this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
@@ -1154,8 +1157,15 @@ public class DraftService {
         //    These tokens should only appear in output if the user specifically
         //    requested them — which the QA layer can't verify, so we flag all
         //    occurrences and let the retry clean them up.
+        // Combined denylist = static seed (training-known leaks from YAML) +
+        // dynamic firm-wide (entities auto-extracted from anonymization maps
+        // of every uploaded precedent). The dynamic layer grows as the firm
+        // uploads more docs; if their Client A's name was ever in a precedent,
+        // it's on the list and won't be allowed to appear in Client B's draft.
         List<String> memorizedHits = new ArrayList<>();
-        for (String entity : denylistRegistry.all()) {
+        Set<String> combined = new java.util.LinkedHashSet<>(denylistRegistry.all());
+        combined.addAll(dynamicDenylist.all());
+        for (String entity : combined) {
             java.util.regex.Matcher em = java.util.regex.Pattern
                     .compile("\\b" + java.util.regex.Pattern.quote(entity) + "\\b",
                              java.util.regex.Pattern.CASE_INSENSITIVE)
