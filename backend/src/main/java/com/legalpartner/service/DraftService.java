@@ -1147,6 +1147,29 @@ public class DraftService {
                     idx, genericArtifact.group());
             t = t.substring(0, idx);
         }
+        // RAG chunk headers that the model copied verbatim from the context block.
+        // Two forms: "Source: some-file.pdf" and "[Source 10: filename | SECTION | ...".
+        java.util.regex.Matcher ragHeader = java.util.regex.Pattern
+                .compile("\\[Source\\s+\\d+:\\s*[^\\]]*(?:\\]|$)|Source:\\s*\\S+\\.(?:pdf|docx|htm[l]?|txt)",
+                        java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(t);
+        if (ragHeader.find()) {
+            int idx = ragHeader.start();
+            log.warn("Draft sanitizer: RAG chunk header '{}' leaked at offset {}, truncating",
+                    ragHeader.group(), idx);
+            t = t.substring(0, idx);
+        }
+        // Pipe-delimited metadata the model copied from the RAG block
+        // (e.g. "...Statement of Work | OTHER | ]..."). Rare in natural legal prose.
+        java.util.regex.Matcher pipeMeta = java.util.regex.Pattern
+                .compile("\\s\\|\\s+(?:OTHER|NDA|MSA|SAAS|EMPLOYMENT|VENDOR|USA|INDIA|UK)\\s+\\|")
+                .matcher(t);
+        if (pipeMeta.find()) {
+            int idx = pipeMeta.start();
+            log.warn("Draft sanitizer: pipe-delimited RAG metadata '{}' leaked, truncating",
+                    pipeMeta.group().trim());
+            t = t.substring(0, idx);
+        }
 
         // 1. Strip instruction tokens
         // Mistral/Llama: [INST], [/INST], <<SYS>>, <s>, </s>

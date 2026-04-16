@@ -20,7 +20,8 @@ export default function DocumentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [showCloudImport, setShowCloudImport] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
-  const [meta, setMeta] = useState({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '', industry: '' });
+  // documentType starts empty — user MUST pick one. Untagged docs pollute RAG retrieval.
+  const [meta, setMeta] = useState({ jurisdiction: '', year: '', confidential: false, documentType: '', practiceArea: 'OTHER', clientName: '', matterId: '', industry: '' });
 
   const fetchDocs = () => api.get('/documents?size=50&sort=uploadDate,desc').then(r => setDocs(r.data.content || [])).catch(() => {});
   useEffect(() => {
@@ -50,7 +51,7 @@ export default function DocumentsPage() {
     try {
       await api.post('/documents/upload', fd, { headers: { 'Content-Type': undefined } });
       setShowForm(false); setSelectedFile(null);
-      setMeta({ jurisdiction: '', year: '', confidential: false, documentType: 'OTHER', practiceArea: 'OTHER', clientName: '', matterId: '', industry: '' });
+      setMeta({ jurisdiction: '', year: '', confidential: false, documentType: '', practiceArea: 'OTHER', clientName: '', matterId: '', industry: '' });
       fetchDocs();
     } catch (e) {
       const msg = e.response?.data?.message || e.response?.data?.error || e.message || 'Upload failed';
@@ -89,8 +90,9 @@ export default function DocumentsPage() {
         <div className="card mb-6">
           <h3 className="font-semibold mb-4">Document Metadata — {selectedFile.name}</h3>
           <div className="grid grid-cols-2 gap-4">
-            <select value={meta.documentType} onChange={e => setMeta({ ...meta, documentType: e.target.value })} className="input-field text-sm">
-              {['NDA', 'MSA', 'SOW', 'EMPLOYMENT', 'LEASE', 'MOU', 'NOTICE', 'PETITION', 'VENDOR', 'LOAN', 'OTHER'].map(t => <option key={t} value={t}>{t}</option>)}
+            <select required value={meta.documentType} onChange={e => setMeta({ ...meta, documentType: e.target.value })} className={`input-field text-sm ${meta.documentType ? '' : 'ring-1 ring-warning'}`}>
+              <option value="">Contract type * (required)</option>
+              {['NDA', 'MSA', 'SAAS', 'IP_LICENSE', 'SOW', 'EMPLOYMENT', 'LEASE', 'MOU', 'NOTICE', 'PETITION', 'VENDOR', 'LOAN', 'SUPPLY', 'OTHER'].map(t => <option key={t} value={t}>{t}</option>)}
             </select>
             <select value={meta.practiceArea} onChange={e => setMeta({ ...meta, practiceArea: e.target.value })} className="input-field text-sm">
               {['CORPORATE', 'LITIGATION', 'IP', 'TAX', 'REAL_ESTATE', 'LABOR', 'BANKING', 'REGULATORY', 'OTHER'].map(p => <option key={p} value={p}>{p}</option>)}
@@ -116,7 +118,8 @@ export default function DocumentsPage() {
           </div>
           <div className="flex justify-end gap-3 mt-4">
             <button onClick={() => { setShowForm(false); setSelectedFile(null); }} className="btn-secondary text-sm">Cancel</button>
-            <button onClick={handleUpload} disabled={uploading} className="btn-primary text-sm flex items-center gap-2">
+            <button onClick={handleUpload} disabled={uploading || !meta.documentType} className="btn-primary text-sm flex items-center gap-2"
+                    title={!meta.documentType ? 'Pick a contract type first' : ''}>
               {uploading && <Loader className="w-4 h-4 animate-spin" />}
               {uploading ? 'Uploading...' : 'Upload & Index'}
             </button>

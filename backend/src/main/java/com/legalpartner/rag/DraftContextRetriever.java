@@ -179,9 +179,10 @@ public class DraftContextRetriever {
             String clauseType
     ) {
         String targetDocType = mapTemplateToDocumentType(request.getTemplateId());
+        String targetMatterId = (request.getMatterId() != null && !request.getMatterId().isBlank())
+                ? request.getMatterId() : null;
         String targetJurisdiction = (request.getJurisdiction() == null || request.getJurisdiction().isBlank())
                 ? "India" : request.getJurisdiction();
-        String targetPracticeArea = request.getPracticeArea();
         String targetIndustry = request.getIndustry();
 
         Set<String> acceptableClauseTypes = getAcceptableClauseTypes(clauseType);
@@ -194,36 +195,39 @@ public class DraftContextRetriever {
                     if ("EDGAR".equalsIgnoreCase(source)) return false;
 
                     String docType = m.embedded().metadata().getString("document_type");
+                    String matterId = m.embedded().metadata().getString("matter_id");
                     String jurisdiction = m.embedded().metadata().getString("jurisdiction");
                     String chunkClauseType = m.embedded().metadata().getString("clause_type");
-                    String practiceArea = m.embedded().metadata().getString("practice_area");
                     String industry = m.embedded().metadata().getString("industry");
 
-                    boolean docTypeMatch = docType == null || targetDocType == null
-                            || docType.equalsIgnoreCase(targetDocType)
-                            || isRelatedDocType(docType, targetDocType);
+                    // ── Scoping rule: precedent must share context with the draft ──
+                    // If the draft has a matter, the chunk must come from that matter OR
+                    // match the target contract type. If no matter, the chunk MUST match
+                    // the target contract type. Untagged chunks are excluded in both cases.
+                    boolean matterMatch = targetMatterId != null && targetMatterId.equals(matterId);
+                    boolean docTypeMatch = targetDocType != null && targetDocType.equalsIgnoreCase(docType);
+                    if (!matterMatch && !docTypeMatch) return false;
+
+                    // ── Soft constraints (applied on top of the hard scoping above) ──
                     boolean jurisdictionMatch = jurisdiction == null || jurisdiction.isBlank()
-                            || targetJurisdiction.equalsIgnoreCase(jurisdiction)
-                            || jurisdiction.toLowerCase().contains("india");
+                            || targetJurisdiction.equalsIgnoreCase(jurisdiction);
                     boolean clauseMatch = chunkClauseType == null || chunkClauseType.isBlank()
                             || acceptableClauseTypes.contains(chunkClauseType.toUpperCase());
-                    // Practice area: soft match — prefer matching, but don't exclude nulls
-                    boolean practiceAreaMatch = practiceArea == null || practiceArea.isBlank()
-                            || targetPracticeArea == null || targetPracticeArea.isBlank()
-                            || practiceArea.equalsIgnoreCase(targetPracticeArea);
-                    // Industry: soft match — null on either side = wildcard
                     boolean industryMatch = industry == null || industry.isBlank()
                             || targetIndustry == null || targetIndustry.isBlank()
                             || targetIndustry.equalsIgnoreCase("GENERAL")
                             || industry.equalsIgnoreCase(targetIndustry);
 
-                    return docTypeMatch && jurisdictionMatch && clauseMatch && practiceAreaMatch && industryMatch;
+                    return jurisdictionMatch && clauseMatch && industryMatch;
                 })
                 .toList();
 
-        if (filtered.size() < 3) {
-            log.debug("Few metadata-filtered matches ({}), falling back to top candidates", filtered.size());
-            return candidates.stream().limit(candidateCount).toList();
+        // Strict: no permissive fallback. Empty RAG is better than poisoned RAG
+        // — the primary cause of garbage drafts was MSA/NDA precedents bleeding
+        // into SaaS drafts because the old fallback returned all candidates.
+        if (filtered.isEmpty()) {
+            log.info("No metadata-scoped precedents for clause={} template={} matter={} — drafting without RAG",
+                    clauseType, request.getTemplateId(), targetMatterId);
         }
         return filtered;
     }
@@ -332,11 +336,20 @@ public class DraftContextRetriever {
         return (docId != null ? docId : "") + ":" + (idx != null ? idx : "");
     }
 
+    /**
+     * Map a drafting template id (what the user is authoring) to the uploaded
+     * DocumentType tag (what precedents we should retrieve). Strict: templates
+     * without a mapping get NO retrieval — better empty than wrong.
+     */
     private String mapTemplateToDocumentType(String templateId) {
         if (templateId == null) return null;
         return switch (templateId.toLowerCase()) {
             case "nda" -> "NDA";
             case "msa" -> "MSA";
+            case "saas", "fintech_msa", "clinical_services" -> "SAAS";
+            case "employment" -> "EMPLOYMENT";
+            case "supply" -> "SUPPLY";
+            case "software_license", "ip_license" -> "IP_LICENSE";
             default -> null;
         };
     }

@@ -146,6 +146,16 @@ public class DocumentService {
             String documentType, String practiceArea, String clientName, String matterId,
             String industry, String username, String source
     ) {
+        // documentType is required. Untagged precedents pollute RAG retrieval —
+        // with no contract type, they match no scoping rule and shouldn't be ingested.
+        // Exception: EDGAR corpus imports (handled separately) may skip this validation.
+        boolean isSystemImport = source != null && !"USER".equalsIgnoreCase(source);
+        if (!isSystemImport && (documentType == null || documentType.isBlank())) {
+            throw new IllegalArgumentException(
+                "Document type is required — pick NDA, MSA, SAAS, EMPLOYMENT, etc. " +
+                "Untagged precedents can't be scoped for RAG retrieval.");
+        }
+
         DocumentMetadata doc = DocumentMetadata.builder()
                 .fileName(fileName)
                 .contentType(contentType)
@@ -189,6 +199,10 @@ public class DocumentService {
             if (doc.getPracticeArea() != null) docMeta.put("practice_area", doc.getPracticeArea().name());
             if (doc.getIndustry() != null) docMeta.put("industry", doc.getIndustry());
             if (doc.getClientName() != null) docMeta.put("client_name", doc.getClientName());
+            // matter_id enables matter-scoped RAG retrieval — only pull precedents from
+            // the same matter when drafting within that matter.
+            if (doc.getMatter() != null) docMeta.put("matter_id", doc.getMatter().getId().toString());
+            else if (doc.getMatterId() != null && !doc.getMatterId().isBlank()) docMeta.put("matter_id", doc.getMatterId());
 
             List<LegalChunk> chunks = chunker.chunk(text, docMeta);
 
