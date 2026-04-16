@@ -279,6 +279,27 @@ public class AiController {
         return aiService.extractKeyTerms(docId, auth.getName());
     }
 
+    /**
+     * AI summary of a document — returns cached result if present, otherwise
+     * generates on demand. Pass ?regenerate=true to force a fresh run.
+     */
+    @PostMapping("/summarize/{docId}")
+    public java.util.Map<String, Object> summarize(
+            @PathVariable UUID docId,
+            @RequestParam(value = "regenerate", defaultValue = "false") boolean regenerate,
+            Authentication auth) {
+        return aiService.summarizeDocument(docId, auth.getName(), regenerate);
+    }
+
+    /** Contract-scoped Q&A — answer grounded in the selected document only. */
+    @PostMapping("/ask/{docId}")
+    public java.util.Map<String, Object> askContract(
+            @PathVariable UUID docId,
+            @RequestBody java.util.Map<String, String> body,
+            Authentication auth) {
+        return aiService.askContract(docId, body != null ? body.get("question") : null, auth.getName());
+    }
+
     @PostMapping("/refine-clause")
     public RefineClauseResponse refineClause(@Valid @RequestBody RefineClauseRequest request, Authentication auth) {
         return aiService.refineClause(request, auth.getName());
