@@ -534,9 +534,10 @@ public class AiService {
                 "\n\nOutput one CATEGORY|RATING|JUSTIFICATION|REFERENCE line per clause analyzed.";
 
         try {
-            String response = shortChatModel.generate(
-                    UserMessage.from(systemPrompt + "\n\n" + userPrompt)
-            ).content().text();
+            String response = ChatRetry.generate(
+                    () -> shortChatModel.generate(UserMessage.from(systemPrompt + "\n\n" + userPrompt)).content(),
+                    "risk-batch"
+            ).text();
 
             return parseBatchRiskResponse(response);
         } catch (Exception e) {
@@ -674,7 +675,9 @@ public class AiService {
 
         String prompt = legalSystemConfig.localize(PromptTemplates.DOCUMENT_SUMMARY_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.DOCUMENT_SUMMARY_USER, capped);
-        AiMessage response = shortChatModel.generate(UserMessage.from(prompt)).content();
+        AiMessage response = ChatRetry.generate(
+                () -> shortChatModel.generate(UserMessage.from(prompt)).content(),
+                "summarize");
         String summary = response.text().trim();
 
         doc.setSummaryText(summary);
@@ -706,7 +709,9 @@ public class AiService {
 
         String prompt = legalSystemConfig.localize(PromptTemplates.ASK_CONTRACT_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.ASK_CONTRACT_USER, question, capped);
-        AiMessage response = shortChatModel.generate(UserMessage.from(prompt)).content();
+        AiMessage response = ChatRetry.generate(
+                () -> shortChatModel.generate(UserMessage.from(prompt)).content(),
+                "ask");
 
         return java.util.Map.of("answer", response.text().trim());
     }
@@ -1054,9 +1059,11 @@ public class AiService {
                 request.justification() != null ? request.justification() : "No initial justification.",
                 request.sectionRef() != null && !request.sectionRef().isBlank() ? request.sectionRef() : "Not found");
 
-        AiMessage response = shortChatModel.generate(
-                UserMessage.from(legalSystemConfig.localize(PromptTemplates.RISK_DRILLDOWN_SYSTEM) + "\n\n" + prompt)
-        ).content();
+        AiMessage response = ChatRetry.generate(
+                () -> shortChatModel.generate(
+                        UserMessage.from(legalSystemConfig.localize(PromptTemplates.RISK_DRILLDOWN_SYSTEM) + "\n\n" + prompt)
+                ).content(),
+                "risk-drilldown");
 
         return parseDrilldownResponse(request.categoryName(), request.rating(), response.text());
     }

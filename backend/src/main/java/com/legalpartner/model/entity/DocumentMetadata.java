@@ -145,4 +145,8 @@ public class DocumentMetadata {
 
     @Column(name = "summary_generated_at")
     private Instant summaryGeneratedAt;
+
+    /** Per-clause HTML for async drafts, JSON-encoded. Enables resume from the first incomplete clause. */
+    @Column(name = "section_values_json", columnDefinition = "TEXT")
+    private String sectionValuesJson;
 }

@@ -187,6 +187,16 @@ public class DraftService {
      */
     @Async
     public void generateDraftAsync(UUID docId, DraftRequest request, String username) {
+        generateDraftAsyncInternal(docId, request, username, false);
+    }
+
+    /** Resume a failed/interrupted async draft — skips clauses already in section_values_json. */
+    @Async
+    public void resumeDraftAsync(UUID docId, DraftRequest request, String username) {
+        generateDraftAsyncInternal(docId, request, username, true);
+    }
+
+    private void generateDraftAsyncInternal(UUID docId, DraftRequest request, String username, boolean resume) {
         try {
             draftSemaphore.acquire();
         } catch (InterruptedException e) {
@@ -195,7 +205,7 @@ public class DraftService {
             return;
         }
         try {
-            doAsyncDraft(docId, request, username);
+            doAsyncDraft(docId, request, username, resume);
         } catch (Exception e) {
             log.error("Async draft {} failed", docId, e);
             markDraftFailed(docId, truncate(e.getMessage() != null ? e.getMessage() : "Generation failed", 500));
@@ -204,16 +214,17 @@ public class DraftService {
         }
     }
 
-    private void doAsyncDraft(UUID docId, DraftRequest request, String username) throws Exception {
+    private void doAsyncDraft(UUID docId, DraftRequest request, String username, boolean resume) throws Exception {
         hydrateFromMatter(request);
 
         DocumentMetadata doc = documentRepository.findById(docId)
                 .orElseThrow(() -> new IllegalStateException("Async draft row " + docId + " vanished"));
 
-        // ── Phase 0: move PENDING → PROCESSING ──
+        // ── Phase 0: move PENDING/FAILED → PROCESSING ──
         doc.setProcessingStatus(ProcessingStatus.PROCESSING);
+        doc.setErrorMessage(null);
         doc.setLastProgressAt(Instant.now());
-        doc.setCurrentClauseLabel("Planning sections");
+        doc.setCurrentClauseLabel(resume ? "Resuming from last completed clause" : "Planning sections");
         doc = documentRepository.save(doc);
 
         // ── Phase 1: plan sections ──
@@ -221,25 +232,49 @@ public class DraftService {
         List<String> plannedSections = planSections(request);
         log.info("Async draft {} section planner chose {} sections: {}", docId, plannedSections.size(), plannedSections);
 
+        // On resume, hydrate sectionValues from the stored JSON so we skip completed clauses.
         Map<String, String> sectionValues = new LinkedHashMap<>();
+        Map<String, String> completedFromDisk = resume ? deserializeSectionValues(doc.getSectionValuesJson()) : Map.of();
         for (String key : plannedSections) {
-            ClauseSpec spec = CLAUSE_SPECS.get(key);
-            sectionValues.put(key, "<em style='color:#9CA3AF'>&#x23F3; Generating " + spec.title() + " clause…</em>");
+            if (completedFromDisk.containsKey(key)) {
+                sectionValues.put(key, completedFromDisk.get(key));
+            } else {
+                ClauseSpec spec = CLAUSE_SPECS.get(key);
+                sectionValues.put(key, "<em style='color:#9CA3AF'>&#x23F3; Generating " + spec.title() + " clause…</em>");
+            }
         }
-        // Persist initial skeleton + totals
+        int alreadyDone = (int) plannedSections.stream().filter(completedFromDisk::containsKey).count();
+        if (resume) {
+            log.info("Async draft {} resuming — {}/{} clauses already on disk", docId, alreadyDone, plannedSections.size());
+        }
+
         doc.setTotalClauses(plannedSections.size());
-        doc.setCompletedClauses(0);
+        doc.setCompletedClauses(alreadyDone);
         doc.setLastProgressAt(Instant.now());
         storeHtml(doc, buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
         doc = documentRepository.save(doc);
 
-        // ── Phase 2: generate each section ──
+        // ── Phase 2: generate each section (skipping ones already done on resume) ──
         TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
+        // Re-seed manifest from already-done clauses so style/outlines/defined-terms carry over
+        for (int i = 0; i < plannedSections.size(); i++) {
+            String key = plannedSections.get(i);
+            if (!completedFromDisk.containsKey(key)) continue;
+            String html = completedFromDisk.get(key);
+            ClauseSpec spec = CLAUSE_SPECS.get(key);
+            if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(html));
+            manifest = manifest.withAppendedClause(
+                    summarizeClauseOutline(i + 1, spec.title(), html),
+                    stripToPlainWithCap(html, 1500));
+        }
+
         Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
 
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
             ClauseSpec spec = CLAUSE_SPECS.get(key);
+
+            if (completedFromDisk.containsKey(key)) continue;  // already done in a previous run
 
             doc.setCurrentClauseLabel(spec.title());
             doc.setLastProgressAt(Instant.now());
@@ -256,9 +291,13 @@ public class DraftService {
                     stripToPlainWithCap(result.html(), 1500));
             if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
 
-            // Persist partial HTML + progress after each clause
-            doc.setCompletedClauses(i + 1);
+            // Persist partial HTML, section map, and progress after each clause.
+            int done = (int) plannedSections.stream()
+                    .filter(k -> sectionValues.containsKey(k) && !sectionValues.get(k).startsWith("<em"))
+                    .count();
+            doc.setCompletedClauses(done);
             doc.setLastProgressAt(Instant.now());
+            doc.setSectionValuesJson(serializeSectionValues(sectionValues, plannedSections));
             storeHtml(doc, buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
             doc = documentRepository.save(doc);
         }
@@ -271,6 +310,27 @@ public class DraftService {
         documentRepository.save(doc);
         log.info("Async draft {} completed ({} clauses, {} qa warnings)",
                  docId, plannedSections.size(), allQaWarnings.size());
+    }
+
+    /** Serialize only the completed (non-placeholder) sections as a JSON map. */
+    private String serializeSectionValues(Map<String, String> sectionValues, List<String> plannedSections) {
+        Map<String, String> completed = new LinkedHashMap<>();
+        for (String key : plannedSections) {
+            String html = sectionValues.get(key);
+            if (html != null && !html.startsWith("<em")) completed.put(key, html);
+        }
+        try { return objectMapper.writeValueAsString(completed); }
+        catch (Exception e) { log.warn("section_values JSON serialize failed: {}", e.getMessage()); return null; }
+    }
+
+    private Map<String, String> deserializeSectionValues(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, String>>() {});
+        } catch (Exception e) {
+            log.warn("section_values JSON deserialize failed: {}", e.getMessage());
+            return Map.of();
+        }
     }
 
     private void storeHtml(DocumentMetadata doc, String html) {
