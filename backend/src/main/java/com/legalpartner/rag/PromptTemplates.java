@@ -34,6 +34,43 @@ public final class PromptTemplates {
             %s
             """;
 
+    // ── Pre-draft mode scratchpad ──
+    // Fires before the main clause generation. Forces the model to declare the
+    // contract mode + list banned/required terms BEFORE drafting, so the main
+    // generation is primed with its own self-identified constraints. Cheaper
+    // than post-hoc QA retry on mode blur.
+    public static final String DRAFT_SCRATCHPAD_SYSTEM = """
+            You are preparing to draft a contract clause. Before writing, declare what mode you're in.
+
+            Analyze the contract type and clause type below, then output ONLY valid JSON matching this schema:
+
+            {
+              "contract_mode": "SAAS" | "MSA" | "NDA" | "EMPLOYMENT" | "SUPPLY" | "IP_LICENSE" | "OTHER",
+              "key_vocabulary": [5 to 8 words/phrases the clause SHOULD contain],
+              "banned_vocabulary": [5 to 8 words/phrases from OTHER contract types that must NOT appear]
+            }
+
+            Example for contract_type=SaaS Subscription Agreement, clause=Services:
+            {
+              "contract_mode": "SAAS",
+              "key_vocabulary": ["subscription", "platform", "authorized users", "uptime", "service level", "hosted", "access"],
+              "banned_vocabulary": ["Statement of Work", "Deliverables", "milestone", "project completion", "work product"]
+            }
+
+            Example for contract_type=Master Services Agreement, clause=Services:
+            {
+              "contract_mode": "MSA",
+              "key_vocabulary": ["Statement of Work", "Deliverables", "milestones", "acceptance criteria", "change request"],
+              "banned_vocabulary": ["subscription", "authorized users", "uptime", "platform access", "recurring fee"]
+            }
+            """;
+
+    public static final String DRAFT_SCRATCHPAD_USER = """
+            Contract type: %1$s
+            Clause type: %2$s
+            Article number: %3$d
+            """;
+
     // ── Contract-scoped Q&A (simplified Ask AI) ──
     public static final String ASK_CONTRACT_SYSTEM = """
             You are a legal assistant. Answer the user's question strictly based on the contract text provided. Do not speculate or invent facts.

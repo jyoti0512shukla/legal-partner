@@ -42,6 +42,7 @@ public class DocumentService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final ApplicationEventPublisher eventPublisher;
     private final FileStorageService fileStorageService;
+    private final ContextualRetrievalService contextualRetrieval;
 
     private final Tika tika = new Tika();
 
@@ -177,6 +178,25 @@ public class DocumentService {
         return doc;
     }
 
+    /**
+     * Short document-level summary used by Contextual Retrieval to situate each
+     * chunk during embedding. We don't call the LLM here — the first paragraph
+     * of the doc + its metadata tags give enough context for the chunk-level LLM
+     * call to produce a useful prefix.
+     */
+    private String buildDocumentSummary(DocumentMetadata doc, String fullText) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(doc.getFileName() != null ? doc.getFileName() : "Document");
+        if (doc.getDocumentType() != null) sb.append(" | type=").append(doc.getDocumentType().name());
+        if (doc.getJurisdiction() != null) sb.append(" | jurisdiction=").append(doc.getJurisdiction());
+        if (doc.getIndustry() != null) sb.append(" | industry=").append(doc.getIndustry());
+        if (fullText != null && !fullText.isBlank()) {
+            sb.append("\n\n");
+            sb.append(fullText.length() > 1500 ? fullText.substring(0, 1500) + "..." : fullText);
+        }
+        return sb.toString();
+    }
+
     @Async
     public void processDocumentAsync(UUID docId, byte[] fileBytes) {
         DocumentMetadata doc = repository.findById(docId).orElseThrow();
@@ -209,14 +229,28 @@ public class DocumentService {
             List<TextSegment> segments = new ArrayList<>();
             List<Embedding> embeddings = new ArrayList<>();
 
+            // Document-level summary to prepend to each chunk during embedding.
+            // Contextual Retrieval (Anthropic technique) — improves retrieval recall
+            // by ~49-67% vs plain chunk embedding. Pay one LLM call per chunk at
+            // ingest; free at query time.
+            String docSummary = buildDocumentSummary(doc, text);
+
             for (LegalChunk chunk : chunks) {
-                String chunkText = chunk.text();
-                if (chunkText.length() > 400) chunkText = chunkText.substring(0, 400); // all-minilm 256 token limit
-                String encrypted = encryptionService.encrypt(chunk.text());
+                // Generate a contextualized version for embedding, but keep the raw
+                // chunk text for storage/display (we decrypt and show the raw text to
+                // the user; the context prefix is only for retrieval quality).
+                String rawChunkText = chunk.text();
+                String contextualText = contextualRetrieval.contextualise(docSummary, rawChunkText);
+                // all-minilm caps at ~256 tokens; truncate the contextualized text to fit
+                String embedText = contextualText.length() > 500
+                        ? contextualText.substring(0, 500)
+                        : contextualText;
+
+                String encrypted = encryptionService.encrypt(rawChunkText);
                 TextSegment segment = TextSegment.from(encrypted, Metadata.from(chunk.metadata()));
                 segments.add(segment);
 
-                Embedding embedding = embeddingModel.embed(chunkText).content();
+                Embedding embedding = embeddingModel.embed(embedText).content();
                 embeddings.add(embedding);
             }
 

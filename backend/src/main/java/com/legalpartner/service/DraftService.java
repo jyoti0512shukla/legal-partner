@@ -43,6 +43,8 @@ public class DraftService {
     private final TemplateService templateService;
     private final DraftContextRetriever draftContextRetriever;
     private final ChatLanguageModel chatModel;
+    /** JSON-mode model — used for the pre-draft scratchpad (guided JSON). */
+    private final ChatLanguageModel jsonChatModel;
     private final Semaphore draftSemaphore;
     private final LegalSystemConfig legalSystemConfig;
     private final MatterRepository matterRepository;
@@ -53,6 +55,8 @@ public class DraftService {
     public DraftService(TemplateService templateService,
                         DraftContextRetriever draftContextRetriever,
                         ChatLanguageModel chatModel,
+                        @org.springframework.beans.factory.annotation.Qualifier("jsonChatModel")
+                        ChatLanguageModel jsonChatModel,
                         LegalSystemConfig legalSystemConfig,
                         MatterRepository matterRepository,
                         DocumentMetadataRepository documentRepository,
@@ -61,6 +65,7 @@ public class DraftService {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
         this.chatModel = chatModel;
+        this.jsonChatModel = jsonChatModel;
         this.legalSystemConfig = legalSystemConfig;
         this.matterRepository = matterRepository;
         this.documentRepository = documentRepository;
@@ -656,6 +661,61 @@ public class DraftService {
         return plain.length() <= maxChars ? plain : plain.substring(0, maxChars) + "\u2026";
     }
 
+    /**
+     * Pre-draft mode scratchpad. Asks the jsonChatModel to self-declare the
+     * contract mode + list 5-8 banned vocab terms + 5-8 required vocab terms
+     * for the current (contract_type, clause_type) combination. The output is
+     * injected verbatim into the main clause generation prompt so the model
+     * commits to a mode before drafting.
+     *
+     * Cheap (small model, short output, ~500ms). Graceful-degrades to empty
+     * string on any failure — drafting proceeds without the scratchpad rather
+     * than erroring out.
+     */
+    private String buildScratchpadConstraint(String contractType, String clauseKey, int articleIndex) {
+        try {
+            String prompt = legalSystemConfig.localize(PromptTemplates.DRAFT_SCRATCHPAD_SYSTEM)
+                    + "\n\n"
+                    + String.format(PromptTemplates.DRAFT_SCRATCHPAD_USER, contractType, clauseKey, articleIndex);
+            dev.langchain4j.data.message.AiMessage response = jsonChatModel.generate(
+                    dev.langchain4j.data.message.UserMessage.from(prompt)
+            ).content();
+            String text = response.text().trim();
+            // Extract JSON object from response (model may add surrounding text)
+            int start = text.indexOf('{');
+            int end = text.lastIndexOf('}');
+            if (start < 0 || end <= start) {
+                log.debug("Scratchpad [{}]: no JSON object in response, skipping", clauseKey);
+                return "";
+            }
+            String json = text.substring(start, end + 1);
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
+            String mode = node.path("contract_mode").asText("");
+            List<String> keyVocab = new ArrayList<>();
+            node.path("key_vocabulary").forEach(v -> keyVocab.add(v.asText()));
+            List<String> bannedVocab = new ArrayList<>();
+            node.path("banned_vocabulary").forEach(v -> bannedVocab.add(v.asText()));
+            if (mode.isBlank() && keyVocab.isEmpty() && bannedVocab.isEmpty()) return "";
+
+            StringBuilder sb = new StringBuilder("\n\nMODE SCRATCHPAD (self-identified before drafting):\n");
+            if (!mode.isBlank()) sb.append("- Contract mode: ").append(mode).append("\n");
+            if (!keyVocab.isEmpty()) {
+                sb.append("- Use these terms naturally in your clause: ")
+                  .append(String.join(", ", keyVocab)).append("\n");
+            }
+            if (!bannedVocab.isEmpty()) {
+                sb.append("- These terms belong to a DIFFERENT contract type and must not appear: ")
+                  .append(String.join(", ", bannedVocab)).append("\n");
+            }
+            log.info("Scratchpad [{}/{}]: mode={}, {} key + {} banned terms",
+                    clauseKey, articleIndex, mode, keyVocab.size(), bannedVocab.size());
+            return sb.toString();
+        } catch (Exception e) {
+            log.debug("Scratchpad [{}]: failed ({}), proceeding without", clauseKey, e.getMessage());
+            return "";
+        }
+    }
+
     private String buildManifestConstraint(TerminologyManifest manifest) {
         StringBuilder sb = new StringBuilder(
                 "\n\nTERMINOLOGY MANDATE \u2014 non-negotiable:\n" +
@@ -700,6 +760,11 @@ public class DraftService {
             log.info("Draft context: {} chunks from {} sources", ctx.chunkCount(), ctx.sourceDocuments().size());
         }
 
+        // Pre-draft mode scratchpad — model self-declares contract mode + banned/
+        // required vocabulary BEFORE drafting. Cheapest fix for the SaaS→MSA mode
+        // blur. Graceful-degrades to empty string on failure.
+        int articleIndex = (manifest != null) ? manifest.sectionOutlines().size() + 1 : 1;
+        String scratchpadConstraint = buildScratchpadConstraint(contractType, clauseKey, articleIndex);
         String manifestConstraint = (manifest != null) ? buildManifestConstraint(manifest) : "";
         String ragGrounding = ctx.chunkCount() > 0
                 ? "\n\nRAG PRECEDENT — reference only, NOT text to copy:\n" +
@@ -719,6 +784,7 @@ public class DraftService {
         String fullSystemAndInitial = PromptTemplates.DRAFT_CONTENT_GUARDRAILS
                 + manifestConstraint
                 + ragGrounding
+                + scratchpadConstraint
                 + "\n\n" + localizedSystemPrompt
                 + "\n\n" + initialPrompt;
 

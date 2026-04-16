@@ -52,6 +52,10 @@ SSH_KEY="${SSH_KEY:-$HOME/.runpod/ssh/RunPod-Key-Go}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-16384}"              # context window
 MAX_NUM_SEQS="${MAX_NUM_SEQS:-8}"                    # concurrent users
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.90}"
+# N-gram speculative decoding — free 2-3x latency on repetitive output (legal
+# contracts have lots of repetition). No separate draft model needed; vLLM
+# matches n-grams from the prompt itself. Set to empty to disable.
+SPECULATIVE_CONFIG="${SPECULATIVE_CONFIG:-{\"method\":\"ngram\",\"prompt_lookup_max\":5,\"prompt_lookup_min\":3,\"num_speculative_tokens\":5}}"
 
 : "${HF_TOKEN:?HF_TOKEN is required (needs write access for the merge push)}"
 : "${NGROK_TOKEN:?NGROK_TOKEN is required — see reference_ngrok_token.md}"
@@ -149,6 +153,12 @@ fi
 # Kills any previous vLLM and starts fresh. Continuous batching via --max-num-seqs.
 # vLLM auto-downloads the merged model from HF to HF_HOME.
 echo ">> [6/7] Starting vLLM server (model load ~5 min first time, ~1 min if cached)…"
+SPEC_FLAG=""
+if [[ -n "$SPECULATIVE_CONFIG" ]]; then
+  SPEC_FLAG="--speculative-config '$SPECULATIVE_CONFIG'"
+  echo "   speculative decoding: $SPECULATIVE_CONFIG"
+fi
+
 $RSH bash -s <<REMOTE
 pkill -f "vllm serve" 2>/dev/null || true
 sleep 1
@@ -160,6 +170,7 @@ nohup vllm serve $MERGED_REPO \
   --max-num-seqs $MAX_NUM_SEQS \
   --gpu-memory-utilization $GPU_MEM_UTIL \
   --served-model-name v3 \
+  $SPEC_FLAG \
   > /workspace/vllm.log 2>&1 &
 echo "vLLM PID: \$!"
 REMOTE
