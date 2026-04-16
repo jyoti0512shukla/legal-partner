@@ -318,6 +318,43 @@ changes in priorities 1-3.
 
 ---
 
+## Additional findings from LawLLM (arXiv 2407.21065)
+
+LawLLM is a classification-oriented legal LLM (case retrieval, judgment
+prediction) — different domain from contract drafting. Three findings
+transfer:
+
+1. **Balanced training constraint (25% per class).** They enforce exactly
+   25% per verdict category. Our v3 almost certainly has imbalanced contract
+   types (MSA/NDA over-represented, SaaS under-represented). This directly
+   contributes to MSA-mode-blur: the model defaults to the dominant type.
+   - **Action:** audit v3 training data by contract_type tag. If any type
+     is < 15% of drafting samples, oversample or undersample to rebalance.
+
+2. **Few-shot reference clause in training — +26% lift.** Prepending 2
+   in-context examples to each training sample gave a 26% absolute accuracy
+   improvement (63.6% → 79.4%). This maps directly to our Priority 3 item
+   "include RAG-shaped samples in v4 IFT." The format:
+   ```
+   [REFERENCE_CLAUSE: {example indemnity from a similar SaaS contract}]
+   [INPUT: Draft an indemnity clause for this SaaS deal...]
+   [OUTPUT: {clean indemnity clause using parties/figures from the INPUT}]
+   ```
+   The model learns "how to use a precedent without copying it verbatim"
+   — our single biggest quality lever.
+
+3. **Dropout 0.1 on LoRA.** Confirmed by another legal-domain paper.
+   Matches our Priority 1 plan.
+
+**What did NOT transfer:** their classification framing (choose from 10),
+knowledge-graph grounding, case-law-specific metrics (top-k, not-found
+rate), and "7B outperforms 13B" finding (specific to their base-vs-
+fine-tuned comparison, not a general size argument).
+
+Reference: [LawLLM (arXiv 2407.21065)](https://arxiv.org/abs/2407.21065)
+
+---
+
 ## Honest gaps / open questions
 
 - Nobody has published training recipes for contract drafting specifically.
