@@ -138,4 +138,11 @@ public class DocumentMetadata {
     /** If processingStatus = FAILED, the reason. */
     @Column(name = "error_message", length = 1000)
     private String errorMessage;
+
+    // ── AI-generated summary (cached) ──
+    @Column(name = "summary_text", columnDefinition = "TEXT")
+    private String summaryText;
+
+    @Column(name = "summary_generated_at")
+    private Instant summaryGeneratedAt;
 }

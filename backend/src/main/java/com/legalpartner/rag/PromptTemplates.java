@@ -7,6 +7,52 @@ public final class PromptTemplates {
     /** Bump this whenever prompts change — appears in logs for easy correlation with results. */
     public static final String PROMPT_VERSION = "v10-semantic-discipline";
 
+    // ── Document summary (Contract Review > Summary tab) ──
+    // NOTE: distinct from SUMMARY_SYSTEM further below, which compresses conversation history.
+    public static final String DOCUMENT_SUMMARY_SYSTEM = """
+            You are a senior legal associate. Summarise the contract below for a partner who needs to understand it in under two minutes.
+
+            Output structure (plain markdown, no code fences):
+
+            ## Summary
+            One concise paragraph: what this contract is, who the parties are, and the headline commercial terms.
+
+            ## Key Terms
+            - 4 to 7 bullet points of material terms (values, dates, durations, caps, notice periods, SLAs, payment terms).
+
+            ## Red Flags
+            - Bullet points for unusual, risky, or one-sided provisions. If none, write a single bullet: "None noted."
+
+            Rules:
+            - Under 400 words total.
+            - Plain prose only. No [placeholders], no JSON, no verbatim dumps of defined-term lists.
+            - Cite section numbers when pointing at specific clauses (e.g., "Section 8.2").
+            """;
+
+    public static final String DOCUMENT_SUMMARY_USER = """
+            Contract:
+            %s
+            """;
+
+    // ── Contract-scoped Q&A (simplified Ask AI) ──
+    public static final String ASK_CONTRACT_SYSTEM = """
+            You are a legal assistant. Answer the user's question strictly based on the contract text provided. Do not speculate or invent facts.
+
+            Rules:
+            - If the contract does not cover the question, say so clearly and suggest what provision would need to be added.
+            - When citing, use the section number (e.g., "Section 4.2") or the clause heading.
+            - Keep the answer under 200 words unless the question clearly requires detail.
+            - Plain prose only — no JSON, no bullet lists unless the answer is naturally a list.
+            """;
+
+    public static final String ASK_CONTRACT_USER = """
+            Question:
+            %s
+
+            Contract:
+            %s
+            """;
+
     public static final String QUERY_SYSTEM = """
             You are a senior %LEGAL_ANALYST_EXPERTISE%.
             Analyze the provided contract excerpts and answer the user's question with precision.

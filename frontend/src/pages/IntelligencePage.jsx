@@ -1,153 +1,138 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Brain, Search, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Brain, Send, FileText } from 'lucide-react';
 import api from '../api/client';
-import ConfidenceBadge from '../components/shared/ConfidenceBadge';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
 const SUGGESTIONS = [
   'What is the termination notice period?',
-  'Which contracts have uncapped liability?',
+  'Is liability capped? If so, to what amount?',
   'What are the indemnification obligations?',
-  'Compare governing law across all agreements',
+  'Does this contract auto-renew?',
+  'What are the payment terms?',
 ];
 
 export default function IntelligencePage() {
   const [searchParams] = useSearchParams();
-  const [query, setQuery] = useState('');
-  const [jurisdiction, setJurisdiction] = useState('');
-  const [year, setYear] = useState('');
-  const [clauseType, setClauseType] = useState('');
-  const [matterId, setMatterId] = useState(searchParams.get('matterId') || '');
-  const [matters, setMatters] = useState([]);
-  const [result, setResult] = useState(null);
+  const [docs, setDocs] = useState([]);
+  const [docId, setDocId] = useState(searchParams.get('docId') || '');
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
+  const [history, setHistory] = useState([]); // { question, answer }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get('/matters').then(r => setMatters(r.data)).catch(() => {});
+    api.get('/documents?size=100&sort=uploadDate,desc')
+      .then(r => setDocs(r.data.content || []))
+      .catch(() => setDocs([]));
   }, []);
 
-  const handleQuery = async () => {
-    if (!query.trim()) return;
-    setLoading(true);
-    setError('');
-    setResult(null);
+  // Clear Q&A when switching documents
+  useEffect(() => {
+    setAnswer(''); setHistory([]); setError('');
+  }, [docId]);
+
+  const ask = async () => {
+    if (!docId || !question.trim()) return;
+    const q = question.trim();
+    setLoading(true); setError(''); setAnswer('');
     try {
-      const res = await api.post('/ai/query', {
-        query, jurisdiction: jurisdiction || null,
-        year: year ? parseInt(year) : null,
-        clauseType: clauseType || null,
-        matterId: matterId || null,
-      });
-      setResult(res.data);
+      const res = await api.post(`/ai/ask/${docId}`, { question: q });
+      const a = res.data?.answer || 'No answer returned.';
+      setAnswer(a);
+      setHistory(h => [{ question: q, answer: a }, ...h].slice(0, 10));
+      setQuestion('');
     } catch (e) {
-      setError(e.response?.data?.message || 'Query failed. Is the backend running?');
+      setError(e.response?.data?.message || e.message || 'Ask failed');
     } finally {
       setLoading(false);
     }
   };
 
+  const selectedDoc = docs.find(d => d.id === docId);
+
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Intelligence</h1>
+      <h1 className="text-2xl font-bold mb-2">Ask AI</h1>
+      <p className="text-text-muted text-sm mb-6">Select a contract, ask any question. Answers are grounded in that contract only.</p>
 
-      <div className="card mb-6">
-        <p className="text-text-muted text-sm mb-3">What would you like to know about your contracts?</p>
-        <textarea
-          value={query} onChange={e => setQuery(e.target.value)}
-          placeholder="Ask about clauses, risks, obligations..."
-          rows={3}
-          className="input-field w-full resize-none mb-3"
-          onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleQuery())}
-        />
-        <div className="flex items-center gap-3 flex-wrap">
-          <select value={matterId} onChange={e => setMatterId(e.target.value)} className="input-field text-sm">
-            <option value="">All Matters</option>
-            {matters.map(m => (
-              <option key={m.id} value={m.id}>{m.name} — {m.clientName}</option>
+      <div className="card mb-6 space-y-4">
+        <div>
+          <label className="text-xs text-text-muted mb-1 block flex items-center gap-1">
+            <FileText className="w-3 h-3" /> Contract
+          </label>
+          <select value={docId} onChange={e => setDocId(e.target.value)} className="input-field w-full text-sm">
+            <option value="">Choose a contract…</option>
+            {docs.map(d => (
+              <option key={d.id} value={d.id}>
+                {d.fileName}{d.clientName ? ` — ${d.clientName}` : ''}
+              </option>
             ))}
           </select>
-          <select value={jurisdiction} onChange={e => setJurisdiction(e.target.value)} className="input-field text-sm">
-            <option value="">All Jurisdictions</option>
-            {['California', 'New York', 'Delaware', 'Texas', 'Illinois', 'Florida', 'Massachusetts'].map(j => (
-              <option key={j} value={j}>{j}</option>
-            ))}
-          </select>
-          <input type="number" placeholder="Year" value={year} onChange={e => setYear(e.target.value)}
-            className="input-field text-sm w-24" />
-          <select value={clauseType} onChange={e => setClauseType(e.target.value)} className="input-field text-sm">
-            <option value="">All Clauses</option>
-            {['TERMINATION', 'LIABILITY', 'INDEMNITY', 'WARRANTY', 'CONFIDENTIALITY', 'GOVERNING_LAW'].map(c => (
-              <option key={c} value={c}>{c.replace('_', ' ')}</option>
-            ))}
-          </select>
-          <button onClick={handleQuery} disabled={loading || !query.trim()} className="btn-primary ml-auto flex items-center gap-2">
-            {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Search className="w-4 h-4" />}
-            {loading ? 'Analyzing...' : 'Analyze'}
-          </button>
         </div>
+
+        {docId && (
+          <>
+            <div>
+              <label className="text-xs text-text-muted mb-1 block">Question</label>
+              <textarea
+                value={question} onChange={e => setQuestion(e.target.value)}
+                placeholder="e.g. What is the termination notice period?"
+                rows={2}
+                className="input-field w-full resize-none"
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), ask())}
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {SUGGESTIONS.map(s => (
+                <button key={s} type="button" onClick={() => setQuestion(s)}
+                  className="text-xs bg-surface-el px-3 py-1 rounded-full text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors">
+                  {s}
+                </button>
+              ))}
+              <button onClick={ask} disabled={loading || !question.trim()}
+                className="btn-primary ml-auto flex items-center gap-2 text-sm">
+                {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                         : <Send className="w-4 h-4" />}
+                {loading ? 'Thinking…' : 'Ask'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
-      {!result && !loading && !error && (
+      {!docId && (
         <div className="card text-center py-12">
           <Brain className="w-12 h-12 text-text-muted mx-auto mb-4" />
-          <p className="text-text-muted mb-4">Try a query to analyze your contract corpus</p>
-          <div className="flex flex-wrap gap-2 justify-center">
-            {SUGGESTIONS.map(s => (
-              <button key={s} onClick={() => setQuery(s)}
-                className="text-xs bg-surface-el px-3 py-1.5 rounded-full text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors">
-                {s}
-              </button>
-            ))}
-          </div>
+          <p className="text-text-muted">Pick a contract above to start asking questions.</p>
         </div>
       )}
 
-      {loading && <LoadingSkeleton rows={5} />}
-      {error && <div className="card border-l-4 border-danger bg-danger/5"><p className="text-danger text-sm">{error}</p></div>}
+      {error && (
+        <div className="card border-l-4 border-danger bg-danger/5 mb-4">
+          <p className="text-danger text-sm">{error}</p>
+        </div>
+      )}
 
-      {result && (
-        <div className="grid grid-cols-5 gap-6">
-          <div className="col-span-3 card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">AI Analysis</h2>
-              <ConfidenceBadge level={result.confidence} />
+      {loading && !answer && <LoadingSkeleton rows={3} />}
+
+      {answer && (
+        <div className="card mb-4">
+          <p className="text-xs text-text-muted mb-2">Latest answer · {selectedDoc?.fileName}</p>
+          <p className="text-text-primary leading-relaxed whitespace-pre-wrap">{answer}</p>
+        </div>
+      )}
+
+      {history.length > 1 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-text-muted">Previous questions</h3>
+          {history.slice(1).map((h, i) => (
+            <div key={i} className="card">
+              <p className="text-xs font-medium text-text-secondary mb-2">Q: {h.question}</p>
+              <p className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap">{h.answer}</p>
             </div>
-            <p className="text-text-secondary leading-relaxed whitespace-pre-wrap">{result.answer}</p>
-            {result.keyClauses?.length > 0 && (
-              <div className="mt-4 flex flex-wrap gap-2">
-                {result.keyClauses.map(c => (
-                  <span key={c} className="font-mono text-xs bg-primary/10 text-primary px-2 py-1 rounded">{c}</span>
-                ))}
-              </div>
-            )}
-            {result.warnings?.length > 0 && (
-              <div className="mt-4 space-y-1">
-                {result.warnings.map((w, i) => (
-                  <div key={i} className="flex items-center gap-2 text-xs text-warning">
-                    <AlertTriangle className="w-3 h-3" /> {w}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="col-span-2 space-y-3">
-            <h2 className="text-lg font-semibold mb-2">Sources</h2>
-            {result.citations?.map((c, i) => (
-              <div key={i} className="card !p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-text-primary">{c.documentName}</span>
-                  {c.verified
-                    ? <CheckCircle className="w-4 h-4 text-success" />
-                    : <AlertTriangle className="w-4 h-4 text-warning" />}
-                </div>
-                {c.sectionPath && <p className="font-mono text-xs text-primary mb-1">{c.sectionPath}</p>}
-                {c.pageNumber && <p className="text-xs text-text-muted mb-2">Page {c.pageNumber}</p>}
-                <p className="text-xs text-text-secondary bg-surface-el rounded p-2 leading-relaxed">{c.snippet}</p>
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
       )}
     </div>

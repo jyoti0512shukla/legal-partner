@@ -644,6 +644,69 @@ public class AiService {
         return new RiskAssessmentResult(overallRisk, categories);
     }
 
+    /**
+     * Generate (or return cached) AI summary of a document. Cached on DocumentMetadata
+     * so repeat opens of the Summary tab are instant; caller can force-refresh by
+     * passing regenerate=true.
+     */
+    public java.util.Map<String, Object> summarizeDocument(UUID documentId, String username, boolean regenerate) {
+        DocumentMetadata doc = documentRepository.findById(documentId)
+                .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
+
+        if (!regenerate && doc.getSummaryText() != null && !doc.getSummaryText().isBlank()) {
+            return java.util.Map.of(
+                    "summary", doc.getSummaryText(),
+                    "generatedAt", doc.getSummaryGeneratedAt() != null ? doc.getSummaryGeneratedAt().toString() : "",
+                    "cached", true);
+        }
+
+        String contractText = fullTextRetriever.retrieveFullText(documentId);
+        if (contractText.isBlank()) {
+            throw new IllegalStateException("No text available for document " + documentId);
+        }
+        // Keep the prompt within the model's context window — summary doesn't need the
+        // entire doc verbatim; first 10K chars is enough for the headline terms.
+        String capped = contractText.length() > 10_000 ? contractText.substring(0, 10_000) : contractText;
+
+        String prompt = legalSystemConfig.localize(PromptTemplates.DOCUMENT_SUMMARY_SYSTEM)
+                + "\n\n" + String.format(PromptTemplates.DOCUMENT_SUMMARY_USER, capped);
+        AiMessage response = chatModel.generate(UserMessage.from(prompt)).content();
+        String summary = response.text().trim();
+
+        doc.setSummaryText(summary);
+        doc.setSummaryGeneratedAt(java.time.Instant.now());
+        documentRepository.save(doc);
+
+        return java.util.Map.of(
+                "summary", summary,
+                "generatedAt", doc.getSummaryGeneratedAt().toString(),
+                "cached", false);
+    }
+
+    /**
+     * Contract-scoped Q&A — grounds the answer in just the selected document's
+     * text, not the full-corpus RAG.
+     */
+    public java.util.Map<String, Object> askContract(UUID documentId, String question, String username) {
+        documentRepository.findById(documentId)
+                .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
+        if (question == null || question.isBlank()) {
+            throw new IllegalArgumentException("Question is required");
+        }
+
+        String contractText = fullTextRetriever.retrieveFullText(documentId);
+        if (contractText.isBlank()) {
+            return java.util.Map.of("answer", "No text is available for this document yet. It may still be processing.");
+        }
+        String capped = contractText.length() > 12_000 ? contractText.substring(0, 12_000) : contractText;
+
+        String prompt = legalSystemConfig.localize(PromptTemplates.ASK_CONTRACT_SYSTEM)
+                + "\n\n" + String.format(PromptTemplates.ASK_CONTRACT_USER, question, capped);
+        AiMessage response = chatModel.generate(UserMessage.from(prompt)).content();
+
+        return java.util.Map.of("answer", response.text().trim());
+    }
+
     public ExtractionResult extractKeyTerms(UUID documentId, String username) {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));

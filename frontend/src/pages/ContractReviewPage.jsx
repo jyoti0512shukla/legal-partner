@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert, ClipboardList, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronUp, Clock, ChevronRight, Loader2 } from 'lucide-react';
+import { ShieldAlert, ClipboardList, FileText, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronUp, Clock, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
@@ -395,14 +395,116 @@ function Spinner() {
 /* ─── Main page ──────────────────────────────────────────────────── */
 
 const TABS = [
+  { id: 'summary', label: 'Summary', icon: FileText },
   { id: 'risk', label: 'Risk Assessment', icon: ShieldAlert },
   { id: 'checklist', label: 'Clause Checklist', icon: ClipboardList },
 ];
 
+/* ─── Tab 3: Summary ────────────────────────────────────────────── */
+
+function SummaryTab({ docId, result, setResult, loading, setLoading, error, setError }) {
+  const run = async (regenerate = false) => {
+    setLoading(true); setError('');
+    try {
+      const res = await api.post(`/ai/summarize/${docId}${regenerate ? '?regenerate=true' : ''}`);
+      setResult(res.data);
+    } catch (e) {
+      setError(e.response?.data?.message || e.message || 'Summary failed');
+    } finally { setLoading(false); }
+  };
+
+  // Auto-load cached summary when the doc changes (if one exists; otherwise empty)
+  useEffect(() => {
+    if (!docId) { setResult(null); return; }
+    setResult(null); setError('');
+    api.post(`/ai/summarize/${docId}`)
+      .then(r => { if (r.data?.cached) setResult(r.data); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docId]);
+
+  if (!docId) return <EmptyPrompt icon={FileText} text="Select a document above to summarise it." />;
+
+  const cached = result?.cached;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        {cached && !loading && (
+          <p className="text-xs text-text-muted flex items-center gap-1">
+            <Clock className="w-3 h-3" /> Generated {result.generatedAt ? new Date(result.generatedAt).toLocaleString() : ''}
+          </p>
+        )}
+        <div className="ml-auto flex gap-2">
+          {result && (
+            <button onClick={() => run(true)} disabled={loading} className="btn-secondary flex items-center gap-2 text-sm">
+              {loading ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
+              Regenerate
+            </button>
+          )}
+          {!result && (
+            <button onClick={() => run(false)} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
+              {loading ? <Spinner /> : <FileText className="w-4 h-4" />}
+              {loading ? 'Summarising…' : 'Generate Summary'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && <ErrorCard msg={error} />}
+      {loading && !result && <LoadingSkeleton rows={8} />}
+
+      {result?.summary && (
+        <div className="card">
+          <div
+            className="prose prose-invert prose-sm max-w-none text-text-primary leading-relaxed
+                       [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-primary
+                       [&_ul]:list-disc [&_ul]:ml-5 [&_ul]:mb-3
+                       [&_li]:mb-1
+                       [&_p]:mb-3"
+            dangerouslySetInnerHTML={{ __html: markdownToHtml(result.summary) }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Minimal markdown → HTML — handles ## headers, - lists, blank-line paragraphs.
+function markdownToHtml(md) {
+  if (!md) return '';
+  const escape = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const lines = md.split(/\r?\n/);
+  const out = [];
+  let inList = false;
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) { closeList(); continue; }
+    const h2 = line.match(/^##\s+(.+)$/);
+    if (h2) { closeList(); out.push(`<h2>${escape(h2[1])}</h2>`); continue; }
+    const li = line.match(/^[-*]\s+(.+)$/);
+    if (li) {
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${escape(li[1])}</li>`);
+      continue;
+    }
+    closeList();
+    out.push(`<p>${escape(line)}</p>`);
+  }
+  closeList();
+  return out.join('\n');
+}
+
 export default function ContractReviewPage() {
   const [docs, setDocs] = useState([]);
   const [docId, setDocId] = useState('');
-  const [tab, setTab] = useState('risk');
+  const [tab, setTab] = useState('summary');
+
+  // Summary tab state
+  const [summaryResult, setSummaryResult] = useState(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState('');
 
   // Risk tab state — lifted to parent so it survives tab switches
   const [riskResult, setRiskResult] = useState(null);
@@ -424,6 +526,7 @@ export default function ContractReviewPage() {
   useEffect(() => {
     setRiskResult(null); setRiskError(''); setRiskCached(false);
     setChecklistResult(null); setChecklistError(''); setChecklistCached(false);
+    setSummaryResult(null); setSummaryError('');
   }, [docId]);
 
   const handleRiskResult = (result) => { setRiskResult(result); setRiskCached(false); };
@@ -460,13 +563,25 @@ export default function ContractReviewPage() {
           >
             <Icon className="w-4 h-4" />
             {label}
+            {id === 'summary' && summaryResult && <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1" />}
             {id === 'risk' && riskResult && <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1" />}
             {id === 'checklist' && checklistResult && <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1" />}
           </button>
         ))}
       </div>
 
-      {/* Tab content — both always mounted to preserve state */}
+      {/* Tab content — all always mounted to preserve state */}
+      <div style={{ display: tab === 'summary' ? 'block' : 'none' }}>
+        <SummaryTab
+          docId={docId}
+          result={summaryResult}
+          setResult={setSummaryResult}
+          loading={summaryLoading}
+          setLoading={setSummaryLoading}
+          error={summaryError}
+          setError={setSummaryError}
+        />
+      </div>
       <div style={{ display: tab === 'risk' ? 'block' : 'none' }}>
         <RiskTab
           docId={docId}
