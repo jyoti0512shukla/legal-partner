@@ -1,14 +1,13 @@
 package com.legalpartner.config;
 
-import com.legalpartner.rag.PromptTemplates;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.yaml.snakeyaml.Yaml;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Field;
 import java.util.*;
 
 /**
@@ -47,6 +46,11 @@ public class ClauseTypeRegistry {
     ) {}
 
     private Map<String, ClauseTypeConfig> byKey = Map.of();
+    /** Auto-derived forbidden-heading sets: union of OTHER clauses' titles, computed once at startup. */
+    private Map<String, List<String>> derivedForbiddenByKey = Map.of();
+
+    @Autowired
+    private PromptRepository promptRepository;
 
     @PostConstruct
     void load() {
@@ -69,7 +73,9 @@ public class ClauseTypeRegistry {
                 out.put(key, build(key, raw));
             }
             this.byKey = Collections.unmodifiableMap(out);
-            log.info("ClauseTypeRegistry loaded {} clause types from {}", out.size(), CONFIG_PATH);
+            this.derivedForbiddenByKey = buildDerivedForbidden(out);
+            log.info("ClauseTypeRegistry loaded {} clause types from {} (derived forbidden headings built)",
+                    out.size(), CONFIG_PATH);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load " + CONFIG_PATH, e);
         }
@@ -91,20 +97,12 @@ public class ClauseTypeRegistry {
     }
 
     /**
-     * Resolve a prompt id (e.g. "DRAFT_LIABILITY_SYSTEM") to the actual
-     * String constant in PromptTemplates via reflection. Kept out of the
-     * hot path (called once at startup per clause).
+     * Resolve a prompt id to its body via PromptRepository — which consults
+     * clause_prompts.yml (overrides) first, then PromptTemplates (baseline).
      */
     private String resolvePromptConstant(String id) {
         if (id == null || id.isBlank()) return "";
-        try {
-            Field f = PromptTemplates.class.getDeclaredField(id);
-            Object v = f.get(null);
-            return v != null ? v.toString() : "";
-        } catch (NoSuchFieldException | IllegalAccessException e) {
-            log.warn("Prompt constant {} not found in PromptTemplates — clause will run without its template", id);
-            return "";
-        }
+        return promptRepository.get(id);
     }
 
     // ── Public lookups ────────────────────────────────────────────────
@@ -121,6 +119,45 @@ public class ClauseTypeRegistry {
 
     public Set<String> allKeys() {
         return byKey.keySet();
+    }
+
+    /**
+     * Combined forbidden-headings list for a clause = YAML-configured
+     * (specific sub-clause labels like "Termination for Convenience") UNION
+     * derived (titles of all OTHER clauses in the registry).
+     *
+     * The derived half is auto-maintained: add a new clause with title
+     * "Service Credits" and every OTHER clause automatically gets "Service
+     * Credits" in its forbidden-headings list. No YAML edits needed.
+     */
+    public List<String> combinedForbiddenHeadings(String key) {
+        if (!byKey.containsKey(key)) return List.of();
+        List<String> configured = byKey.get(key).forbiddenHeadings();
+        List<String> derived = derivedForbiddenByKey.getOrDefault(key, List.of());
+        if (configured.isEmpty()) return derived;
+        if (derived.isEmpty()) return configured;
+        LinkedHashSet<String> merged = new LinkedHashSet<>(configured);
+        merged.addAll(derived);
+        return List.copyOf(merged);
+    }
+
+    /**
+     * Build a per-clause map of "article titles from every OTHER clause."
+     * Seeing those inside a given clause's body is a strong signal that the
+     * model pasted another clause's content wholesale.
+     */
+    private Map<String, List<String>> buildDerivedForbidden(Map<String, ClauseTypeConfig> all) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        for (String thisKey : all.keySet()) {
+            List<String> others = new ArrayList<>();
+            for (Map.Entry<String, ClauseTypeConfig> e : all.entrySet()) {
+                if (e.getKey().equals(thisKey)) continue;
+                String title = e.getValue().title();
+                if (title != null && !title.isBlank()) others.add(title);
+            }
+            out.put(thisKey, Collections.unmodifiableList(others));
+        }
+        return Collections.unmodifiableMap(out);
     }
 
     // ── helpers ───────────────────────────────────────────────────────

@@ -1,0 +1,22 @@
+# Optional prompt overrides.
+#
+# For any prompt id referenced by clauses.yml (e.g. DRAFT_LIABILITY_SYSTEM),
+# add an entry here to override the Java constant in PromptTemplates.java.
+# Anything NOT listed falls back to the Java constant. Editing = drop the
+# override back in YAML, restart. No code release.
+#
+# Use '|' for multi-line block scalars. The body is used verbatim (no
+# formatting stripped), so keep it clean.
+#
+# Example override (uncomment and edit to customize):
+#
+# prompts:
+#   DRAFT_LIABILITY_SYSTEM: |
+#     You are a senior legal drafter. Draft a LIABILITY clause with EXACTLY
+#     4 numbered sub-clauses covering: aggregate cap at 12 months fees,
+#     carve-outs (IP, confidentiality, gross negligence), mutual indemnity,
+#     survival. Output ONLY numbered clause text.
+
+prompts:
+  # (intentionally empty — all prompts fall back to PromptTemplates Java
+  # constants. Add overrides above as needed.)

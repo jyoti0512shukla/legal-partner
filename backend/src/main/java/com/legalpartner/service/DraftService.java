@@ -982,11 +982,13 @@ public class DraftService {
 
     /** Phrases that clearly belong to a different clause type. Returns any that appeared. */
     private List<String> detectCrossArticleBleed(String clauseKey, String plain) {
-        // Forbidden-heading list per clause type is configured in clauses.yml
-        // (loaded by ClauseTypeRegistry). If YAML doesn't list any for this
-        // clause, we skip — no silent false positives.
+        // Combined forbidden-headings list:
+        //   - YAML-configured (specific sub-clause labels like "Termination for Convenience")
+        //   - Auto-derived (titles of every OTHER clause in the registry)
+        // Adding a new clause type automatically gets its title added to every
+        // OTHER clause's forbidden list — zero maintenance.
         if (!clauseRegistry.contains(clauseKey)) return List.of();
-        List<String> blacklist = clauseRegistry.get(clauseKey).forbiddenHeadings();
+        List<String> blacklist = clauseRegistry.combinedForbiddenHeadings(clauseKey);
         if (blacklist == null || blacklist.isEmpty()) return List.of();
         List<String> hits = new ArrayList<>();
         for (String phrase : blacklist) {
