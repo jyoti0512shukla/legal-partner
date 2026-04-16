@@ -145,4 +145,14 @@ public class DocumentMetadata {
 
     @Column(name = "summary_generated_at")
     private Instant summaryGeneratedAt;
+
+    // ── Anonymization (client-confidentiality layer) ──
+    /** Raw→synthetic map of entities substituted at ingest, JSON-encoded. Encrypted at rest by the service layer. */
+    @Column(name = "anonymization_map_json", columnDefinition = "TEXT")
+    private String anonymizationMapJson;
+
+    /** True if the text stored for RAG embedding was anonymized at ingest. */
+    @Column(name = "is_anonymized", nullable = false)
+    @Builder.Default
+    private boolean anonymized = false;
 }

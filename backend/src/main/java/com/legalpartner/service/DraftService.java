@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
@@ -50,6 +51,7 @@ public class DraftService {
     private final MatterRepository matterRepository;
     private final DocumentMetadataRepository documentRepository;
     private final FileStorageService fileStorageService;
+    private final AnonymizationService anonymizationService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -61,6 +63,7 @@ public class DraftService {
                         MatterRepository matterRepository,
                         DocumentMetadataRepository documentRepository,
                         FileStorageService fileStorageService,
+                        AnonymizationService anonymizationService,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
@@ -69,6 +72,7 @@ public class DraftService {
         this.legalSystemConfig = legalSystemConfig;
         this.matterRepository = matterRepository;
         this.documentRepository = documentRepository;
+        this.anonymizationService = anonymizationService;
         this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
@@ -855,8 +859,44 @@ public class DraftService {
         }
         // Always post-process to replace any remaining placeholders with sensible defaults
         generated = postProcessPlaceholders(generated, request);
-        return new ClauseResult(generated, qaClause(clauseKey, generated, expectedSubclauses, contractType));
+
+        // Output-side confidentiality check — detect concrete entities in the
+        // draft (dollar figures with real amounts, specific dates with year,
+        // emails, phones) and cross-check against what the user actually
+        // supplied. Anything unaccounted for is a likely cross-client leak
+        // from a precedent — flag it so the user sees the warning and the
+        // coherence scan surfaces it in the final QA report.
+        List<String> finalQa = qaClause(clauseKey, generated, expectedSubclauses, contractType);
+        Set<String> detected = anonymizationService.detectConcreteEntities(generated);
+        if (!detected.isEmpty()) {
+            List<String> userSupplied = List.of(
+                    nullSafe(request.getPartyA()),
+                    nullSafe(request.getPartyB()),
+                    nullSafe(request.getPartyAAddress()),
+                    nullSafe(request.getPartyBAddress()),
+                    nullSafe(request.getPartyARep()),
+                    nullSafe(request.getPartyBRep()),
+                    nullSafe(request.getEffectiveDate()),
+                    nullSafe(request.getJurisdiction()),
+                    nullSafe(request.getAgreementRef()),
+                    nullSafe(request.getDealBrief()),
+                    nullSafe(request.getContractTypeName()),
+                    nullSafe(request.getTermYears()),
+                    nullSafe(request.getNoticeDays()),
+                    nullSafe(request.getSurvivalYears())
+            );
+            Set<String> leaks = anonymizationService.findUnjustified(detected, userSupplied);
+            if (!leaks.isEmpty()) {
+                finalQa = new ArrayList<>(finalQa);
+                finalQa.add("Possible cross-client leak — concrete entities in the draft that were NOT in the user's brief/form: "
+                        + leaks + ". These likely came from a precedent. Verify before sending.");
+                log.warn("QA [{}]: possible cross-client leak entities {}", clauseKey, leaks);
+            }
+        }
+        return new ClauseResult(generated, finalQa);
     }
+
+    private static String nullSafe(String s) { return s == null ? "" : s; }
 
     /**
      * Score a generation attempt: higher is better.

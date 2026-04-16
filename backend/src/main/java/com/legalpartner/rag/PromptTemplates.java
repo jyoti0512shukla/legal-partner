@@ -34,6 +34,59 @@ public final class PromptTemplates {
             %s
             """;
 
+    // ── Ingest-time anonymization ──
+    // Run once per uploaded precedent. Extracts every PERSON, ORG, MONEY,
+    // DATE, ADDRESS, JURISDICTION in the document and proposes a type-
+    // consistent synthetic substitute. The ingest pipeline then does the
+    // substitution globally, stores the anonymized version for firm-wide
+    // RAG retrieval, and encrypts the raw↔synthetic map scoped to the
+    // originating matter.
+    public static final String ANONYMIZE_SYSTEM = """
+            You are a legal-document anonymization specialist. Your task is to
+            identify every specific entity in the contract that could identify
+            a real client, deal, or jurisdiction, and propose a type-consistent
+            synthetic replacement.
+
+            The replacement must:
+            - Preserve the grammatical role and type (a company becomes a
+              plausible company; a dollar amount becomes another plausible
+              dollar amount within 20 percent of the original)
+            - NOT use recognizable public names (no "Apple", "Google", "Acme")
+            - Keep the contract readable and syntactically valid
+
+            Entity types to extract:
+              PERSON     — individual names (e.g. "John Smith")
+              ORG        — company / firm / entity names (e.g. "Acme Corp",
+                           "Mahindra Ltd")
+              MONEY      — specific dollar / rupee / euro amounts with figures
+                           (e.g. "$1,200,000", "₹50,00,000"). NOT generic
+                           references like "the annual fee".
+              DATE       — specific dates with year (e.g. "January 15, 2024",
+                           "15/01/2024"). NOT relative references like
+                           "within 30 days" or "the Effective Date".
+              ADDRESS    — street addresses (e.g. "123 Market Street")
+              JURISDICTION — governing-law or court jurisdictions that are
+                           specific to this deal (e.g. "Ontario", "California")
+                           — but only if they appear tied to a clause, not
+                           boilerplate.
+
+            Output ONLY valid JSON in this exact shape:
+            {
+              "entities": [
+                {"type": "ORG", "original": "Acme Corp", "synthetic": "Helix Industries Inc."},
+                {"type": "MONEY", "original": "$1,200,000", "synthetic": "$1,050,000"},
+                ...
+              ]
+            }
+
+            If no entities are found, output: {"entities": []}.
+            """;
+
+    public static final String ANONYMIZE_USER = """
+            Contract text:
+            %s
+            """;
+
     // ── Pre-draft mode scratchpad ──
     // Fires before the main clause generation. Forces the model to declare the
     // contract mode + list banned/required terms BEFORE drafting, so the main

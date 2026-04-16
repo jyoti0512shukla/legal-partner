@@ -43,6 +43,7 @@ public class DocumentService {
     private final ApplicationEventPublisher eventPublisher;
     private final FileStorageService fileStorageService;
     private final ContextualRetrievalService contextualRetrieval;
+    private final AnonymizationService anonymizationService;
 
     private final Tika tika = new Tika();
 
@@ -204,9 +205,31 @@ public class DocumentService {
             doc.setProcessingStatus(ProcessingStatus.PROCESSING);
             repository.save(doc);
 
-            String text;
+            String rawText;
             try (InputStream is = new java.io.ByteArrayInputStream(fileBytes)) {
-                text = tika.parseToString(is);
+                rawText = tika.parseToString(is);
+            }
+
+            // Client-confidentiality layer: anonymize the document before chunking.
+            // The ANONYMIZED text is what gets chunked, embedded, and surfaced to
+            // the model as firm-wide RAG precedent. The raw→synthetic map is
+            // stored encrypted on the DocumentMetadata row; only the originating
+            // matter can decrypt it to show the lawyer the real names. This means
+            // Client A's Acme/Mahindra/Ontario never reach Client B's draft —
+            // they're physically absent from the embeddings.
+            AnonymizationService.AnonymizationResult anon = anonymizationService.anonymize(rawText);
+            String text = anon.anonymizedText();
+            if (!anon.entityMap().isEmpty()) {
+                try {
+                    // Store the map encrypted so only the originating matter can read it
+                    String mapJson = new com.fasterxml.jackson.databind.ObjectMapper()
+                            .writeValueAsString(anon.entityMap());
+                    doc.setAnonymizationMapJson(encryptionService.encrypt(mapJson));
+                    doc.setAnonymized(true);
+                } catch (Exception mapSaveErr) {
+                    log.warn("Failed to persist anonymization map for {}: {}",
+                            doc.getId(), mapSaveErr.getMessage());
+                }
             }
 
             Map<String, String> docMeta = new HashMap<>();
