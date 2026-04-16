@@ -184,6 +184,69 @@ bases for v4; fix the pipeline instead.
 
 ---
 
+## Legal evaluation benchmarks — what exists
+
+None of these catch our specific defects (SaaS→MSA bleed, Ontario-in-California,
+sub-clause numbering collapse, RAG filename copying). Useful for sanity-check
+and regression detection against v3; not sufficient on their own.
+
+### Academic benchmarks (open, can run locally)
+
+| Benchmark | What it tests | Useful for us? |
+|---|---|---|
+| **[LegalBench](https://hazyresearch.stanford.edu/legalbench/)** ([arXiv 2308.11462](https://arxiv.org/abs/2308.11462)) | 162 tasks, 40 lawyer contributors — issue-spotting, rule application, interpretation. Mostly classification / extraction / entailment. | Sanity-check only — very little drafting evaluation. |
+| **[LexGLUE](https://arxiv.org/abs/2110.00976)** | 7 legal NLU tasks (ECtHR, SCOTUS, contract NLI, CaseHOLD). Classification only. | Narrow — older, superseded by LegalBench. |
+| **[LegalBench-RAG](https://arxiv.org/abs/2408.10343)** | 6,858 Q&A pairs grounded in 79 real legal documents — specifically measures retrieval groundedness. | **Yes — directly relevant to our RAG contamination problem.** |
+| **[CUAD](https://www.atticusprojectai.org/cuad)** | 13,000 annotations across 510 contracts, 41 clause categories. | **Yes — gold standard for extraction accuracy.** Not drafting. |
+| **[ContractEval](https://arxiv.org/abs/2508.03080)** | Clause-level risk identification (Aug 2025). Finds open-source LLMs competitive on extraction but weak on "correctness in high-stakes settings." | Yes — good prior for our risk-assessment task. |
+| **[LeMAJ (NLLP 2025)](https://aclanthology.org/2025.nllp-1.23.pdf)** | Methodology paper on LLM-as-judge for legal output. | Reference for our own rubric — not a ready-to-use benchmark. |
+
+### Industry benchmarks (rubric public, dataset private)
+
+| Benchmark | What's published | Useful for us? |
+|---|---|---|
+| **[Harvey BigLaw Bench](https://www.harvey.ai/blog/introducing-biglaw-bench)** | 4-axis rubric (structure / style / substance / hallucination). Dataset private. | **Yes — best-shaped framework for drafting-quality evaluation.** Reproducible in principle; we'd build our own dataset. |
+| **[Stanford RegLab Hallucination Benchmark (Magesh 2025)](https://onlinelibrary.wiley.com/doi/full/10.1111/jels.12413)** | Methodology for grading hallucinations in legal research tools. Dataset private. | Methodology reference for hallucination measurement. |
+
+### What's missing
+
+- **No public benchmark for contract drafting quality.** Harvey's rubric is the
+  closest thing.
+- **No public benchmark for "does output match the specified contract type"**
+  (our SaaS→MSA blur).
+- **No public benchmark for "does output match the specified jurisdiction"**
+  (our Ontario-in-California problem).
+- **No public benchmark for structural fidelity** (sub-clause numbering,
+  article ordering).
+
+### Our planned eval stack
+
+Given the gaps, a pragmatic 3-layer evaluation:
+
+1. **LegalBench subset + CUAD + ContractEval** — regression detection on
+   extraction / risk tasks. Catches if v4 degrades existing capabilities while
+   fixing drafting.
+2. **LegalBench-RAG** — specifically tests whether v4 handles retrieved
+   precedents without copying verbatim. Directly measures our biggest defect.
+3. **Custom BigLaw-Bench-style rubric** — 100 hand-picked drafting prompts,
+   Harvey-style 4-axis rubric, LLM judge + deterministic parser checks:
+   - Sub-clause numbering monotonic within each Article (regex)
+   - No `__TOKEN__` / `[INST]` / `Source: *.pdf` / pipe-metadata in output (regex)
+   - Contract-type purity: a SaaS prompt must NOT produce `Statement of Work`,
+     `milestone payment`, `Deliverables` (regex)
+   - Jurisdiction in output matches jurisdiction in input brief (regex + LLM judge)
+   - Party names in output match user-supplied party names (regex)
+   - No named entities from training corpus (Acme, Mahindra, NeuroPace, etc.)
+     (regex against a known-bad list)
+
+The parser checks are cheap and catch most of our specific defects. The LLM
+judge handles style / structure / substance where regex can't.
+
+**Hold out this eval set BEFORE any v4 training.** Score v3 on it first as a
+baseline. Target: every v4 iteration must beat v3 on the rubric before shipping.
+
+---
+
 ## v4 action items — prioritized by ROI + evidence strength
 
 ### Priority 1 — fix the training pipeline itself
