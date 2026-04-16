@@ -190,6 +190,43 @@ None of these catch our specific defects (SaaS→MSA bleed, Ontario-in-Californi
 sub-clause numbering collapse, RAG filename copying). Useful for sanity-check
 and regression detection against v3; not sufficient on their own.
 
+### ACORD — the most relevant benchmark for our work
+
+**[ACORD: An Expert-Annotated Retrieval Dataset for Legal Contract Drafting](https://arxiv.org/abs/2501.06582)** (ACL 2025, CC-BY-4.0, [HuggingFace](https://huggingface.co/datasets/theatticusproject/acord))
+
+126,659 query-clause pairs from ~450 contracts (CUAD + Fortune 500 ToS).
+114 queries annotated by 12 attorneys + 10 students on a 1-5 star scale.
+Covers: Limitation of Liability (63 queries), Indemnification (24),
+IP Ownership (4), Restrictive Covenants (10), Term & Termination (3),
+Governing Law (4). NOT covered: Payment, Services, Definitions,
+Data Protection (acknowledged as a limitation).
+
+**Why it matters for us:**
+
+1. **Retrieval eval off-the-shelf.** Run our DraftContextRetriever against
+   ACORD's 114 queries, measure 4-star and 5-star precision@5 (their
+   recommended metric — NDCG masks poor top-quality precision).
+2. **Confirms BM25 hybrid.** BM25 alone = 52.5% NDCG@5; dense alone =
+   62.1%; BM25 + GPT-4o reranker = **76.9%.** Our V24 BM25 table needs
+   wiring — the fusion gives +15% over dense-only.
+3. **Quality rubric.** Their 4-star criteria (responsive, concise, clear,
+   covers all elements) and 3-star defects (too long, missing concepts,
+   non-standard language, too one-sided) map directly to our QA checks.
+   Use as the foundation for our BigLaw Bench rubric.
+4. **Key finding.** "LLM-generated language creates conflicts between
+   clauses and introduces language not typically found in standard
+   contracts." Validates our RAG-first architecture (retrieve + revise
+   > generate from scratch).
+5. **Pointwise >> pairwise reranking.** 76.9% vs 58.0% NDCG@5 for GPT-4o.
+   Our reranker should use pointwise scoring.
+
+**Action items:**
+- [ ] Download ACORD from HuggingFace (`theatticusproject/acord`)
+- [ ] Run our retriever against the 114 queries as a baseline eval
+- [ ] Use their 1-5 rubric to score our v3 draft outputs on matching
+      clause types (Liability, Indemnification, IP, Termination, Gov Law)
+- [ ] Wire BM25 fusion into DraftContextRetriever (confirmed +15% value)
+
 ### Academic benchmarks (open, can run locally)
 
 | Benchmark | What it tests | Useful for us? |
