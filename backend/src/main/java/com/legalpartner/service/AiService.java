@@ -33,6 +33,8 @@ public class AiService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final ChatLanguageModel chatModel;
     private final ChatLanguageModel jsonChatModel;
+    /** Smaller-budget model (2K tokens) for non-draft calls: risk, extract, summary, ask, query, compare. */
+    private final ChatLanguageModel shortChatModel;
     private final QueryExpander queryExpander;
     private final ReRanker reRanker;
     private final CitationExtractor citationExtractor;
@@ -85,6 +87,7 @@ public class AiService {
             EmbeddingStore<TextSegment> embeddingStore,
             ChatLanguageModel openAiChatModel,
             @Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
+            @Qualifier("shortChatModel") ChatLanguageModel shortChatModel,
             QueryExpander queryExpander,
             ReRanker reRanker,
             CitationExtractor citationExtractor,
@@ -99,6 +102,7 @@ public class AiService {
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
         this.jsonChatModel = jsonChatModel;
+        this.shortChatModel = shortChatModel;
         this.queryExpander = queryExpander;
         this.reRanker = reRanker;
         this.citationExtractor = citationExtractor;
@@ -161,7 +165,7 @@ public class AiService {
         String prompt = String.format(PromptTemplates.QUERY_USER, contextBlock, request.query());
 
         // Step 7: Generate — merge system into user (Mistral/SaulLM rejects separate system role)
-        AiMessage response = chatModel.generate(
+        AiMessage response = shortChatModel.generate(
                 UserMessage.from(legalSystemConfig.localize(PromptTemplates.QUERY_SYSTEM) + "\n\n" + prompt)
         ).content();
 
@@ -221,8 +225,8 @@ public class AiService {
         String prompt = String.format(PromptTemplates.COMPARE_USER,
                 doc1.getFileName(), context1, doc2.getFileName(), context2);
 
-        // Use plain chatModel — compare prompt expects pipe-delimited text, not JSON
-        AiMessage response = chatModel.generate(
+        // Use shortChatModel — compare prompt expects pipe-delimited text, not JSON.
+        AiMessage response = shortChatModel.generate(
                 UserMessage.from(legalSystemConfig.localize(PromptTemplates.COMPARE_SYSTEM) + "\n\n" + prompt)
         ).content();
 
@@ -530,7 +534,7 @@ public class AiService {
                 "\n\nOutput one CATEGORY|RATING|JUSTIFICATION|REFERENCE line per clause analyzed.";
 
         try {
-            String response = chatModel.generate(
+            String response = shortChatModel.generate(
                     UserMessage.from(systemPrompt + "\n\n" + userPrompt)
             ).content().text();
 
@@ -670,7 +674,7 @@ public class AiService {
 
         String prompt = legalSystemConfig.localize(PromptTemplates.DOCUMENT_SUMMARY_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.DOCUMENT_SUMMARY_USER, capped);
-        AiMessage response = chatModel.generate(UserMessage.from(prompt)).content();
+        AiMessage response = shortChatModel.generate(UserMessage.from(prompt)).content();
         String summary = response.text().trim();
 
         doc.setSummaryText(summary);
@@ -702,7 +706,7 @@ public class AiService {
 
         String prompt = legalSystemConfig.localize(PromptTemplates.ASK_CONTRACT_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.ASK_CONTRACT_USER, question, capped);
-        AiMessage response = chatModel.generate(UserMessage.from(prompt)).content();
+        AiMessage response = shortChatModel.generate(UserMessage.from(prompt)).content();
 
         return java.util.Map.of("answer", response.text().trim());
     }
@@ -717,7 +721,7 @@ public class AiService {
             return new ExtractionResult(null, null, null, null, null, null, null, null, null);
         }
 
-        AiMessage response = chatModel.generate(
+        AiMessage response = shortChatModel.generate(
                 UserMessage.from(legalSystemConfig.localize(PromptTemplates.EXTRACTION_SYSTEM) + "\n\n" + String.format(PromptTemplates.EXTRACTION_USER, context))
         ).content();
 
@@ -1050,7 +1054,7 @@ public class AiService {
                 request.justification() != null ? request.justification() : "No initial justification.",
                 request.sectionRef() != null && !request.sectionRef().isBlank() ? request.sectionRef() : "Not found");
 
-        AiMessage response = chatModel.generate(
+        AiMessage response = shortChatModel.generate(
                 UserMessage.from(legalSystemConfig.localize(PromptTemplates.RISK_DRILLDOWN_SYSTEM) + "\n\n" + prompt)
         ).content();
 
@@ -1303,7 +1307,7 @@ public class AiService {
             content.append("A: ").append(t.answer()).append("\n\n");
         }
         try {
-            AiMessage summary = chatModel.generate(
+            AiMessage summary = shortChatModel.generate(
                     UserMessage.from(legalSystemConfig.localize(PromptTemplates.SUMMARY_SYSTEM) + "\n\n" + String.format(PromptTemplates.SUMMARY_USER, content))
             ).content();
             return summary.text().trim();

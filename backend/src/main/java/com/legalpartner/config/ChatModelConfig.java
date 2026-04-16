@@ -95,6 +95,41 @@ public class ChatModelConfig {
             "\nFAR § "
     );
 
+    /**
+     * Smaller-budget model for everything that's NOT drafting — risk assessment,
+     * extraction, summary, ask-AI, query, compare. These produce short outputs
+     * (pipe-delimited lines, one-paragraph answers, a page of markdown) so the
+     * 6000-token budget on the draft-primary model just lets v3 ramble and
+     * adds seconds of latency for no quality gain.
+     *
+     * Keep frequencyPenalty low (0.1) for the same "legal text repeats terms"
+     * reason as the draft model. No stop sequences — those were drafting-specific.
+     */
+    @Bean("shortChatModel")
+    ChatLanguageModel shortChatModel() {
+        if ("gemini".equalsIgnoreCase(provider)) {
+            return GoogleAiGeminiChatModel.builder()
+                    .apiKey(geminiApiKey)
+                    .modelName(geminiModel)
+                    .timeout(Duration.ofSeconds(120))
+                    .maxOutputTokens(2000)
+                    .temperature(0.3)
+                    .build();
+        }
+        if (vllmBaseUrl != null && !vllmBaseUrl.isBlank()) {
+            String url = vllmBaseUrl.endsWith("/v1") ? vllmBaseUrl : vllmBaseUrl + "/v1";
+            return OpenAiChatModel.builder()
+                    .baseUrl(url)
+                    .apiKey("no-op")
+                    .modelName(vllmModel)
+                    .timeout(Duration.ofSeconds(120))
+                    .maxTokens(2000)
+                    .frequencyPenalty(0.1)
+                    .build();
+        }
+        return null;
+    }
+
     @Bean("jsonChatModel")
     ChatLanguageModel jsonChatModel() {
         if ("gemini".equalsIgnoreCase(provider)) {
