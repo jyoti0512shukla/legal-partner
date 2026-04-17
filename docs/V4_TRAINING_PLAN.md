@@ -9,6 +9,38 @@ LegalBench, Harvey, production post-mortems, LoRA memorization papers). See
 
 ---
 
+## Base model decision: SaulLM-54B (not Gemma 4 26B)
+
+**Decided 2026-04-17** based on head-to-head eval (scripts/eval_pipeline.py).
+
+SaulLM-54B-Instruct **zero-shot** (no fine-tuning) scored **0.817** on our
+18-prompt eval pipeline. Key comparisons vs our fine-tuned Gemma 4 v3:
+
+| Dimension | Gemma 4 26B + v3 LoRA | SaulLM-54B zero-shot |
+|---|---|---|
+| Drafting score | poor (Ontario, Acme, MSA-in-SaaS) | **0.830** |
+| Mode blur | Severe (full MSA in SaaS) | Mild (occasional term leak) |
+| Training artifacts | `__PROCESSED_REQUEST__`, CFR/FAR | **Zero** |
+| Entity memorization | Ontario, Acme, Mahindra, $5M | **Zero** |
+| Summarization | Untested | **1.000** |
+| Risk assessment | Untested | **0.800** |
+
+SaulLM-54B's 540B tokens of legal pretraining give it vocabulary,
+structure, and domain awareness that our 20K-sample LoRA on Gemma can't
+match. The quality gap is large enough to justify the speed penalty
+(~35-50 tok/s via vLLM+AWQ vs 95 tok/s Gemma).
+
+**v4 = clean data + LoRA on SaulLM-54B.** Target: 0.92+ drafting.
+
+Speed mitigation: serve via vLLM with AWQ quantization (~35-50 tok/s
+on A100, ~50-75 on H100). A 9-clause SaaS draft ≈ 18-25 min on A100,
+acceptable for legal work where users expect "it takes a few minutes."
+
+Eval results: `data/raw/eval_Equall_SaulLM-54B-Instruct.json`
+Eval script: `scripts/eval_pipeline.py`
+
+---
+
 ## Context: what v3 is and where it falls short
 
 - **Base:** Gemma 4 26B MoE (A4B active), LoRA adapter
@@ -310,6 +342,18 @@ baseline. Target: every v4 iteration must beat v3 on the rubric before shipping.
   was separate. Confirm.)
 - [ ] **Remove non-target jurisdiction examples** that don't match the target
   jurisdiction in the user instruction (Ontario in a California sample).
+
+### Priority 2.5 — base model switch
+
+- [ ] **Switch base from Gemma 4 26B to SaulLM-54B-Base** (Mixtral MoE,
+  MIT license, 540B legal pretraining tokens). Train LoRA on top of
+  `Equall/SaulLM-54-Base` (not -Instruct, since we do our own IFT).
+- [ ] **Serving setup:** vLLM + AWQ quantization (~27GB VRAM, fits A100
+  80GB). Expected ~35-50 tok/s. Verify Mixtral architecture + AWQ +
+  LoRA compatibility in vLLM before committing training compute.
+- [ ] **Hyperparameters for SaulLM-54B:** LR 1.5e-4 (lower than Gemma's
+  2e-4 — larger model), LoRA rank 16, dropout 0.1, 1-3 epochs on
+  cleaned dataset, max_seq_length 8192.
 
 ### Priority 3 — structure the training
 
