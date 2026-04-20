@@ -17,12 +17,18 @@
 #                      falls back to if the LLM fails. Must beat the planner's
 #                      count for the "floor" logic in DraftService.planSections
 #                      to kick in and prevent undercounting.
+#   contract_mode    — expected scratchpad mode for validation (SAAS, MSA, NDA, etc.)
+#   party_roles      — [partyA_role, partyB_role] for consistent naming enforcement
+#   banned_terms     — terms that must NEVER appear in this contract type
 
 contract_types:
 
   nda:
     document_type: NDA
     display_name: "Non-Disclosure Agreement"
+    contract_mode: NDA
+    party_roles: ["Disclosing Party", "Receiving Party"]
+    banned_terms: ["Statement of Work", "subscription", "license fee", "SLA"]
     default_sections:
       - DEFINITIONS
       - CONFIDENTIALITY
@@ -34,6 +40,9 @@ contract_types:
   msa:
     document_type: MSA
     display_name: "Master Services Agreement"
+    contract_mode: MSA
+    party_roles: ["Service Provider", "Client"]
+    banned_terms: ["subscription fee", "authorized users", "uptime", "license grant"]
     default_sections:
       - DEFINITIONS
       - SERVICES
@@ -48,6 +57,9 @@ contract_types:
   saas:
     document_type: SAAS
     display_name: "SaaS Subscription Agreement"
+    contract_mode: SAAS
+    party_roles: ["Provider", "Customer"]
+    banned_terms: ["Statement of Work", "Deliverables", "milestone", "perpetual license"]
     default_sections:
       - DEFINITIONS
       - SERVICES
@@ -90,6 +102,9 @@ contract_types:
   employment:
     document_type: EMPLOYMENT
     display_name: "Employment Agreement"
+    contract_mode: EMPLOYMENT
+    party_roles: ["Employer", "Employee"]
+    banned_terms: ["Statement of Work", "subscription", "license", "SLA"]
     default_sections:
       - DEFINITIONS
       - SERVICES
@@ -103,6 +118,9 @@ contract_types:
   supply:
     document_type: SUPPLY
     display_name: "Supply Agreement"
+    contract_mode: SUPPLY
+    party_roles: ["Supplier", "Buyer"]
+    banned_terms: ["subscription", "authorized users", "SaaS", "license grant"]
     default_sections:
       - DEFINITIONS
       - SERVICES
@@ -116,10 +134,15 @@ contract_types:
   software_license:
     document_type: IP_LICENSE
     display_name: "Software License Agreement"
+    contract_mode: SOFTWARE_LICENSE
+    party_roles: ["Licensor", "Licensee"]
+    banned_terms: ["Statement of Work", "Deliverables", "subscription fee", "SaaS"]
     default_sections:
       - DEFINITIONS
       - IP_RIGHTS
+      - SERVICES
       - PAYMENT
+      - CONFIDENTIALITY
       - LIABILITY
       - TERMINATION
       - GOVERNING_LAW
@@ -128,6 +151,9 @@ contract_types:
   ip_license:
     document_type: IP_LICENSE
     display_name: "IP License Agreement"
+    contract_mode: IP_LICENSE
+    party_roles: ["Licensor", "Licensee"]
+    banned_terms: ["Statement of Work", "Deliverables", "subscription fee", "SaaS"]
     default_sections:
       - DEFINITIONS
       - IP_RIGHTS

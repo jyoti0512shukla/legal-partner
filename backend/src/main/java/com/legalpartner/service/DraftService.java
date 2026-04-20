@@ -276,8 +276,21 @@ public class DraftService {
             doc = documentRepository.save(doc);
         }
 
-        // ── Phase 3: mark complete ──
+        // ── Phase 3: post-processing + mark complete ──
         runCoherenceScan(plannedSections, sectionValues, manifest); // log-only; result ignored for async
+
+        // Build the full HTML, then run missing terms detector
+        String fullHtml = buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues);
+        List<String> missingTerms = detectMissingTerms(fullHtml, request);
+        if (!missingTerms.isEmpty()) {
+            log.warn("Draft {}: {} deal terms not found in output: {}", docId, missingTerms.size(), missingTerms);
+        }
+
+        // Append input summary schedule to the draft
+        String inputSummary = buildInputSummaryHtml(request);
+        fullHtml = fullHtml.replace("</body>", inputSummary + "\n</body>");
+
+        storeHtml(doc, fullHtml);
         doc.setCurrentClauseLabel(null);
         doc.setProcessingStatus(ProcessingStatus.INDEXED);
         doc.setLastProgressAt(Instant.now());
@@ -688,8 +701,10 @@ public class DraftService {
             node.path("banned_vocabulary").forEach(v -> bannedVocab.add(v.asText()));
             if (mode.isBlank() && keyVocab.isEmpty() && bannedVocab.isEmpty()) return "";
 
-            // Validate mode against templateId — override if model misclassified
-            String expectedMode = resolveExpectedMode(contractType);
+            // Validate mode against contract_types.yml — override if model misclassified
+            String expectedMode = contractRegistry.contractMode(
+                    contractType.toLowerCase().replace(" ", "_").replace("-", "_"));
+            if (expectedMode.isBlank()) expectedMode = resolveExpectedMode(contractType); // fallback
             if (!mode.isBlank() && !expectedMode.isBlank() && !mode.equalsIgnoreCase(expectedMode)) {
                 log.warn("Scratchpad [{}]: model said mode={}, expected={} for '{}' — overriding",
                         clauseKey, mode, expectedMode, contractType);
@@ -860,6 +875,8 @@ public class DraftService {
         }
         // Always post-process to replace any remaining placeholders with sensible defaults
         generated = postProcessPlaceholders(generated, request);
+        // Enforce consistent party naming from contract_types.yml
+        generated = enforcePartyRoles(generated, request);
 
         // Output-side confidentiality check — detect concrete entities in the
         // draft (dollar figures with real amounts, specific dates with year,
@@ -1265,11 +1282,18 @@ public class DraftService {
 
         try {
             String extractPrompt = """
-                    Extract party names from this deal brief. Output ONLY valid JSON:
-                    {"partyA": "name or null", "partyB": "name or null",
-                     "partyARole": "Licensor/Provider/Seller/Landlord or null",
-                     "partyBRole": "Licensee/Customer/Buyer/Tenant or null",
-                     "keyTerms": ["term1: value1", "term2: value2"]}
+                    Extract ALL structured data from this deal brief. Output ONLY valid JSON:
+                    {"partyA": "full legal name or null",
+                     "partyB": "full legal name or null",
+                     "partyAAddress": "full address or null",
+                     "partyBAddress": "full address or null",
+                     "partyARole": "Licensor/Provider/Seller/Landlord/Employer or null",
+                     "partyBRole": "Licensee/Customer/Buyer/Tenant/Employee or null",
+                     "keyTerms": ["term1: value1", "term2: value2", ...]}
+
+                    Extract every concrete value: party names, addresses, monetary amounts,
+                    user counts, SLA targets, license types, term durations, support levels,
+                    special requirements (escrow, derivative works, patches, etc).
 
                     Deal brief:
                     """ + brief;
@@ -1285,6 +1309,15 @@ public class DraftService {
             if (needPartyB && node.has("partyB") && !node.get("partyB").isNull()) {
                 request.setPartyB(node.get("partyB").asText());
                 log.info("Hydrated partyB from deal brief: {}", request.getPartyB());
+            }
+            // Hydrate addresses
+            if ((request.getPartyAAddress() == null || request.getPartyAAddress().isBlank())
+                    && node.has("partyAAddress") && !node.get("partyAAddress").isNull()) {
+                request.setPartyAAddress(node.get("partyAAddress").asText());
+            }
+            if ((request.getPartyBAddress() == null || request.getPartyBAddress().isBlank())
+                    && node.has("partyBAddress") && !node.get("partyBAddress").isNull()) {
+                request.setPartyBAddress(node.get("partyBAddress").asText());
             }
             // Store extracted key terms for injection into every clause prompt
             if (node.has("keyTerms") && node.get("keyTerms").isArray()) {
@@ -1573,7 +1606,61 @@ public class DraftService {
         // 12. Loop detection — truncate if same sentence appears 3+ times
         t = truncateOnRepetition(t);
 
+        // 13. NUCLEAR LINE-LEVEL SANITIZER — strip any line that is meta-commentary,
+        //     not legal prose. Catches patterns the truncation markers miss.
+        String[] sanitizeLines = t.split("\\n");
+        StringBuilder sanitized = new StringBuilder();
+        for (String sLine : sanitizeLines) {
+            String trimmed = sLine.trim();
+            if (trimmed.isEmpty()) { sanitized.append("\n"); continue; }
+            // Kill meta-commentary lines
+            if (isMetaCommentary(trimmed)) {
+                log.debug("Draft sanitizer: stripped meta-commentary line: {}", trimmed.substring(0, Math.min(80, trimmed.length())));
+                continue;
+            }
+            sanitized.append(sLine).append("\n");
+        }
+        t = sanitized.toString().trim();
+
+        // 14. Strip bold markdown artifacts (**text**) — convert to plain text
+        t = t.replaceAll("\\*\\*([^*]+)\\*\\*", "$1");
+        t = t.replaceAll("\\*\\*", "");
+
         return t;
+    }
+
+    /** Returns true if the line is model meta-commentary, not legal prose. */
+    private boolean isMetaCommentary(String line) {
+        String lower = line.toLowerCase();
+        // Exact prefix patterns — high confidence
+        if (lower.startsWith("note:")) return true;
+        if (lower.startsWith("[note:")) return true;
+        if (lower.startsWith("reference:")) return true;
+        if (lower.startsWith("source:")) return true;
+        if (lower.startsWith("instruction:")) return true;
+        if (lower.startsWith("end of ")) return true;
+        if (lower.startsWith("do not ")) return true;
+        if (lower.startsWith("sub-clause ") && lower.contains(":")) {
+            // "Sub-clause 8: ..." overflow past expected count
+            try {
+                int num = Integer.parseInt(lower.substring(11, lower.indexOf(':')).trim());
+                return num > 7; // strip overflow sub-clauses numbered 8+
+            } catch (NumberFormatException ignored) {}
+        }
+        // Containment patterns — model explaining itself
+        if (lower.contains("this clause is drafted")) return true;
+        if (lower.contains("this clause is tailored")) return true;
+        if (lower.contains("this clause complies")) return true;
+        if (lower.contains("this payment clause")) return true;
+        if (lower.contains("the following sub-clauses were provided")) return true;
+        if (lower.contains("do not include sub-clause headings")) return true;
+        if (lower.contains("keep the same structure")) return true;
+        if (lower.contains("as per the given prompt")) return true;
+        if (lower.contains("the above sub-clauses")) return true;
+        if (lower.contains("are not required to be included")) return true;
+        if (lower.contains("the data protection and privacy focus")) return true;
+        if (lower.contains("this is a first draft")) return true;
+        return false;
     }
 
     /**
@@ -1795,6 +1882,141 @@ public class DraftService {
             .replaceAll("\\[[A-Z][A-Z\\s]{1,60}\\]", "as mutually agreed by the Parties in writing")
             // Any remaining mixed-case bracket e.g. [insert number], [number of days]
             .replaceAll("\\[[a-zA-Z][a-zA-Z\\s]{1,60}\\]", "as mutually agreed by the Parties in writing");
+    }
+
+    // ── Party role enforcement ─────────────────────────────────────────────────
+
+    /**
+     * Replaces inconsistent party naming (Enterprise, Client, Vendor, Company, etc.)
+     * with the correct roles from contract_types.yml (e.g. Licensor/Licensee).
+     * Runs after all generation — deterministic string replacement, no LLM needed.
+     */
+    private String enforcePartyRoles(String html, DraftRequest request) {
+        var config = contractRegistry.get(request.getTemplateId());
+        if (config == null || config.partyRoles() == null || config.partyRoles().size() < 2) return html;
+
+        String roleA = config.partyARole(); // e.g. "Licensor"
+        String roleB = config.partyBRole(); // e.g. "Licensee"
+        String nameA = nullToDefault(request.getPartyA(), roleA);
+        String nameB = nullToDefault(request.getPartyB(), roleB);
+
+        // Map generic terms → correct role. Only replace when surrounded by word boundaries.
+        // PartyA variants
+        String[][] partyAMap = {
+            {"the Service Provider", roleA}, {"Service Provider", roleA},
+            {"the Vendor", roleA}, {"Vendor", roleA},
+            {"the Company", roleA}, {"Company", roleA},
+            {"the Supplier", roleA}, {"Supplier", roleA},
+            {"the Provider", roleA}, {"Provider", roleA},
+            {"the Employer", roleA}, {"Employer", roleA},
+        };
+        // PartyB variants
+        String[][] partyBMap = {
+            {"the Client", roleB}, {"Client", roleB},
+            {"the Enterprise", roleB}, {"Enterprise", roleB},
+            {"the Buyer", roleB}, {"Buyer", roleB},
+            {"the Customer", roleB}, {"Customer", roleB},
+            {"the Employee", roleB}, {"Employee", roleB},
+        };
+
+        // Only replace variants that DON'T match the actual role
+        for (String[] pair : partyAMap) {
+            if (!pair[0].equalsIgnoreCase(roleA) && !pair[0].equalsIgnoreCase("the " + roleA)) {
+                html = html.replace(pair[0], pair[1]);
+            }
+        }
+        for (String[] pair : partyBMap) {
+            if (!pair[0].equalsIgnoreCase(roleB) && !pair[0].equalsIgnoreCase("the " + roleB)) {
+                html = html.replace(pair[0], pair[1]);
+            }
+        }
+
+        return html;
+    }
+
+    // ── Missing terms detector ───────────────────────────────────────────────
+
+    /**
+     * After full draft generation, scans the complete HTML for missing deal terms.
+     * Returns a list of terms from the deal brief that were NOT incorporated.
+     */
+    private List<String> detectMissingTerms(String fullHtml, DraftRequest request) {
+        if (request.getExtractedDealTerms() == null) return List.of();
+        String lower = fullHtml.toLowerCase();
+        List<String> missing = new ArrayList<>();
+        for (String termLine : request.getExtractedDealTerms().split("\n")) {
+            String term = termLine.replaceFirst("^-\\s*", "").trim();
+            if (term.isBlank()) continue;
+            // Extract the value part after ":"
+            String[] parts = term.split(":", 2);
+            String value = parts.length > 1 ? parts[1].trim() : term;
+            // Check if the key concept or value appears in the draft
+            boolean found = lower.contains(value.toLowerCase());
+            if (!found && parts.length > 1) {
+                // Also check for the key
+                found = lower.contains(parts[0].trim().toLowerCase());
+            }
+            if (!found) {
+                missing.add(term);
+            }
+        }
+        if (!missing.isEmpty()) {
+            log.warn("Draft missing {} deal terms: {}", missing.size(), missing);
+        }
+        return missing;
+    }
+
+    // ── Input summary for draft HTML ─────────────────────────────────────────
+
+    /**
+     * Generates a "SCHEDULE — DRAFT PARAMETERS" section appended to the draft HTML.
+     * Shows the user what input was used, enabling verification against the output.
+     */
+    private String buildInputSummaryHtml(DraftRequest request) {
+        var config = contractRegistry.get(request.getTemplateId());
+        String displayName = config != null ? config.displayName() : request.getTemplateId();
+        String roleA = config != null ? config.partyARole() : "Party A";
+        String roleB = config != null ? config.partyBRole() : "Party B";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n<h2>SCHEDULE — DRAFT PARAMETERS</h2>\n");
+        sb.append("<div class=\"article-body\" style=\"font-size:10pt; color:#555;\">\n");
+        sb.append("<p><em>This section summarizes the input parameters used to generate this draft. ")
+          .append("It is included for verification purposes and should be removed from the final executed version.</em></p>\n");
+        sb.append("<table style=\"width:100%; border-collapse:collapse; margin:10px 0;\">\n");
+
+        addParamRow(sb, "Contract Type", displayName);
+        addParamRow(sb, roleA, nullToDefault(request.getPartyA(), "—"));
+        if (request.getPartyAAddress() != null && !request.getPartyAAddress().isBlank()) {
+            addParamRow(sb, roleA + " Address", request.getPartyAAddress());
+        }
+        addParamRow(sb, roleB, nullToDefault(request.getPartyB(), "—"));
+        if (request.getPartyBAddress() != null && !request.getPartyBAddress().isBlank()) {
+            addParamRow(sb, roleB + " Address", request.getPartyBAddress());
+        }
+        addParamRow(sb, "Jurisdiction", nullToDefault(request.getJurisdiction(), "—"));
+        addParamRow(sb, "Practice Area", nullToDefault(request.getPracticeArea(), "—"));
+        addParamRow(sb, "Counterparty Type", nullToDefault(request.getCounterpartyType(), "—"));
+
+        String brief = request.getDealBrief() != null ? request.getDealBrief() : request.getDealContext();
+        if (brief != null && !brief.isBlank()) {
+            addParamRow(sb, "Deal Brief", brief);
+        }
+        if (request.getExtractedDealTerms() != null && !request.getExtractedDealTerms().isBlank()) {
+            String termsHtml = request.getExtractedDealTerms().replace("\n", "<br>");
+            addParamRow(sb, "Extracted Deal Terms", termsHtml);
+        }
+
+        sb.append("</table>\n</div>\n");
+        return sb.toString();
+    }
+
+    private void addParamRow(StringBuilder sb, String label, String value) {
+        sb.append("<tr><td style=\"border:1px solid #ddd; padding:4px 8px; font-weight:bold; width:30%; vertical-align:top;\">")
+          .append(label)
+          .append("</td><td style=\"border:1px solid #ddd; padding:4px 8px;\">")
+          .append(value)
+          .append("</td></tr>\n");
     }
 
     // ── Post-generation coherence scan ────────────────────────────────────────

@@ -29,8 +29,16 @@ public class ContractTypeRegistry {
             String templateId,
             String documentType,
             String displayName,
-            List<String> defaultSections
-    ) {}
+            List<String> defaultSections,
+            String contractMode,
+            List<String> partyRoles,
+            List<String> bannedTerms
+    ) {
+        /** Party A role (e.g. "Licensor", "Provider"). Falls back to "Party A". */
+        public String partyARole() { return partyRoles != null && partyRoles.size() > 0 ? partyRoles.get(0) : "Party A"; }
+        /** Party B role (e.g. "Licensee", "Customer"). Falls back to "Party B". */
+        public String partyBRole() { return partyRoles != null && partyRoles.size() > 1 ? partyRoles.get(1) : "Party B"; }
+    }
 
     private Map<String, ContractTypeConfig> byId = Map.of();
 
@@ -68,8 +76,29 @@ public class ContractTypeRegistry {
                 id,
                 stringOrDefault(raw.get("document_type"), null),
                 stringOrDefault(raw.get("display_name"), id),
-                stringListOrEmpty(raw.get("default_sections"))
+                stringListOrEmpty(raw.get("default_sections")),
+                stringOrDefault(raw.get("contract_mode"), null),
+                stringListOrEmpty(raw.get("party_roles")),
+                stringListOrEmpty(raw.get("banned_terms"))
         );
+    }
+
+    /** Get the expected contract mode for scratchpad validation. */
+    public String contractMode(String templateId) {
+        ContractTypeConfig c = get(templateId);
+        return c != null && c.contractMode() != null ? c.contractMode() : "";
+    }
+
+    /** Get the party role names for this contract type. */
+    public List<String> partyRoles(String templateId) {
+        ContractTypeConfig c = get(templateId);
+        return c != null && c.partyRoles() != null ? c.partyRoles() : List.of("Party A", "Party B");
+    }
+
+    /** Get banned terms for this contract type. */
+    public List<String> bannedTerms(String templateId) {
+        ContractTypeConfig c = get(templateId);
+        return c != null && c.bannedTerms() != null ? c.bannedTerms() : List.of();
     }
 
     /** Lookup by template id (case-insensitive). Falls back to msa if unknown. */

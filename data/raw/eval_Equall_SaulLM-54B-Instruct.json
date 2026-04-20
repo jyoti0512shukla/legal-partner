@@ -1,0 +1,369 @@
+{
+  "model": "SaulLM-54B-Instruct",
+  "timestamp": "2026-04-17T20:32:39.326993",
+  "tasks": {
+    "drafting": [
+      {
+        "id": "saas_definitions",
+        "contract_type": "SaaS",
+        "clause": "DEFINITIONS",
+        "output": "1. \"Authorized Users\" means those employees, agents, contractors, consultants, advisers, representatives, and other individuals who have been granted access to the Platform by the Customer in accordance with this Agreement and subject to any restrictions set forth herein.\n\n2. \"Confidential Information\" means all confidential information disclosed by one Party (\"Disclosing Party\") to another Party (\"Receiving Party\"), whether orally or in writing, that is designated as proprietary or confidential at the time of disclosure or that would be reasonably expected to be considered confidential based on its nature or content. The term does not include information that becomes available to the Receiving Party from a source other than the Disclosing Party without breach of an obligation owed to the Disclosing Party.\n\n3. \"Customer Data\" means data provided by or collected from the Customer or its Authorized Users through their use of the Platform or otherwise made available to Provider under this Agreement. This includes but is not limited to personal data, metadata, user-generated content, and system logs.\n\n4. \"Platform\" refers to the software application(s), services, tools, and infrastructure provided by Provider as part of the Services, including updates, upgrades, and new versions released during the Term of this Agreement.\n\n5. \"Services\" means the subscription service offered by Provider to provide the Customer with access to and use of the Platform, along with related support and maintenance services, pursuant to the terms and conditions specified in this Agreement.\n\n6. \"Subscription Fee\" means the fee payable by the Customer to Provider for the right to use the Services, as described in Section XYZ of this Agreement.\n\n7. \"Uptime\" means the percentage of time during which the Platform was accessible and functional when measured over a given period, excluding downtime caused by scheduled maintenance, force majeure events, or issues arising out of the Customer's failure to comply with its obligations under this Agreement.",
+        "scores": {
+          "expected_terms": 1.0,
+          "no_banned_terms": 0.0,
+          "banned_found": [
+            "Contractor"
+          ],
+          "subclause_count": 1.0,
+          "subclause_actual": 7,
+          "subclause_expected": 7,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 2051,
+          "length_ok": 1.0,
+          "overall": 0.7999999999999999
+        },
+        "time_seconds": 48.5
+      },
+      {
+        "id": "saas_services",
+        "contract_type": "SaaS",
+        "clause": "SERVICES",
+        "output": "1. Platform Access Grant\n\nSubject to the terms of this Agreement, the Provider grants the Customer a non-exclusive, non-transferable, limited license to use the hosted Workflow Automation Platform (\"Platform\") during the Term solely through the provided web interface in accordance with the Documentation. This license is subject to any restrictions or limitations set forth in the Documentation.\n\n2. Uptime Service Level Agreement (SLA)\n\nThe Provider shall make reasonable efforts to ensure that the Platform has an availability rate of at least 99.9% (“Uptime SLA”) on a monthly basis, calculated as follows:\n\n(Total minutes in month - Total downtime minutes in month / Total minutes in month) * 100 = Availability Rate\n\nIf the Provider fails to meet the Uptime SLA in any given month, the Customer may be entitled to service credits according to the schedule outlined in Exhibit A attached hereto.\n\n3. Support Tiers\n\na. Email Support: The Provider will provide email support within twenty-four hours (24 hrs.) from the time the request was received by the Provider’s designated representative.\nb. Phone Support: For urgent issues classified as “critical” by the Customer, the Provider will provide phone support within four hours (4 hrs.) from the time the request was received by the Provider’s designated representative.\nc. Response Time: All responses to requests for support will be made in English language.\nd. Escalation Process: If the issue remains unresolved after following the escalation process described in the Documentation, the Customer may terminate this Agreement upon written notice without liability to the Provider other than reimbursement of prepaid fees paid but not yet used.\ne. Limitations: The above-described support does not include training, customization, or consulting services unless otherwise agreed in writing.\n\n4. Implementation Services\n\nThe Provider will provide up to ten (10) hours of remote implementation services free of charge, which includes installation assistance, configuration guidance, and basic user training. Any additional implementation services requested by the Customer will be charged at the rates specified in Schedule B attached hereto.\n\n5. Updates & Enhancements\n\nThe Provider reserves the right to update and enhance the Platform periodically, including adding new features, functionality, and performance improvements. Such updates and enhancements will be implemented in a manner that minimizes disruption to the Customer's operations. The Provider will notify the Customer about significant changes before they take effect.",
+        "scores": {
+          "expected_terms": 1.0,
+          "no_banned_terms": 1.0,
+          "banned_found": [],
+          "subclause_count": 1.0,
+          "subclause_actual": 5,
+          "subclause_expected": 5,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 2588,
+          "length_ok": 1.0,
+          "overall": 1.0
+        },
+        "time_seconds": 62.2
+      },
+      {
+        "id": "saas_payment",
+        "contract_type": "SaaS",
+        "clause": "PAYMENT",
+        "output": "5.1. Fees and Payment:\n\n(a) The annual subscription fee (\"Subscription Fee\") shall be USD$180,000 (one hundred eighty thousand US dollars), due and payable annually in advance on or before the Effective Date and each subsequent anniversary thereof during the Term.\n\n(b) Invoices will be issued net thirty (30) days from the date of issue, with payments made by bank transfer or other mutually agreed method. Any late payments will accrue interest at a rate of one and a half percent (1.5%) per month calculated daily until paid in full.\n\n(c) Customer acknowledges that it is responsible for all taxes imposed by any governmental authority related to this agreement, excluding taxes based solely on Supplier’s income.\n\n(d) If Customer fails to make timely payments as required under this Agreement, Supplier may provide written notice fourteen (14) calendar days prior to suspending access to the Services. Suspension shall not relieve Customer of its obligation to continue paying fees owed hereunder.\n\n(e) Upon termination or expiration of this Agreement, no refunds or credits will be provided for prepaid but unused services unless otherwise specified in writing by Supplier.",
+        "scores": {
+          "expected_terms": 0.6,
+          "no_banned_terms": 1.0,
+          "banned_found": [],
+          "subclause_count": 0.2,
+          "subclause_actual": 1,
+          "subclause_expected": 5,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 1178,
+          "length_ok": 1.0,
+          "overall": 0.74
+        },
+        "time_seconds": 30.7
+      },
+      {
+        "id": "saas_liability",
+        "contract_type": "SaaS",
+        "clause": "LIABILITY",
+        "output": "1. EXCEPT AS EXPRESSLY PROVIDED IN THIS AGREEMENT, THE TOTAL LIABILITY OF EITHER PARTY FOR ANY CLAIM ARISING OUT OF OR RELATING TO THIS AGREEMENT SHALL NOT EXCEED AN AMOUNT EQUAL TO THE FEES PAID BY CUSTOMER UNDER THIS AGREEMENT DURING THE TWELVE (12) MONTHS PRECEDING THE FIRST EVENT GIVING RISE TO SUCH CLAIM; PROVIDED THAT NO LIMITATION SHALL APPLY WITH RESPECT TO DAMAGES ARISING FROM:\n\n   a. Intellectual Property Infringement or Misappropriation under this Agreement; or\n\n   b. Breaches of obligations to maintain Confidential Information as set forth in Section X of this Agreement.\n\n2. NEITHER PARTY SHALL BE LIABLE FOR ANY LOST PROFITS, LOST REVENUES, LOST BUSINESS OPPORTUNITIES, OR OTHER INCIDENTAL, CONSEQUENTIAL, SPECIAL, PUNITIVE, OR EXEMPLARY DAMAGES ARISING OUT OF OR RELATED TO THIS AGREEMENT, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.\n\n3. The limitations on liability contained herein shall apply regardless of whether any remedy fails its essential purpose.\n\n4. The foregoing provisions of this Clause shall survive termination or expiration of this Agreement.\n\n5. For purposes of clarity, nothing in this Agreement limits either party's indemnification obligations pursuant to Article XI of this Agreement.",
+        "scores": {
+          "expected_terms": 0.5,
+          "no_banned_terms": 1.0,
+          "banned_found": [],
+          "subclause_count": 1.0,
+          "subclause_actual": 5,
+          "subclause_expected": 5,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 1236,
+          "length_ok": 1.0,
+          "overall": 0.875
+        },
+        "time_seconds": 38.5
+      },
+      {
+        "id": "saas_confidentiality",
+        "contract_type": "SaaS",
+        "clause": "CONFIDENTIALITY",
+        "output": "1. \"Confidential Information\" means any information or data in tangible or intangible form that is proprietary to one Party (\"Disclosing Party\") and provided to the other Party (\"Receiving Party\"), including but not limited to trade secrets, know-how, inventions, software code, algorithms, business plans, marketing strategies, financial statements, customer lists, and product specifications, which is marked as confidential or designated as such at the time of disclosure or should reasonably be considered confidential based on its nature and circumstances surrounding its disclosure.\n\n2. The Receiving Party shall:\n   a. keep all Confidential Information strictly confidential;\n   b. use Confidential Information solely for purposes directly related to this SaaS Agreement;\n   c. restrict access to Confidential Information only to employees, agents, contractors, and professional advisers who have a need to know and are bound by written agreements with similar terms of confidentiality;\n   d. refrain from reverse engineering, decompiling, or disassembling any software or technology received under this agreement;\n   e. take reasonable steps to protect Confidential Information against unauthorized disclosure or theft.\n\n3. Notwithstanding the above, the Receiving Party may disclose Confidential Information when required by applicable laws or regulations, court order, or governmental authority, provided it gives prompt notice to the Disclosing Party so that the latter can seek an appropriate protective order or waive compliance if necessary.\n\n4. Excluded from the definition of Confidential Information are:\n   a. information already known to the Receiving Party without restriction before receipt from the Disclosing Party;\n   b. information independently developed by the Receiving Party without reference to the Disclosing Party's Confidential Information;\n   c. information obtained from a third party without restrictions on disclosure or use;\n   d. information that becomes part of the public domain through no fault of the Receiving Party.\n\n5. Upon expiration or termination of this SaaS Agreement, the Receiving Party must either return or destroy all copies of Confidential Information within its possession or control, subject to exceptions agreed upon in writing between parties. This obligation survives termination of this Agreement for three years.",
+        "scores": {
+          "expected_terms": 0.6,
+          "no_banned_terms": 1.0,
+          "banned_found": [],
+          "subclause_count": 1.0,
+          "subclause_actual": 5,
+          "subclause_expected": 5,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 2376,
+          "length_ok": 1.0,
+          "overall": 0.9
+        },
+        "time_seconds": 53.8
+      },
+      {
+        "id": "saas_ip",
+        "contract_type": "SaaS",
+        "clause": "IP_RIGHTS",
+        "output": "1. Intellectual Property Ownership:\n\n(a) The Software as a Service (SaaS) Platform provided by the Provider (\"Platform\") is proprietary to and owned exclusively by the Provider. All rights, title, and interest in and to the Platform shall remain with the Provider at all times.\n\n(b) Any data or information submitted by the Customer to the Platform (\"Customer Data\") will be retained solely by the Customer. The Customer acknowledges that it has full ownership of its Customer Data and agrees not to infringe upon any third party's intellectual property rights when using the Platform.\n\n2. License Grant: During the Subscription Term, the Provider hereby grants the Customer a limited, non-exclusive, non-transferable right and license to use the Platform solely for their internal business purposes. This license does not include the right to sublicense, assign, or transfer the license granted under this agreement.\n\n3. Work Made For Hire: Neither Party claims any \"work made for hire\" status over materials created through the course of providing or receiving services under this agreement.\n\n4. Intellectual Property Assignment: Except as expressly set forth in this Agreement, neither Party may claim ownership or make any assignments related to the other Party's intellectual property without written consent from the owner of such intellectual property.",
+        "scores": {
+          "expected_terms": 1.0,
+          "no_banned_terms": 0.0,
+          "banned_found": [
+            "work made for hire"
+          ],
+          "subclause_count": 1.0,
+          "subclause_actual": 4,
+          "subclause_expected": 4,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 1359,
+          "length_ok": 1.0,
+          "overall": 0.7999999999999999
+        },
+        "time_seconds": 32.0
+      },
+      {
+        "id": "saas_termination",
+        "contract_type": "SaaS",
+        "clause": "TERMINATION",
+        "output": "1. Termination for Cause and Right to Cure:\n\n    Either Party may terminate this Agreement upon written notice if the other Party breaches any material term or condition of this Agreement and fails to remedy such breach within thirty (30) days after receipt of written notice specifying the breach in reasonable detail; provided that no right to cure shall apply where the breaching Party has received three (3) notices under this provision during any twelve (12)-month period.\n\n2. Termination for Convenience:\n\n    Either Party may terminate this Agreement without cause by providing at least ninety (90) days' prior written notice to the other Party.\n\n3. Effects of Termination:\n\n   Upon termination of this Agreement, Customer shall immediately cease using the Software as a Service (\"SaaS\") and promptly return all Confidential Information to Supplier or certify destruction thereof, subject to applicable law. Customer will also be required to pay any outstanding amounts owed to Supplier before the date of termination.\n\n4. Surviving Obligations:\n\n    The following provisions of this Agreement shall survive its termination: Section 6 - Confidentiality, Section 8 - Liability, and Section 10 - Intellectual Property Rights. These obligations will remain enforceable even after termination of this Agreement.",
+        "scores": {
+          "expected_terms": 0.8,
+          "no_banned_terms": 1.0,
+          "banned_found": [],
+          "subclause_count": 1.0,
+          "subclause_actual": 4,
+          "subclause_expected": 4,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 1314,
+          "length_ok": 1.0,
+          "overall": 0.9500000000000001
+        },
+        "time_seconds": 33.5
+      },
+      {
+        "id": "nda_confidentiality",
+        "contract_type": "NDA",
+        "clause": "CONFIDENTIALITY",
+        "output": "1. \"Confidential Information\" means any and all information or data in tangible or intangible form that is proprietary to one Party (\"Disclosing Party\") and provided to the other Party (\"Receiving Party\"), including but not limited to technical, financial, business, marketing, sales, research, development, engineering, manufacturing, process, product, service, customer, supplier, employee, consultant, contractor, licensee, licensor, partner, joint venture, alliance, strategic relationship, intellectual property, trade secret, know-how, patent, copyright, trademark, branding, domain name, software code, algorithm, formula, design, drawing, specification, prototype, model, plan, strategy, policy, procedure, standard, guideline, manual, document, report, presentation, communication, correspondence, email, file, database, system, network, infrastructure, asset, equipment, facility, location, address, contact details, pricing, cost, margin, discount, rebate, credit terms, payment terms, agreement, arrangement, term sheet, negotiation, opportunity, prospect, lead, pipeline, forecast, projection, analysis, study, survey, interview, focus group, market research, consumer insight, competitor intelligence, industry trend, regulatory requirement, statute, ordinance, law, rule, regulation, judgment, decree, order, decision, injunction, settlement, award, arbitration, mediation, litigation, dispute resolution, claim, demand, request, notice, consent, waiver, release, authorization, approval, certification, accreditation, inspection, audit, investigation, examination, review, assessment, evaluation, appraisal, valuation, opinion, advice, recommendation, proposal, offer, acceptance, rejection, amendment, modification, supplement, addendum, schedule, exhibit, appendix, annexure, attachment, copy, extract, summary, abstract, excerpt, note, memorandum, record, logbook, minute, transcript, recording, tape, disc, cartridge, cassette, compact disc, digital video disc, hard drive, storage device, memory card, flash drive, USB stick, key fob, token, access control mechanism, password, encryption key, biometric identifier, security protocol, authentication method, confidential communication channel, secure transmission medium, virtual private network, remote desktop connection, cloud computing platform, application programming interface, web service, software as a service, platform as a service, infrastructure as a service, machine learning model, artificial neural network, deep learning framework, natural language processing engine, computer vision technology, robotics solution, drone, autonomous vehicle, Internet of Things (IoT) device, wearable technology, augmented reality headset, virtual reality goggles, holographic display, smart speaker, voice assistant, chatbot, conversational agent, intelligent personal assistant, cognitive computing tool, knowledge management system, content management system, enterprise resource planning system, customer relationship management system, supply chain management system, human capital management system, e-learning platform, adaptive learning platform, educational technology platform, social media platform, collaboration platform, project management platform, task management platform, scheduling platform, calendar platform, event management platform, ticketing platform, reservation platform, booking platform, travel platform, accommodation platform, transportation platform, food delivery platform, meal kit subscription service, grocery delivery service, restaurant ordering service, recipe sharing service, fitness tracking service, health monitoring service, wellness coaching service, mental health support service, telemedicine service, medical imaging service, diagnostic testing service, pharmaceutical distribution service, prescription fulfillment service, drug discovery service, clinical trial service, life sciences research service, laboratory services provider, scientific instrument manufacturer, genomic sequencing service, bioinformatics service, biotechnology company, biopharmaceutical company, regenerative medicine company, stem cell therapy company, gene editing company, precision medicine company, immunotherapy company, nanotechnology company, materials science company, energy storage company, renewable energy company, clean energy company, sustainable energy company, environmental sustainability company, green technology company, circular economy company, waste reduction company, recycling company, upcycling company, composting company, organic farming company, agribusiness company, aquaculture company, plant breeding company, agricultural technology company, crop protection company, seed company, fertilizer company, irrigation company, hydroponics company, vertical farming company, controlled environment agriculture company, urban farming company, indoor farming company, aeroponics company, tissue culture company, micropropagation company, mycological propagation company, mushroom cultivation company, algae cultivation company, seaweed cultivation company, insect farming company, entomoculture company, edible insects company, protein alternatives company, alternative proteins company, cultured meat company, lab-grown meat company, cellular agriculture company, synthetic biology company, synbio company, biosimilar company, bioengineering company, biomanufacturing company, biomedical devices company, biocompatible materials company, biodegradable plastics company, biopolymers company, biomaterials company, biomimetics company, bioluminescent organisms company, bioremediation company, biogeochemistry company, biogeography company, biological oceanography company, marine biology company, limnology company, freshwater ecology company, estuarine ecology company, coastal ecology company, wetlands ecology company, terrestrial ecology company, desert ecology company, tundra ecology company, polar ecology company, tropical ecology company, temperate ecology company, boreal ecology company, montane ecology company, grassland ecology company, savannah ecology company, rainforest ecology company, mangrove ecology company, coral reef ecology company, seagrass meadow ecology company, kelp forest ecology company, phytoplankton bloom ecology company, zooplankton swarm ecology company, animal behavior company, ethology company, comparative psychology company, neuroscience company, sensory perception company, psychophysics company, psychoacoustics company, psychophysiology company, psychometrics company, psychological measurement company, personality theory company, motivation theory company, emotion theory company, stress theory company, self-concept theory company, cognition theory company, consciousness theory company, sleep theory company, circadian rhythm theory company, dream theory company, attention theory company, perceptual organization theory company, visual perception theory company, auditory perception theory company, somatosensory perception theory company, interoception theory company, proprioception theory company, kinesthesia theory company, multisensory integration theory company, crossmodal interaction theory company, embodied cognition theory company, situated cognition theory company, distributed cognition theory company, extended mind theory company, enactive theory company, phenomenology theory company, hermeneutics theory company, semiotics theory company, structuralism theory company, functionalism theory company, Gestalt psychology theory company, behaviorist theory company, cognitive revolution theory company, computational theory of mind theory company, representational theory of mind theory company, dualistic theory of mind theory company, monistic theory of mind theory company, identity theory theory company, supervenience theory theory company, eliminativism theory company, epiphenomenalism theory company, emergentism theory company, panpsychism theory company, neutral monism theory company, idealism theory company, materialism theory company, physicalism theory company, ontological argument theory company, cosmological argument theory company, teleological argument theory company, moral argument theory company, existential argument theory company, transcendental argument theory company, logical positivism theory company, pragmatism theory company, analytic philosophy theory company, continental philosophy theory company, critical theory theory company, postmodern theory company, deconstruction theory company, feminist theory company, queer theory company, intersectionality theory company, sociology theory company, anthropology theory company, political theory company, international relations theory company, peace studies theory company, conflict studies theory company, global governance theory company, diplomacy theory company, public administration theory company, public policy theory company, public safety theory company, criminology theory company, penology theory company, victimology theory company, forensic science theory company, forensic psychology theory company, forensic psychiatry theory company, forensic pathology theory company, forensic odontology theory company, forensic toxicology theory company, forensic chemistry theory company, forensic physics theory company, forensic ballistics theory company, forensic fingerprint identification theory company, forensic DNA profiling theory company, forensic serology theory company, forensic entomology theory company, forensic botany theory company, forensic geology theory company, forensic palynology theory company, forensic archaeology theory company, forensic anthropology theory company, forensic art theory company, forensic audio theory company, forensic video theory company, forensic image enhancement theory company, forensic facial recognition theory company, forensic handwriting analysis theory company, forensic linguistics theory company, forensic psychology profiling theory company, forensic psychology offender classification theory company, forensic",
+        "scores": {
+          "expected_terms": 1.0,
+          "no_banned_terms": 0.0,
+          "banned_found": [
+            "subscription",
+            "platform"
+          ],
+          "subclause_count": 0.2,
+          "subclause_actual": 1,
+          "subclause_expected": 5,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 10044,
+          "length_ok": 0.5,
+          "overall": 0.5900000000000001
+        },
+        "time_seconds": 224.9
+      },
+      {
+        "id": "nda_termination",
+        "contract_type": "NDA",
+        "clause": "TERMINATION",
+        "output": "1. Term: This Agreement shall commence on the Effective Date and continue in full force and effect for two (2) years from that date (\"Initial Term\"). After the Initial Term, this Agreement will automatically renew for successive one (1)-year terms unless either Party provides written notice of non-renewal at least thirty (30) calendar days prior to the expiration of the then-current term.\n\n2. Termination: Either Party may terminate this Agreement upon providing written notice to the other Party at least thirty (30) calendar days before the intended effective date of such termination. Notwithstanding the foregoing, this Agreement may be terminated immediately by either Party if the other Party breaches any material obligation under this Agreement or becomes insolvent or subject to bankruptcy proceedings.\n\n3. Survival: Upon termination of this Agreement, all confidential information disclosed hereunder shall remain subject to the provisions of this Agreement for three (3) years after the termination date. The Parties' respective rights and obligations arising from use of Confidential Information during the term of this Agreement shall also survive termination.",
+        "scores": {
+          "expected_terms": 0.25,
+          "no_banned_terms": 1.0,
+          "banned_found": [],
+          "subclause_count": 1.0,
+          "subclause_actual": 3,
+          "subclause_expected": 3,
+          "no_artifacts": 1.0,
+          "artifacts_found": [],
+          "no_memorized": 1.0,
+          "memorized_found": [],
+          "length": 1176,
+          "length_ok": 1.0,
+          "overall": 0.8125
+        },
+        "time_seconds": 26.9
+      }
+    ],
+    "risk": [
+      {
+        "id": "risk_uncapped_liability",
+        "output": "RATING: HIGH\n\nJustification: The given clause imposes unlimited and unrestricted liability upon the Provider in case of any damages arising out of or relating to the agreement. This type of provision can significantly increase the financial risks associated with entering into such an agreement. It may also discourage potential partners who might perceive the contract as too unfavorable due to the high level of responsibility placed on one party. Consequently, it is essential to carefully weigh the benefits against the potential costs before accepting such terms. However, if there is no alternative option available, negotiating other aspects of the agreement could help mitigate some of these risks. For instance, you could request additional insurance coverage, indemnification clauses, or even limit your own exposure by specifying maximum amounts for which each party would be responsible. In summary, while this clause presents a significant risk, it doesn't necessarily make the agreement inherently flawed; instead, it highlights the importance of understanding the full scope of obligations and responsibilities when evaluating business partnerships.",
+        "scores": {
+          "rating_match": 1.0,
+          "actual_rating": "HIGH",
+          "expected_rating": "HIGH",
+          "has_justification": 1.0,
+          "overall": 1.0
+        },
+        "time_seconds": 24.7
+      },
+      {
+        "id": "risk_standard_liability",
+        "output": "RATING: MEDIUM\n\nJustification: The given clause limits both parties' direct liability to an amount equal to the fees paid by the customer within the previous 12 months and excludes any indirect, incidental, special, or consequential damages. This limitation on liability can be seen as beneficial from the perspective of the party drafting the agreement since it reduces potential exposure to large claims. However, the rating is set at medium because such clauses may still leave room for significant financial losses if the services provided have high value or involve critical business operations. For example, if a software provider fails to deliver essential tools that cause a company to lose its primary source of revenue, even though the service fee was relatively low, the limited liability could result in insufficient compensation. Therefore, while the clause does provide some protection against excessive liability, it also carries inherent risks due to its restrictive nature.",
+        "scores": {
+          "rating_match": 1.0,
+          "actual_rating": "MEDIUM",
+          "expected_rating": "MEDIUM",
+          "has_justification": 1.0,
+          "overall": 1.0
+        },
+        "time_seconds": 21.2
+      },
+      {
+        "id": "risk_auto_renewal",
+        "output": "The given clause presents a medium level of risk in terms of contract management and potential unintended consequences. The primary reason is that it requires both parties to be proactive about their intentions regarding contract continuation, which may lead to oversight or miscommunication if not properly managed. \n\nFor example, if one party does not wish to continue with the agreement but fails to provide timely notice, they could become bound by an additional year due to the automatic renewal provision. This situation might result in dissatisfaction or even disputes between the parties. Conversely, if neither party communicates its intention to terminate the agreement, the contract will continuously auto-renew, potentially leading to long-term commitments without proper review or negotiation.\n\nHowever, there are also some benefits associated with such clauses. They can help maintain business relationships and ensure stability while providing time for both parties to prepare for any necessary changes or negotiations. Automatic renewals can also prevent gaps in service or product delivery when transitioning from one contract period to another.\n\nIn summary, the risk presented by the given clause depends on how well both parties manage their communication and expectations within the context of the overall relationship. If handled effectively, the risks can be minimized, making the clause more beneficial than problematic. However, poor communication or misunderstandings could exacerbate these risks, highlighting the importance of clear and consistent communication throughout the duration of the agreement",
+        "scores": {
+          "rating_match": 0.0,
+          "actual_rating": "UNKNOWN",
+          "expected_rating": "LOW",
+          "has_justification": 1.0,
+          "overall": 0.4
+        },
+        "time_seconds": 33.8
+      }
+    ],
+    "qa": [
+      {
+        "id": "qa_termination_notice",
+        "question": "What is the notice period for termination for convenience?",
+        "output": "The notice period for termination for convenience is 90 days.",
+        "scores": {
+          "answer_accuracy": 0.5,
+          "found_terms": [
+            "90"
+          ],
+          "missing_terms": [
+            "ninety"
+          ],
+          "concise": 1.0,
+          "overall": 0.6499999999999999
+        },
+        "time_seconds": 1.8
+      },
+      {
+        "id": "qa_liability_cap",
+        "question": "What is the liability cap?",
+        "output": "The liability cap for Provider in this agreement is equal to the total subscription fees paid by Customer within the previous 12 months before the incident causing the claim arises.",
+        "scores": {
+          "answer_accuracy": 0.75,
+          "found_terms": [
+            "12",
+            "month",
+            "fees"
+          ],
+          "missing_terms": [
+            "twelve"
+          ],
+          "concise": 1.0,
+          "overall": 0.825
+        },
+        "time_seconds": 4.2
+      },
+      {
+        "id": "qa_governing_law",
+        "question": "What law governs this agreement and where are disputes resolved?",
+        "output": "Delaware state law governs this agreement, and disputes will be resolved through binding arbitration administered by the American Arbitration Association in Wilmington, Delaware.",
+        "scores": {
+          "answer_accuracy": 0.6666666666666666,
+          "found_terms": [
+            "Delaware",
+            "arbitration"
+          ],
+          "missing_terms": [
+            "AAA"
+          ],
+          "concise": 1.0,
+          "overall": 0.7666666666666666
+        },
+        "time_seconds": 4.3
+      }
+    ],
+    "summary": [
+      {
+        "id": "summary_termination",
+        "output": "1. Termination for Convenience: Either party can end the agreement after providing 90 days' written notice without any specific reason.\n2. Immediate Termination for Breach: If one party violates a significant part of the contract and doesn't fix it within 30 days after receiving written notice, the other party can end the agreement right away.\n3. Effects of Termination: After ending the agreement, the customer must stop using services and give back all confidential information.\n4. Surviving Clauses: The clauses about confidentiality, liability, indemnification, and governing law will still be valid even when the agreement is over.",
+        "scores": {
+          "bullet_count": 4,
+          "count_ok": 1.0,
+          "concise": 1.0,
+          "overall": 1.0
+        },
+        "time_seconds": 16.0
+      },
+      {
+        "id": "summary_payment",
+        "output": "1. Annual subscription fee is $180,000.\n2. Payment due within 30 days from invoice date.\n3. Late payment penalties:\n   - Interest rate of 1.5% per month on overdue amounts.\n4. Suspension of service after 14 days' written notice for non-payment.\n5. Taxes not included in subscription fee; customer responsible for paying any applicable taxes.",
+        "scores": {
+          "bullet_count": 5,
+          "count_ok": 1.0,
+          "concise": 1.0,
+          "overall": 1.0
+        },
+        "time_seconds": 11.0
+      }
+    ],
+    "full_contract": [
+      {
+        "id": "full_saas_contract",
+        "output": "SUBSCRIPTION AGREEMENT (\"Agreement\")\n\nThis Subscription Agreement (\"Agreement\") is entered into as of ________, 20__, effective as of the Effective Date (as defined below), by and between ACME CLOUD TECHNOLOGIES, INC., a Delaware corporation having an address at 548 Market Street, San Francisco, CA 94104 (\"Provider\"), and RETAILFLOW CORP., a Delaware corporation having an address at 350 Fifth Avenue, New York, NY 10118 (\"Customer\").\n\nWHEREAS, Provider offers certain Software as a Service (\"SaaS\") services to its customers through the use of cloud computing technologies; and\n\nWHEREAS, Customer desires to obtain access to such SaaS services from Provider for purposes of conducting its business operations;\n\nNOW THEREFORE, in consideration of the mutual promises set forth herein, the parties hereto agree as follows:\n\nDEFINITIONS\n\nFor purposes of this Agreement, the following capitalized words and phrases shall have the meanings ascribed thereto below:\n\n1. \"Authorized Users\" means those employees or agents of Customer who are designated by Customer as being permitted to use the SaaS Services pursuant to this Agreement. The number of Authorized Users may not exceed twenty-five hundred (250) without prior written consent from Provider.\n\n2. \"Confidential Information\" has the meaning given to it in Section 5(a).\n\n3. \"Effective Date\" means the date first above written.\n\n4. \"Intellectual Property Rights\" means any and all intellectual property rights existing anywhere in the world including but not limited to patents, trademarks, service marks, trade names, copyrights, database rights, design rights, mask work rights, domain name registrations, proprietary information, know-how, confidential information, moral rights, inventions, discoveries, improvements, processes, methods, algorithms, data models, schemas, formulas, techniques, ideas, concepts, designs, specifications, documentation, drawings, diagrams, flow charts, software code, source code, object code, user interfaces, screen displays, reports, analyses, compilations, databases, manuals, materials, works of authorship, and other forms of expression, whether registered or unregistered, and applications therefor, together with all goodwill associated therewith.\n\n5. \"SaaS Services\" means the software as a service offering provided by Provider under this Agreement, which includes the hosting, maintenance, support, and provisioning of the software application described in Exhibit A attached hereto, subject to the limitations specified in this Agreement.\n\n6. \"Term\" has the meaning given to it in Section 7(a).\n\nSERVICES\n\nSubject to the terms and conditions of this Agreement, Provider agrees to provide the SaaS Services to Customer during the Term. All SaaS Services will be performed using commercially reasonable efforts and consistent with industry standards.\n\nFEES AND PAYMENT\n\nIn consideration of the SaaS Services provided by Provider, Customer shall pay Provider the annual fee of one hundred eighty thousand dollars ($180,000) per year, due annually in advance upon execution of this Agreement and each subsequent renewal period. Any amounts owed by Customer that remain outstanding after thirty (30) days past their respective due dates shall accrue interest at the rate of two percent (2%) per month until paid in full.\n\nCONFIDENTIALITY\n\nEach party acknowledges that in connection with this Agreement, it may receive or otherwise become aware of nonpublic information relating to the other party's business, technology, products, plans, pricing, financial affairs, marketing strategies, or similar matters (“Confidential Information”). Each party agrees to keep the other’s Confidential Information strictly confidential and not disclose such Confidential Information except as expressly permitted by this Agreement. Upon request of the disclosing party, the receiving party shall promptly return or destroy all copies of the disclosing party’s Confidential Information then in its possession or control. Notwithstanding anything contained in this Agreement to the contrary, either party may disclose the other party’s Confidential Information if required to do so by applicable law or regulation, or if necessary to enforce its rights under this Agreement.\n\nIP RIGHTS\n\nAs between the parties, Provider retains ownership of all Intellectual Property Rights in and to the SaaS Services and related materials. No license or right to sublicense is granted to Customer except as expressly stated in this Agreement. Customer acknowledges that nothing in this Agreement grants or conveys to Customer any title or ownership interest in or to the SaaS Services or any Intellectual Property Rights embodied therein.\n\nLIABILITY\n\nEXCEPT AS EXPRESSLY PROVIDED IN THIS AGREEMENT, NEITHER PARTY SHALL BE LIABLE TO THE OTHER FOR ANY LOST PROFITS OR SPECIAL, INCIDENTAL, CONSEQUENTIAL, EXEMPLARY, PUNITIVE, OR INDIRECT DAMAGES ARISING OUT OF OR IN CONNECTION WITH THIS AGREEMENT, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. NOTWITHSTANDING THE FOREGOING, EACH PARTY'S LIABILITY UNDER THIS AGREEMENT SHALL NOT BE LIMITED IN RESPECT OF DEATH OR PERSONAL INJURY CAUSED BY ITS NEGLIGENCE OR BREACH OF OBLIGATIONS IMPOSED BY STATUTE, FRAUDULENT MISREPRESENTATION, OR WILLFUL MISCONDUCT.\n\nTERMINATION\n\nThe initial term of this Agreement commences on the Effective Date and continues for three years (“Initial Term”) unless earlier terminated in accordance with the provisions of this Agreement. This Agreement automatically renews for successive periods equal to the Initial Term, unless terminated earlier in accordance with the provisions of this Agreement. Either party may terminate this Agreement immediately upon notice to the other party if the other party breaches any material obligation under this Agreement and fails to cure such breach within thirty (30) days after receipt of written notice thereof.\n\nGOVERNING LAW\n\nThis Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to conflicts of law principles.\n\nGENERAL PROVISIONS\n\nThis Agreement constitutes the entire understanding of the parties relating to the subject matter hereof and supersedes all previous agreements, negotiations, understandings, discussions, and representations, whether oral or written. This Agreement may only be amended or modified by a writing executed by both parties. If any part of this Agreement is found invalid or unenforceable, the remaining portions shall remain valid and enforceable. Neither party may assign or transfer this Agreement or any rights or obligations hereunder without the prior written consent of the other party. This Agreement may be executed in counterparts, which taken together shall constitute one instrument.\n\nIN WITNESS WHEREOF, the parties have caused this Agreement to be duly executed and delivered as of the date first above written.\n\nACME CLOUD TECHNOLOGIES, INC.\n\nBy: /s/ John Doe\nName: John Doe\nTitle: CEO\n\nRETILFLOW CORP.\n\nBy: /s/ Jane Doe\nName: Jane Doe\nTitle: CEO\n\nExhibit A – Description of SaaS Services\n\nThe SaaS Services consist of the following:\n\n1. Hosting, maintaining, supporting, and providing access to the “RetailFlow” retail management platform via a secure web portal accessible over the internet.\n2. Providing up to 250 concurrent connections to the platform.\n3. Ensuring compliance with a minimum availability requirement of 99.9%.\n4. Supporting integration with third-party systems used by Customer, including payment processing platforms, shipping providers, and inventory management tools.\n5. Providing ongoing technical support and assistance to Customer, including responding to requests for help desk tickets submitted by Customer.\n6. Updating and enhancing the platform based on customer feedback and market trends.\n7. Implementing security measures designed to protect Customer’s data and prevent unauthorized access to the platform.\n8. Complying with applicable privacy regulations, including the European Union’s GDPR and California’s Consumer Privacy Act.\n\nHosting Environment: Amazon Web Services (US-East-1 region)",
+        "scores": {
+          "sections_present": 1.0,
+          "sections_found": [
+            "DEFINITIONS",
+            "SERVICES",
+            "PAYMENT",
+            "CONFIDENTIALITY",
+            "IP",
+            "LIABILITY",
+            "TERMINATION",
+            "GOVERNING",
+            "GENERAL"
+          ],
+          "sections_missing": [],
+          "parties_present": 0.5,
+          "length": 8119,
+          "length_ok": 1.0,
+          "no_artifacts": 0.0,
+          "overall": 0.6000000000000001
+        },
+        "time_seconds": 207.7
+      }
+    ]
+  },
+  "aggregate": {
+    "total_prompts": 18,
+    "average_score": 0.817,
+    "per_task_averages": {
+      "drafting": 0.83,
+      "risk": 0.8,
+      "qa": 0.747,
+      "summary": 1.0,
+      "full_contract": 0.6
+    }
+  }
+}
