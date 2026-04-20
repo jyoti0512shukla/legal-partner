@@ -41,7 +41,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
         String path = request.getRequestURI();
-        if (!path.startsWith("/api/v1/ai/")) {
+        // Only rate-limit POST/PUT on AI endpoints — these hit the LLM.
+        // GET requests (draft status polling, draft list, cached summaries)
+        // are cheap DB reads and must NOT consume rate-limit tokens.
+        if (!path.startsWith("/api/v1/ai/") || "GET".equalsIgnoreCase(request.getMethod())) {
             filterChain.doFilter(request, response);
             return;
         }

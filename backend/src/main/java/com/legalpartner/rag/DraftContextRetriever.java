@@ -222,9 +222,21 @@ public class DraftContextRetriever {
                     boolean docTypeMatch = targetDocType != null && targetDocType.equalsIgnoreCase(docType);
                     if (!matterMatch && !docTypeMatch) return false;
 
-                    // ── Soft constraints (applied on top of the hard scoping above) ──
-                    boolean jurisdictionMatch = jurisdiction == null || jurisdiction.isBlank()
-                            || targetJurisdiction.equalsIgnoreCase(jurisdiction);
+                    // ── Jurisdiction: hard filter when target is specified ──
+                    // Indian-law precedents must NOT appear in US/Delaware drafts.
+                    // Allow untagged chunks only when target jurisdiction is also blank.
+                    boolean jurisdictionMatch;
+                    if (targetJurisdiction != null && !targetJurisdiction.isBlank()) {
+                        // Target has jurisdiction — chunk must match or be untagged
+                        // BUT reject chunks from a clearly different jurisdiction family
+                        if (jurisdiction != null && !jurisdiction.isBlank()) {
+                            jurisdictionMatch = isSameJurisdictionFamily(targetJurisdiction, jurisdiction);
+                        } else {
+                            jurisdictionMatch = true; // untagged chunk, allow
+                        }
+                    } else {
+                        jurisdictionMatch = true; // no target jurisdiction, allow all
+                    }
                     boolean clauseMatch = chunkClauseType == null || chunkClauseType.isBlank()
                             || acceptableClauseTypes.contains(chunkClauseType.toUpperCase());
                     boolean industryMatch = industry == null || industry.isBlank()
@@ -244,6 +256,36 @@ public class DraftContextRetriever {
                     clauseType, request.getTemplateId(), targetMatterId);
         }
         return filtered;
+    }
+
+    /** Check if two jurisdictions belong to the same legal family (US states, Indian states, UK, etc.) */
+    private boolean isSameJurisdictionFamily(String target, String chunk) {
+        String t = target.toLowerCase(), c = chunk.toLowerCase();
+        // US family: any US state, "united states", "delaware", "california", "new york", etc.
+        boolean tUS = t.contains("united states") || t.contains("u.s.") || t.contains("delaware")
+                || t.contains("california") || t.contains("new york") || t.contains("texas")
+                || t.contains("illinois") || t.contains("florida") || t.contains("usa");
+        boolean cUS = c.contains("united states") || c.contains("u.s.") || c.contains("delaware")
+                || c.contains("california") || c.contains("new york") || c.contains("texas")
+                || c.contains("illinois") || c.contains("florida") || c.contains("usa");
+        if (tUS && cUS) return true;
+        // India family
+        boolean tIN = t.contains("india") || t.contains("mumbai") || t.contains("delhi")
+                || t.contains("bangalore") || t.contains("maharashtra") || t.contains("karnataka");
+        boolean cIN = c.contains("india") || c.contains("mumbai") || c.contains("delhi")
+                || c.contains("bangalore") || c.contains("maharashtra") || c.contains("karnataka")
+                || c.contains("ontario");  // Ontario is Canada, not India — but tagged Indian docs sometimes have it
+        if (tIN && cIN) return true;
+        // UK family
+        boolean tUK = t.contains("united kingdom") || t.contains("england") || t.contains("uk")
+                || t.contains("london") || t.contains("scotland");
+        boolean cUK = c.contains("united kingdom") || c.contains("england") || c.contains("uk")
+                || c.contains("london") || c.contains("scotland");
+        if (tUK && cUK) return true;
+        // Different families — reject cross-jurisdiction RAG
+        if ((tUS && cIN) || (tIN && cUS) || (tUS && cUK) || (tUK && cIN)) return false;
+        // Fallback: exact match or contains
+        return t.contains(c) || c.contains(t);
     }
 
     /**

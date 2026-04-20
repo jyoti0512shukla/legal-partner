@@ -69,48 +69,144 @@ cat > /tmp/saullm_serve.py << 'PYEOF'
 NOT vLLM — vLLM 0.19 has a Gemma3Config import bug on runpod-torch-v240.
 This is slower (no continuous batching) but WORKS. Serves 1-2 concurrent
 users fine for testing/demo.
+
+Fixes baked in (from RUNPOD_SETUP_ISSUES.md):
+  - bfloat16 compute dtype (float16 overflows → NaN with 4-bit quant)
+  - pad_token = unk_token (pad==eos causes premature EOS at ~32 tokens)
+  - asyncio.Lock + run_in_executor (bitsandbytes not thread-safe)
+  - min_new_tokens=50 prevents premature EOS
+  - Temperature floor 0.1 (safe with bfloat16)
+  - NaN fallback to greedy decoding
+  - Proper Mistral [INST] format: system merged into first user message
+  - Pydantic extra="ignore" for OpenAI fields we don't handle
+  - Returns 503 on errors instead of crashing the process
 """
-import json, time, os, torch
+import asyncio, json, time, os, uuid, torch
 from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
+from typing import List, Optional
 import uvicorn
 
 app = FastAPI()
 model = tokenizer = None
+_gpu_lock = asyncio.Lock()
 
 class Message(BaseModel):
     role: str
     content: str
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     model: str = "saullm-54b"
     messages: List[Message]
     max_tokens: int = 2000
     temperature: float = 0.3
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    stop: Optional[List[str]] = None
 
 @app.on_event("startup")
 def load_model():
     global model, tokenizer
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-    print("Loading SaulLM-54B-Instruct (4-bit)...", flush=True)
+    print("Loading SaulLM-54B-Instruct (4-bit bfloat16)...", flush=True)
     t0 = time.time()
-    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16, bnb_4bit_quant_type="nf4")
+    bnb = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_compute_dtype=torch.bfloat16,  # bfloat16 not float16 — prevents NaN
+        bnb_4bit_quant_type="nf4",
+    )
     tokenizer = AutoTokenizer.from_pretrained("Equall/SaulLM-54B-Instruct", token=os.environ.get("HF_TOKEN",""))
+    tokenizer.pad_token = tokenizer.unk_token  # CRITICAL: pad==eos causes premature EOS
     model = AutoModelForCausalLM.from_pretrained("Equall/SaulLM-54B-Instruct", quantization_config=bnb, device_map="auto", token=os.environ.get("HF_TOKEN",""))
     print(f"Model loaded in {time.time()-t0:.0f}s", flush=True)
 
+def build_prompt(messages: List[Message]) -> str:
+    """Build Mixtral v0.1 [INST] format. System merged into first user msg."""
+    system_parts = []
+    user_parts = []
+    for m in messages:
+        if m.role == "system":
+            system_parts.append(m.content)
+        elif m.role == "user":
+            user_parts.append(m.content)
+    # Merge system into first user message (Mixtral has no <<SYS>> support)
+    first_user = "\n\n".join(system_parts + user_parts[:1]) if user_parts else "\n\n".join(system_parts)
+    remaining = user_parts[1:] if len(user_parts) > 1 else []
+    all_user = [first_user] + remaining
+    return " ".join(f"[INST] {u} [/INST]" for u in all_user)
+
 @app.post("/v1/chat/completions")
-def chat(req: ChatRequest):
-    prompt = " ".join(f"[INST] {m.content} [/INST]" if m.role == "user" else m.content for m in req.messages)
+async def chat(req: ChatRequest):
+    async with _gpu_lock:
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(None, _generate_sync, req)
+            return result
+        except Exception as e:
+            print(f"ERROR in chat: {type(e).__name__}: {e}", flush=True)
+            return JSONResponse(status_code=503, content={
+                "error": {"message": f"Inference error: {type(e).__name__}: {str(e)[:200]}", "type": "server_error"}
+            })
+
+def _generate_sync(req: ChatRequest):
+    prompt = build_prompt(req.messages)
     inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+
+    input_len = inputs["input_ids"].shape[1]
+    print(f"Request: {input_len} input tokens, max_new={req.max_tokens}, temp={req.temperature}", flush=True)
+
+    temp = max(req.temperature, 0.1)  # floor 0.1 — safe with bfloat16
+    # Scale min_new_tokens with max_tokens: drafting (6000) needs min 500,
+    # summary (2000) needs min 200, short Q&A (500) needs min 100
+    min_new = min(max(100, req.max_tokens // 4), req.max_tokens)
+
+    gen_kwargs = dict(
+        max_new_tokens=req.max_tokens,
+        min_new_tokens=min_new,
+        temperature=temp,
+        do_sample=True,
+        top_p=0.9,
+        top_k=50,
+        repetition_penalty=1.1,
+        pad_token_id=tokenizer.pad_token_id,
+    )
+    if req.stop:
+        from transformers import StoppingCriteria, StoppingCriteriaList
+        stop_ids = [tokenizer.encode(s, add_special_tokens=False) for s in req.stop]
+        class StopOnTokens(StoppingCriteria):
+            def __call__(self, input_ids, scores, **kwargs):
+                for stop in stop_ids:
+                    if input_ids[0][-len(stop):].tolist() == stop:
+                        return True
+                return False
+        gen_kwargs["stopping_criteria"] = StoppingCriteriaList([StopOnTokens()])
+
     with torch.no_grad():
-        out = model.generate(**inputs, max_new_tokens=req.max_tokens, temperature=max(req.temperature, 0.01),
-                             do_sample=True, top_p=0.9, repetition_penalty=1.1)
-    text = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True).strip()
-    return {"id":"chatcmpl-1","object":"chat.completion","model":req.model,
-            "choices":[{"index":0,"message":{"role":"assistant","content":text},"finish_reason":"stop"}],
-            "usage":{"prompt_tokens":int(inputs["input_ids"].shape[1]),"completion_tokens":int(out.shape[1]-inputs["input_ids"].shape[1]),"total_tokens":int(out.shape[1])}}
+        try:
+            out = model.generate(**inputs, **gen_kwargs)
+        except RuntimeError as e:
+            if "inf" in str(e) or "nan" in str(e):
+                print(f"NaN detected, falling back to greedy decoding", flush=True)
+                gen_kwargs.pop("temperature", None)
+                gen_kwargs.pop("top_p", None)
+                gen_kwargs.pop("top_k", None)
+                gen_kwargs["do_sample"] = False
+                out = model.generate(**inputs, **gen_kwargs)
+            else:
+                raise
+
+    text = tokenizer.decode(out[0][input_len:], skip_special_tokens=True).strip()
+    completion_tokens = int(out.shape[1]) - input_len
+    print(f"Response: {completion_tokens} tokens generated", flush=True)
+    return {
+        "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+        "object": "chat.completion",
+        "model": req.model,
+        "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": input_len, "completion_tokens": completion_tokens, "total_tokens": input_len + completion_tokens},
+    }
 
 @app.get("/v1/models")
 def models():

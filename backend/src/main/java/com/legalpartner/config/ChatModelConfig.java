@@ -68,8 +68,8 @@ public class ChatModelConfig {
                     .baseUrl(url)
                     .apiKey("no-op")
                     .modelName(vllmModel)
-                    .timeout(Duration.ofSeconds(300))
-                    .maxTokens(6000)
+                    .timeout(Duration.ofSeconds(600))
+                    .maxTokens(4000)
                     .frequencyPenalty(0.1)
                     // Stop the moment v3 emits any of its training-format markers.
                     // These appeared inside generated drafts (e.g. "__PROCESSED_REQUEST__"
@@ -122,8 +122,9 @@ public class ChatModelConfig {
                     .baseUrl(url)
                     .apiKey("no-op")
                     .modelName(vllmModel)
-                    .timeout(Duration.ofSeconds(120))
+                    .timeout(Duration.ofSeconds(600))
                     .maxTokens(2000)
+                    .temperature(0.3)
                     .frequencyPenalty(0.1)
                     .build();
         }

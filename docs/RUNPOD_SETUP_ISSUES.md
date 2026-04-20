@@ -134,9 +134,10 @@ NOT: `ssh host "pip install X"` then `ssh host "nohup python3 serve.py"`
 **Root cause:** 54B × 2 bytes = 108GB > 80GB VRAM
 **Fix:** Use bitsandbytes 4-bit quantization (~27GB, fits easily):
 ```python
-BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.float16,
+BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16,
                    bnb_4bit_quant_type="nf4")
 ```
+**IMPORTANT:** Use `bfloat16` not `float16` — see issue #12.
 **Inference speed:** ~8.7 tok/s (benchmark measured). Production would
 use vLLM + AWQ for ~35-50 tok/s, but vLLM has its own issues (see #2).
 
@@ -172,6 +173,67 @@ argument 'token'
 **Root cause:** API change — `token` kwarg was removed from `load_adapter`
 **Fix:** Remove `token=HF_TOKEN`. Use `huggingface_hub.login(token=...)`
 before loading instead.
+
+### 12. NaN crash with bitsandbytes 4-bit + float16 compute dtype
+
+```
+RuntimeError: probability tensor contains either `inf`, `nan` or element < 0
+```
+
+**Affects:** Any bitsandbytes 4-bit model with `bnb_4bit_compute_dtype=torch.float16`
+**Root cause:** float16 has only 5 exponent bits (max ~65,504). 4-bit
+quantized logits can exceed this range, producing inf/nan. When divided
+by a low temperature (<0.15), `torch.multinomial()` crashes because the
+probability distribution contains invalid values.
+**Fix:** Use `torch.bfloat16` (8 exponent bits, max ~3.4e38):
+```python
+BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,  # NOT float16
+    bnb_4bit_quant_type="nf4",
+)
+```
+Also keep a NaN fallback to greedy decoding as a safety net.
+
+### 13. SaulLM-54B premature EOS — model stops after ~32 tokens
+
+**Affects:** SaulLM-54B-Instruct (and likely other Mixtral models)
+**Root cause:** Tokenizer has `pad_token = eos_token = </s>` (both ID 2).
+The model confuses "stop generating" with "this is padding" and emits EOS
+after one sentence (~32 tokens) even with `max_new_tokens=2000`.
+**Fix:** Two-part fix:
+```python
+# 1. Set pad_token to unk_token AFTER loading tokenizer
+tokenizer.pad_token = tokenizer.unk_token  # <unk> (ID 0) not </s> (ID 2)
+
+# 2. Set min_new_tokens to prevent premature EOS
+model.generate(..., min_new_tokens=50, pad_token_id=tokenizer.pad_token_id)
+```
+
+### 14. Concurrent model.generate() crashes with bitsandbytes
+
+```
+RuntimeError: unknown parameter type
+```
+
+**Affects:** FastAPI serving with threadpool (concurrent requests)
+**Root cause:** bitsandbytes quantized layers have internal state that is
+NOT thread-safe. Two concurrent `model.generate()` calls corrupt the
+state, causing a cascade of CUDA errors that kill the process.
+**Fix:** Use `asyncio.Lock` (not `threading.Lock`) to serialize GPU access:
+```python
+_gpu_lock = asyncio.Lock()
+
+@app.post("/v1/chat/completions")
+async def chat(req: ChatRequest):
+    async with _gpu_lock:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, _generate_sync, req
+        )
+    return result
+```
+`threading.Lock` blocks the asyncio event loop. `asyncio.Lock` lets
+other coroutines (health checks, etc.) proceed while waiting.
 
 ---
 

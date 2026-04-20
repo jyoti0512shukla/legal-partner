@@ -61,4 +61,15 @@ public class DraftRequest {
      * matter documents as RAG precedent.
      */
     private String matterId;
+
+    /**
+     * Internal — populated by hydratePartiesFromDealBrief, not sent by client.
+     * Carries extracted key terms (e.g. "$750,000 license fee") for injection
+     * into every clause prompt.
+     */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private transient String extractedDealTerms;
+
+    /** Alias for dealBrief — API callers may send dealContext instead. */
+    private String dealContext;
 }

@@ -218,6 +218,7 @@ public class DraftService {
 
     private void doAsyncDraft(UUID docId, DraftRequest request, String username) throws Exception {
         hydrateFromMatter(request);
+        hydratePartiesFromDealBrief(request);
 
         DocumentMetadata doc = documentRepository.findById(docId)
                 .orElseThrow(() -> new IllegalStateException("Async draft row " + docId + " vanished"));
@@ -687,6 +688,14 @@ public class DraftService {
             node.path("banned_vocabulary").forEach(v -> bannedVocab.add(v.asText()));
             if (mode.isBlank() && keyVocab.isEmpty() && bannedVocab.isEmpty()) return "";
 
+            // Validate mode against templateId — override if model misclassified
+            String expectedMode = resolveExpectedMode(contractType);
+            if (!mode.isBlank() && !expectedMode.isBlank() && !mode.equalsIgnoreCase(expectedMode)) {
+                log.warn("Scratchpad [{}]: model said mode={}, expected={} for '{}' — overriding",
+                        clauseKey, mode, expectedMode, contractType);
+                mode = expectedMode;
+            }
+
             StringBuilder sb = new StringBuilder("\n\nMODE SCRATCHPAD (self-identified before drafting):\n");
             if (!mode.isBlank()) sb.append("- Contract mode: ").append(mode).append("\n");
             if (!keyVocab.isEmpty()) {
@@ -781,6 +790,12 @@ public class DraftService {
         // Generate initial attempt
         String generated = sanitizeClauseText(stripLlmArtifacts(
                 chatModel.generate(UserMessage.from(fullSystemAndInitial)).content().text().trim()));
+        // Truncate excess sub-clauses — model sometimes generates 10+ when spec says 3
+        if (expectedSubclauses > 0 && countSubClauses(generated) > expectedSubclauses + 2) {
+            log.warn("Clause [{}]: {} sub-clauses generated, truncating to {}", clauseKey,
+                    countSubClauses(generated), expectedSubclauses + 1);
+            generated = truncateToNSubClauses(generated, expectedSubclauses + 1);
+        }
         List<String> qaWarnings = qaClause(clauseKey, generated, expectedSubclauses, contractType);
 
         // Best-of-N tracking — keep the highest-scoring attempt across retries
@@ -936,6 +951,21 @@ public class DraftService {
             idx += "clause-sub".length();
         }
         return count;
+    }
+
+    /** Truncate HTML to keep only the first N sub-clauses + any non-sub-clause preamble. */
+    private String truncateToNSubClauses(String html, int maxClauses) {
+        String[] parts = html.split("(?=<p class=\"clause-sub\">)");
+        StringBuilder result = new StringBuilder();
+        int clausesSeen = 0;
+        for (String part : parts) {
+            if (part.contains("clause-sub")) {
+                clausesSeen++;
+                if (clausesSeen > maxClauses) break;
+            }
+            result.append(part);
+        }
+        return result.toString().stripTrailing();
     }
 
     /**
@@ -1218,12 +1248,84 @@ public class DraftService {
         return found;
     }
 
+    /**
+     * If partyA/partyB are blank but dealBrief has party names, extract and set them
+     * so the HTML template preamble shows real names instead of "Party A / Party B".
+     */
+    private void hydratePartiesFromDealBrief(DraftRequest request) {
+        String brief = request.getDealBrief();
+        if (brief == null || brief.isBlank()) {
+            brief = request.getDealContext();
+        }
+        if (brief == null || brief.isBlank()) return;
+
+        boolean needPartyA = request.getPartyA() == null || request.getPartyA().isBlank();
+        boolean needPartyB = request.getPartyB() == null || request.getPartyB().isBlank();
+        if (!needPartyA && !needPartyB) return;
+
+        try {
+            String extractPrompt = """
+                    Extract party names from this deal brief. Output ONLY valid JSON:
+                    {"partyA": "name or null", "partyB": "name or null",
+                     "partyARole": "Licensor/Provider/Seller/Landlord or null",
+                     "partyBRole": "Licensee/Customer/Buyer/Tenant or null",
+                     "keyTerms": ["term1: value1", "term2: value2"]}
+
+                    Deal brief:
+                    """ + brief;
+            String resp = jsonChatModel.generate(UserMessage.from(extractPrompt)).content().text().trim();
+            int s = resp.indexOf('{'), e = resp.lastIndexOf('}');
+            if (s < 0 || e <= s) return;
+            var node = objectMapper.readTree(resp.substring(s, e + 1));
+
+            if (needPartyA && node.has("partyA") && !node.get("partyA").isNull()) {
+                request.setPartyA(node.get("partyA").asText());
+                log.info("Hydrated partyA from deal brief: {}", request.getPartyA());
+            }
+            if (needPartyB && node.has("partyB") && !node.get("partyB").isNull()) {
+                request.setPartyB(node.get("partyB").asText());
+                log.info("Hydrated partyB from deal brief: {}", request.getPartyB());
+            }
+            // Store extracted key terms for injection into every clause prompt
+            if (node.has("keyTerms") && node.get("keyTerms").isArray()) {
+                StringBuilder terms = new StringBuilder();
+                node.get("keyTerms").forEach(t -> terms.append("- ").append(t.asText()).append("\n"));
+                request.setExtractedDealTerms(terms.toString());
+                log.info("Extracted {} deal terms from brief", node.get("keyTerms").size());
+            }
+        } catch (Exception ex) {
+            log.debug("Failed to extract parties from deal brief: {}", ex.getMessage());
+        }
+    }
+
+    /** Map contract type name to expected scratchpad mode for validation. */
+    private String resolveExpectedMode(String contractType) {
+        if (contractType == null) return "";
+        String lower = contractType.toLowerCase();
+        if (lower.contains("saas") || lower.contains("subscription")) return "SAAS";
+        if (lower.contains("software") && lower.contains("license")) return "SOFTWARE_LICENSE";
+        if (lower.contains("master service") || lower.contains("msa")) return "MSA";
+        if (lower.contains("nda") || lower.contains("non-disclosure")) return "NDA";
+        if (lower.contains("employment")) return "EMPLOYMENT";
+        if (lower.contains("supply")) return "SUPPLY";
+        if (lower.contains("ip") && lower.contains("license")) return "IP_LICENSE";
+        return "";
+    }
+
     private String buildDealContext(DraftRequest request) {
         StringBuilder sb = new StringBuilder();
 
-        String brief = request.getDealBrief();
+        String brief = request.getDealBrief() != null ? request.getDealBrief() : request.getDealContext();
         if (brief != null && !brief.isBlank()) {
             sb.append("\nDeal brief: ").append(brief.strip()).append("\n");
+        }
+
+        // Inject extracted deal terms into every clause prompt so the model
+        // uses actual values ($750K, 500 users) instead of generic placeholders
+        String extractedTerms = request.getExtractedDealTerms();
+        if (extractedTerms != null && !extractedTerms.isBlank()) {
+            sb.append("\nDEAL TERMS — use these exact values in the clause:\n")
+              .append(extractedTerms).append("\n");
         }
 
         String position = request.getClientPosition();
@@ -1238,13 +1340,32 @@ public class DraftService {
 
         String industry = request.getIndustry();
         if (industry != null && !industry.isBlank()) {
-            String regRef = switch (industry.toUpperCase()) {
-                case "FINTECH"        -> "Reference RBI guidelines, FEMA 1999, and Payment & Settlement Systems Act 2007 where relevant.";
-                case "PHARMA"        -> "Reference Drugs and Cosmetics Act 1940, Clinical Establishment Act 2010, and DPDPA 2023 where relevant.";
-                case "IT_SERVICES"   -> "Reference IT Act 2000, DPDPA 2023, and SEBI (if listed entity) where relevant.";
-                case "MANUFACTURING" -> "Reference Factories Act 1948, Environment Protection Act 1986, and GST Act 2017 where relevant.";
-                default -> "";
-            };
+            // Jurisdiction-aware regulatory references — don't inject Indian laws into US contracts
+            String jur = request.getJurisdiction() != null ? request.getJurisdiction().toLowerCase() : "";
+            boolean isUS = jur.contains("united states") || jur.contains("delaware") || jur.contains("california")
+                    || jur.contains("new york") || jur.contains("texas") || jur.contains("usa");
+            boolean isIndia = jur.contains("india") || jur.contains("mumbai") || jur.contains("delhi");
+
+            String regRef;
+            if (isUS) {
+                regRef = switch (industry.toUpperCase()) {
+                    case "FINTECH"        -> "Reference applicable US federal and state financial regulations where relevant.";
+                    case "PHARMA"        -> "Reference FDA regulations, HIPAA, and applicable state healthcare laws where relevant.";
+                    case "IT_SERVICES"   -> "Reference CCPA/CPRA, applicable state privacy laws, and SOC 2 compliance where relevant.";
+                    case "MANUFACTURING" -> "Reference OSHA, EPA regulations, and applicable state environmental laws where relevant.";
+                    default -> "";
+                };
+            } else if (isIndia) {
+                regRef = switch (industry.toUpperCase()) {
+                    case "FINTECH"        -> "Reference RBI guidelines, FEMA 1999, and Payment & Settlement Systems Act 2007 where relevant.";
+                    case "PHARMA"        -> "Reference Drugs and Cosmetics Act 1940, Clinical Establishment Act 2010, and DPDPA 2023 where relevant.";
+                    case "IT_SERVICES"   -> "Reference IT Act 2000, DPDPA 2023, and SEBI (if listed entity) where relevant.";
+                    case "MANUFACTURING" -> "Reference Factories Act 1948, Environment Protection Act 1986, and GST Act 2017 where relevant.";
+                    default -> "";
+                };
+            } else {
+                regRef = "";
+            }
             if (!regRef.isEmpty()) {
                 sb.append("Industry: ").append(industry).append(". ").append(regRef).append("\n");
             }
@@ -1300,7 +1421,26 @@ public class DraftService {
             "\nFAR §",
             "\nCFR §",
             "UNDERSTANDINGS AND ACKNOWLEDGMENTS, IN FEDERAL CONTRACTING FORM",
-            "The Government Contractor"
+            "The Government Contractor",
+            // SaulLM-54B artifacts — model echoes system prompt structure markers
+            "END OF ARTICLE",
+            "END OF DOCUMENT",
+            "END OF CLARIFICATIONS",
+            "END OF CLAUSE",
+            "The following sub-clauses were provided earlier",
+            // Model self-commentary / meta-text that breaks document trust
+            "Note: This clause is drafted",
+            "Note: This payment clause",
+            "Note: This clause complies",
+            "Note: Keep the same structure",
+            "Note: CCPA -",
+            "[Note: the above sub-clauses",
+            "[Note: this clause",
+            "This clause is tailored",
+            "Reference UCC Article",
+            "Sub-clause 8:",
+            "Sub-clause 9:",
+            "Sub-clause 10:"
         };
         for (String marker : bleedMarkers) {
             int idx = t.indexOf(marker);
