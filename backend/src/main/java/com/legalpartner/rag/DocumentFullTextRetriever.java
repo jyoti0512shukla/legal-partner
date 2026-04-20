@@ -74,7 +74,15 @@ public class DocumentFullTextRetriever {
         );
 
         if (rows.isEmpty()) {
-            log.warn("No chunks found for document {}", documentId);
+            // Fallback for generated drafts — they have HTML stored but no embeddings.
+            // Strip HTML tags and return plain text for summary/risk/QA.
+            log.info("No chunks for document {} — trying HTML file fallback", documentId);
+            String htmlFallback = readDraftHtmlAsPlainText(documentId);
+            if (!htmlFallback.isBlank()) {
+                log.info("Full-text retrieval for doc {} via HTML fallback: {} chars", documentId, htmlFallback.length());
+                return htmlFallback.length() > maxChars ? htmlFallback.substring(0, maxChars) + "\n\n[...truncated]" : htmlFallback;
+            }
+            log.warn("No chunks and no HTML file found for document {}", documentId);
             return "";
         }
 
@@ -116,6 +124,36 @@ public class DocumentFullTextRetriever {
         log.info("Full-text retrieval for doc {}: {} chunks, {} chars{}",
                 documentId, rows.size(), totalChars, truncated ? " (truncated)" : "");
         return sb.toString();
+    }
+
+    /**
+     * Fallback for generated drafts: read the stored HTML file, strip tags,
+     * return plain text suitable for summary/risk/QA.
+     */
+    private String readDraftHtmlAsPlainText(UUID documentId) {
+        try {
+            // Try to read the stored HTML content from the file storage
+            String storagePath = "/data/documents/" + documentId + ".html";
+            byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(storagePath));
+            String html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+            // Strip HTML tags, decode entities, normalize whitespace
+            String plain = html
+                    .replaceAll("<style[^>]*>[\\s\\S]*?</style>", "")
+                    .replaceAll("<script[^>]*>[\\s\\S]*?</script>", "")
+                    .replaceAll("<[^>]+>", " ")
+                    .replaceAll("&amp;", "&")
+                    .replaceAll("&lt;", "<")
+                    .replaceAll("&gt;", ">")
+                    .replaceAll("&nbsp;", " ")
+                    .replaceAll("&#x23F3;", "")
+                    .replaceAll("\\s{2,}", " ")
+                    .replaceAll("\\n{3,}", "\n\n")
+                    .trim();
+            return plain;
+        } catch (Exception e) {
+            log.debug("HTML fallback read failed for {}: {}", documentId, e.getMessage());
+            return "";
+        }
     }
 
     /** Returns the number of indexed chunks for a document. */
