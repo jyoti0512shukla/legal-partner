@@ -295,7 +295,7 @@ public class DraftService {
             String key = plannedSections.get(i);
             ClauseTypeConfig spec = clauseRegistry.get(key);
 
-            doc.setCurrentClauseLabel(spec.title());
+            doc.setCurrentClauseLabel(spec.title() + " (" + (i + 1) + "/" + plannedSections.size() + ")");
             doc.setLastProgressAt(Instant.now());
             doc = documentRepository.save(doc);
 
@@ -2247,12 +2247,29 @@ public class DraftService {
         m.put("PARTY_B_REP", nullToDefault(r.getPartyBRep(), "its authorised signatory"));
         m.put("EFFECTIVE_DATE", nullToDefault(r.getEffectiveDate(), java.time.LocalDate.now().toString()));
         m.put("JURISDICTION", nullToDefault(r.getJurisdiction(), "India"));
-        m.put("AGREEMENT_REF", nullToDefault(r.getAgreementRef(), "REF-001"));
+        m.put("AGREEMENT_REF", nullToDefault(r.getAgreementRef(), generateAgreementRef(r)));
         m.put("TERM_YEARS", nullToDefault(r.getTermYears(), "3"));
         m.put("NOTICE_DAYS", nullToDefault(r.getNoticeDays(), "30"));
         m.put("SURVIVAL_YEARS", nullToDefault(r.getSurvivalYears(), "5"));
         m.put("CONTRACT_TYPE_TITLE", resolveContractTypeName(r).toUpperCase());
         return m;
+    }
+
+    /** Auto-generate agreement reference: SLA-20260420-A1B2 */
+    private String generateAgreementRef(DraftRequest r) {
+        String prefix = switch (nullToDefault(r.getTemplateId(), "").toLowerCase()) {
+            case "nda" -> "NDA";
+            case "msa" -> "MSA";
+            case "saas" -> "SAAS";
+            case "software_license", "software-license" -> "SLA";
+            case "ip_license", "ip-license" -> "IPL";
+            case "employment" -> "EMP";
+            case "supply" -> "SUP";
+            default -> "AGR";
+        };
+        String date = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String suffix = java.util.UUID.randomUUID().toString().substring(0, 4).toUpperCase();
+        return prefix + "-" + date + "-" + suffix;
     }
 
     /** Resolves the human-readable contract type name for use in the template title and AI prompts. */

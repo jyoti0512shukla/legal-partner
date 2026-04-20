@@ -308,9 +308,10 @@ export default function DraftPage() {
 
   const handleDownloadPdf = () => {
     if (!draft?.draftHtml) return;
+    const pdfTitle = draft.fileName?.replace('.html', '') || 'Draft-Contract';
     const win = window.open('', '_blank');
     win.document.write(`<!DOCTYPE html><html><head>
-      <title>Draft Contract</title>
+      <title>${pdfTitle}</title>
       <style>
         body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.6; margin: 2cm; color: #000; }
         h1 { font-size: 18pt; text-align: center; margin-bottom: 24pt; }
