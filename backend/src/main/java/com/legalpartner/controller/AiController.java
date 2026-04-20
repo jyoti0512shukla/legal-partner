@@ -144,6 +144,12 @@ public class AiController {
         out.put("errorMessage", doc.getErrorMessage());
         out.put("draftHtml", html);
         out.put("createdAt", doc.getUploadDate() != null ? doc.getUploadDate().toString() : null);
+        // Duration in seconds (only when complete)
+        if (doc.getProcessingStatus() == com.legalpartner.model.enums.ProcessingStatus.INDEXED
+                && doc.getUploadDate() != null && doc.getLastProgressAt() != null) {
+            long seconds = java.time.Duration.between(doc.getUploadDate(), doc.getLastProgressAt()).getSeconds();
+            out.put("durationSeconds", seconds);
+        }
         return out;
     }
 

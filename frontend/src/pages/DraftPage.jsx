@@ -189,7 +189,9 @@ export default function DraftPage() {
           });
           setLoading(true);
         } else if (d.status === 'INDEXED') {
-          setGeneratingStatus(null);
+          setGeneratingStatus(d.durationSeconds
+            ? { label: `Completed in ${Math.round(d.durationSeconds / 60)}m ${d.durationSeconds % 60}s`, done: true }
+            : null);
           setLoading(false);
           return 'done';
         } else if (d.status === 'FAILED') {
