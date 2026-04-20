@@ -65,6 +65,7 @@ public class DraftService {
     private final FixEngine fixEngine;
     private final DealCoverageScore dealCoverageScore;
     private final HtmlToDocxConverter htmlToDocxConverter;
+    private final GoldenClauseLibrary goldenClauseLibrary;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -86,6 +87,7 @@ public class DraftService {
                         FixEngine fixEngine,
                         DealCoverageScore dealCoverageScore,
                         HtmlToDocxConverter htmlToDocxConverter,
+                        GoldenClauseLibrary goldenClauseLibrary,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
@@ -104,6 +106,7 @@ public class DraftService {
         this.fixEngine = fixEngine;
         this.dealCoverageScore = dealCoverageScore;
         this.htmlToDocxConverter = htmlToDocxConverter;
+        this.goldenClauseLibrary = goldenClauseLibrary;
         this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
@@ -2399,19 +2402,29 @@ public class DraftService {
                                                List<ClauseRuleEngine.RuleResult> blockViolations,
                                                com.legalpartner.model.dto.DealSpec dealSpec) {
         String result = clauseHtml;
+        String contractType = null; // will be resolved from current request context
+        String jurisdiction = dealSpec != null && dealSpec.getLegal() != null
+                ? dealSpec.getLegal().getJurisdiction() : null;
+        String industry = null; // could be derived from DealSpec in future
 
         for (ClauseRuleEngine.RuleResult block : blockViolations) {
+            boolean fixed = false;
+
+            // Tier 1: Rule's own inject_template (highest priority — deal-specific)
             String injectTemplate = block.rule().injectTemplate();
             if (injectTemplate != null && !injectTemplate.isBlank()) {
                 String resolved = resolveSimpleTemplate(injectTemplate, dealSpec);
                 if (!resolved.contains("{{")) {
                     String injectionHtml = "\n<p class=\"clause-sub\">" + escapeHtmlText(resolved) + "</p>";
                     result = insertBeforeClosingTag(result, injectionHtml);
-                    log.info("BLOCK fallback [{}]: injected deterministic text for rule {}",
+                    log.info("BLOCK fallback [{}]: Tier 1 — injected rule template for {}",
                             clauseType, block.rule().id());
+                    fixed = true;
                 }
-            } else {
-                // Try to find a matching deterministic template for this clause type
+            }
+
+            // Tier 2: Deterministic templates from clause_requirements.yml
+            if (!fixed) {
                 List<ClauseRuleEngine.DeterministicTemplate> templates =
                         clauseRuleEngine.getDeterministicTemplates(clauseType, dealSpec);
                 for (ClauseRuleEngine.DeterministicTemplate tmpl : templates) {
@@ -2423,11 +2436,39 @@ public class DraftService {
                         } else {
                             result = insertBeforeClosingTag(result, injectionHtml);
                         }
-                        log.info("BLOCK fallback [{}]: applied deterministic template {} for rule {}",
+                        log.info("BLOCK fallback [{}]: Tier 2 — applied deterministic template {} for {}",
                                 clauseType, tmpl.id(), block.rule().id());
-                        break; // one template per block violation
+                        fixed = true;
+                        break;
                     }
                 }
+            }
+
+            // Tier 3: Golden Clause Library (curated real clauses from precedent data)
+            if (!fixed) {
+                var goldenClause = goldenClauseLibrary.retrieve(
+                        clauseType, contractType, jurisdiction, industry);
+                if (goldenClause.isPresent()) {
+                    String resolved = goldenClauseLibrary.resolve(goldenClause.get(), dealSpec, industry);
+                    if (!resolved.isBlank()) {
+                        // Wrap each line as a sub-clause paragraph
+                        StringBuilder injectionHtml = new StringBuilder();
+                        for (String line : resolved.split("\n")) {
+                            if (line.isBlank()) continue;
+                            injectionHtml.append("\n<p class=\"clause-sub\">")
+                                    .append(escapeHtmlText(line.trim())).append("</p>");
+                        }
+                        result = insertBeforeClosingTag(result, injectionHtml.toString());
+                        log.info("BLOCK fallback [{}]: Tier 3 — applied golden clause '{}' for {}",
+                                clauseType, goldenClause.get().id(), block.rule().id());
+                        fixed = true;
+                    }
+                }
+            }
+
+            if (!fixed) {
+                log.warn("BLOCK fallback [{}]: no deterministic source for rule {} — violation unresolved",
+                        clauseType, block.rule().id());
             }
         }
 
