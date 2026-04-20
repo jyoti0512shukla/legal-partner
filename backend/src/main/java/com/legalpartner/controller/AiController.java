@@ -148,6 +148,35 @@ public class AiController {
     }
 
     /**
+     * Download the DOCX version of a completed draft.
+     * The DOCX is generated on draft completion and stored alongside the HTML.
+     */
+    @GetMapping("/draft/async/{id}/docx")
+    public org.springframework.http.ResponseEntity<byte[]> downloadDocx(@PathVariable UUID id, Authentication auth) {
+        DocumentMetadata doc = documentRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Draft not found"));
+        if (!auth.getName().equals(doc.getUploadedBy())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your draft");
+        }
+        java.nio.file.Path docxPath = java.nio.file.Path.of("/data/documents/" + id + ".docx");
+        if (!java.nio.file.Files.exists(docxPath)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "DOCX not available yet — draft may still be generating");
+        }
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(docxPath);
+            String filename = doc.getFileName() != null
+                    ? doc.getFileName().replace(".html", ".docx")
+                    : "draft-contract.docx";
+            return org.springframework.http.ResponseEntity.ok()
+                    .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                    .header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                    .body(bytes);
+        } catch (java.io.IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read DOCX file");
+        }
+    }
+
+    /**
      * List this user's recent async drafts — the "Recent drafts" strip on the
      * Draft page. Returns most recent 20, newest first. No HTML to keep it light.
      */

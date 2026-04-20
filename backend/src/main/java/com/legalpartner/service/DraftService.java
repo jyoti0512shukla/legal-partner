@@ -64,6 +64,7 @@ public class DraftService {
     private final ClauseRuleEngine clauseRuleEngine;
     private final FixEngine fixEngine;
     private final DealCoverageScore dealCoverageScore;
+    private final HtmlToDocxConverter htmlToDocxConverter;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -84,6 +85,7 @@ public class DraftService {
                         ClauseRuleEngine clauseRuleEngine,
                         FixEngine fixEngine,
                         DealCoverageScore dealCoverageScore,
+                        HtmlToDocxConverter htmlToDocxConverter,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
@@ -101,6 +103,7 @@ public class DraftService {
         this.clauseRuleEngine = clauseRuleEngine;
         this.fixEngine = fixEngine;
         this.dealCoverageScore = dealCoverageScore;
+        this.htmlToDocxConverter = htmlToDocxConverter;
         this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
@@ -363,6 +366,17 @@ public class DraftService {
         fullHtml = fullHtml.replace("</body>", inputSummary + "\n</body>");
 
         storeHtml(doc, fullHtml);
+
+        // Also generate DOCX version for Word/OnlyOffice editing
+        try {
+            byte[] docxBytes = htmlToDocxConverter.convert(fullHtml);
+            String docxPath = "/data/documents/" + docId + ".docx";
+            java.nio.file.Files.write(java.nio.file.Path.of(docxPath), docxBytes);
+            log.info("DOCX generated for draft {}: {} bytes", docId, docxBytes.length);
+        } catch (Exception e) {
+            log.warn("DOCX conversion failed for draft {} — HTML still available: {}", docId, e.getMessage());
+        }
+
         doc.setCurrentClauseLabel(null);
         doc.setProcessingStatus(ProcessingStatus.INDEXED);
         doc.setLastProgressAt(Instant.now());

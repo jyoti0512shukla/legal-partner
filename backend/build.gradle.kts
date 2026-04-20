@@ -56,6 +56,9 @@ dependencies {
     implementation("dev.samstevens.totp:totp:1.7.1")
     implementation("com.bucket4j:bucket4j-core:8.10.1")
 
+    // HTML → DOCX conversion for generated drafts
+    implementation("org.docx4j:docx4j-JAXB-ReferenceImpl:11.4.11")
+
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
 
