@@ -84,6 +84,8 @@ public class ChatModelConfig {
 
     /** vLLM stop sequences: strings whose emission halts sampling immediately. */
     private static final List<String> DRAFT_STOP_SEQUENCES = List.of(
+            "[/INST]",
+            "[INST]",
             "__PROCESSED_REQUEST__",
             "__INSTRUCTION__",
             "__RESPONSE__",

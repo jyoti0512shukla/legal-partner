@@ -1535,6 +1535,9 @@ public class DraftService {
             "\nCFR §",
             "UNDERSTANDINGS AND ACKNOWLEDGMENTS, IN FEDERAL CONTRACTING FORM",
             "The Government Contractor",
+            // Mistral instruction tokens that leaked through vLLM
+            "[/INST]",
+            "[INST]",
             // SaulLM-54B artifacts — model echoes system prompt structure markers
             "END OF ARTICLE",
             "END OF DOCUMENT",
@@ -1740,6 +1743,16 @@ public class DraftService {
         if (lower.contains("are not required to be included")) return true;
         if (lower.contains("the data protection and privacy focus")) return true;
         if (lower.contains("this is a first draft")) return true;
+        // Fix engine / retry prompt leaks
+        if (lower.startsWith("fixed clause")) return true;
+        if (lower.startsWith("here is the")) return true;
+        if (lower.startsWith("this version satisfies")) return true;
+        if (lower.startsWith("this satisfies")) return true;
+        if (lower.startsWith("the corrected version")) return true;
+        if (lower.startsWith("article ") && lower.contains(". ") && lower.length() < 30) return true; // "Article 2. Services" heading echo
+        if (lower.contains("satisfies all requirements")) return true;
+        if (lower.contains("stated above")) return true;
+        if (lower.contains("```")) return true;
         return false;
     }
 
