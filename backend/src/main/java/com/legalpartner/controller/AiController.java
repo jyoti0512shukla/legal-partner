@@ -201,6 +201,10 @@ public class AiController {
             m.put("errorMessage", d.getErrorMessage());
             m.put("createdAt", d.getUploadDate() != null ? d.getUploadDate().toString() : null);
             m.put("lastProgressAt", d.getLastProgressAt() != null ? d.getLastProgressAt().toString() : null);
+            if (d.getProcessingStatus() == com.legalpartner.model.enums.ProcessingStatus.INDEXED
+                    && d.getUploadDate() != null && d.getLastProgressAt() != null) {
+                m.put("durationSeconds", java.time.Duration.between(d.getUploadDate(), d.getLastProgressAt()).getSeconds());
+            }
             return m;
         }).collect(java.util.stream.Collectors.toList());
     }

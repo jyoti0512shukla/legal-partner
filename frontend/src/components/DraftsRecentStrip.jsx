@@ -106,6 +106,7 @@ export default function DraftsRecentStrip({ onSelect, activeId, onReady }) {
               </span>
               <span className="text-[10px] text-text-muted tabular-nums shrink-0">
                 {d.createdAt ? new Date(d.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                {d.durationSeconds ? ` (${Math.floor(d.durationSeconds / 60)}m${d.durationSeconds % 60}s)` : ''}
               </span>
             </button>
           );
