@@ -295,37 +295,32 @@ export default function DraftPage() {
     }
   };
 
-  const handleDownloadHtml = () => {
-    if (!draft?.draftHtml) return;
-    const blob = new Blob([draft.draftHtml], { type: 'text/html' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `draft-${form.templateId}-${form.effectiveDate || 'draft'}.html`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleDownloadDocx = async () => {
+    if (!draft?.id) return;
+    try {
+      const res = await api.get(`/api/v1/ai/draft/async/${draft.id}/docx`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = draft.fileName?.replace('.html', '.docx') || 'draft-contract.docx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      // Fallback: if DOCX not available, print as PDF
+      const win = window.open('', '_blank');
+      const title = draft.fileName?.replace('.html', '') || 'Draft-Contract';
+      win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+        <style>body{font-family:Georgia,serif;font-size:12pt;line-height:1.6;margin:2cm;color:#000;}
+        h1{font-size:18pt;text-align:center;}h2{font-size:14pt;margin-top:18pt;}
+        p{margin-bottom:10pt;text-align:justify;}@media print{body{margin:2cm;}}</style>
+        </head><body>${draft.draftHtml}</body></html>`);
+      win.document.close();
+      win.focus();
+      setTimeout(() => win.print(), 500);
+    }
   };
 
-  const handleDownloadPdf = () => {
-    if (!draft?.draftHtml) return;
-    const pdfTitle = draft.fileName?.replace('.html', '') || 'Draft-Contract';
-    const win = window.open('', '_blank');
-    win.document.write(`<!DOCTYPE html><html><head>
-      <title>${pdfTitle}</title>
-      <style>
-        body { font-family: Georgia, serif; font-size: 12pt; line-height: 1.6; margin: 2cm; color: #000; }
-        h1 { font-size: 18pt; text-align: center; margin-bottom: 24pt; }
-        h2 { font-size: 14pt; margin-top: 18pt; }
-        h3 { font-size: 12pt; }
-        p { margin-bottom: 10pt; text-align: justify; }
-        ul { margin-left: 20pt; margin-bottom: 10pt; }
-        @media print { body { margin: 2cm; } }
-      </style>
-    </head><body>${draft.draftHtml}</body></html>`);
-    win.document.close();
-    win.focus();
-    setTimeout(() => { win.print(); }, 500);
-  };
 
   const handleImproveSelection = async () => {
     if (!selectionInfo) return;
@@ -660,13 +655,9 @@ export default function DraftPage() {
                     <CloudUpload className="w-4 h-4" />
                     Save to Cloud
                   </button>
-                  <button onClick={handleDownloadPdf} className="btn-secondary flex items-center gap-2 text-sm">
-                    <FileText className="w-4 h-4" />
-                    Download PDF
-                  </button>
-                  <button onClick={handleDownloadHtml} className="btn-secondary flex items-center gap-2 text-sm">
+                  <button onClick={handleDownloadDocx} className="btn-secondary flex items-center gap-2 text-sm">
                     <Download className="w-4 h-4" />
-                    Download HTML
+                    Download Word
                   </button>
                 </div>
               </div>
