@@ -1437,8 +1437,11 @@ public class DraftService {
         // uses actual values ($750K, 500 users) instead of generic placeholders
         String extractedTerms = request.getExtractedDealTerms();
         if (extractedTerms != null && !extractedTerms.isBlank()) {
-            sb.append("\nDEAL TERMS — use these exact values in the clause:\n")
-              .append(extractedTerms).append("\n");
+            sb.append("\nDEAL TERMS — weave these values naturally into your legal prose:\n")
+              .append(extractedTerms)
+              .append("\nIMPORTANT: Incorporate these values INTO your clause text. Do NOT copy this list, ")
+              .append("the deal brief, or any input parameters as a schedule, appendix, or separate section. ")
+              .append("Output ONLY the clause body.\n");
         }
 
         String position = request.getClientPosition();
@@ -1538,6 +1541,10 @@ public class DraftService {
             // Mistral instruction tokens that leaked through vLLM
             "[/INST]",
             "[INST]",
+            // Model copying input context verbatim as a "schedule"
+            "SCHEDULE — DRAFT PARAMETERS",
+            "SCHEDULE - DRAFT PARAMETERS",
+            "Draft Parameters",
             // SaulLM-54B artifacts — model echoes system prompt structure markers
             "END OF ARTICLE",
             "END OF DOCUMENT",
@@ -1753,6 +1760,11 @@ public class DraftService {
         if (lower.contains("satisfies all requirements")) return true;
         if (lower.contains("stated above")) return true;
         if (lower.contains("```")) return true;
+        if (lower.startsWith("to summarize")) return true;
+        if (lower.startsWith("drafting complete")) return true;
+        if (lower.startsWith("to conclude")) return true;
+        if (lower.startsWith("in summary")) return true;
+        if (lower.startsWith("the above clauses")) return true;
         return false;
     }
 

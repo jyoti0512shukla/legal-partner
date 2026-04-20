@@ -101,12 +101,17 @@ public class ContractTypeRegistry {
         return c != null && c.bannedTerms() != null ? c.bannedTerms() : List.of();
     }
 
-    /** Lookup by template id (case-insensitive). Falls back to msa if unknown. */
+    /** Lookup by template id (case-insensitive, normalizes hyphens to underscores). Falls back to msa if unknown. */
     public ContractTypeConfig get(String templateId) {
         if (templateId == null || templateId.isBlank()) {
             return byId.get(FALLBACK_TEMPLATE);
         }
-        ContractTypeConfig c = byId.get(templateId.toLowerCase());
+        // Normalize: "software-license" → "software_license"
+        String normalized = templateId.toLowerCase().replace("-", "_");
+        ContractTypeConfig c = byId.get(normalized);
+        if (c != null) return c;
+        // Try original (in case YAML uses hyphens)
+        c = byId.get(templateId.toLowerCase());
         return c != null ? c : byId.get(FALLBACK_TEMPLATE);
     }
 
