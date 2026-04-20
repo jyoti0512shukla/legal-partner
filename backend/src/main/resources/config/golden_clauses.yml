@@ -1,0 +1,286 @@
+# Golden Clause Library — curated, templatized legal clauses for deterministic fallback.
+#
+# Structure: clause_type → entries[] (each with contract_type, jurisdiction, template, etc.)
+#
+# Placeholders use {{field}} syntax. Fields are resolved from DealSpec using dotted paths:
+#   {{partyA.name}}, {{partyB.name}}, {{fees.licenseFee}}, {{license.users}}, etc.
+#
+# Convenience aliases (resolved by GoldenClauseLibrary before DealSpec lookup):
+#   {{licensor}}          → partyA.name (when partyA.role == Licensor) or partyB.name
+#   {{licensee}}          → the other party
+#   {{license_fee}}       → fees.licenseFee (formatted)
+#   {{maintenance_fee}}   → fees.maintenanceFee (formatted)
+#   {{users}}             → license.users
+#   {{locations}}         → license.locations
+#   {{sla_hours}}         → support.slaResponseHours
+#   {{support_coverage}}  → support.coverage
+#   {{patch_frequency}}   → support.patchFrequency
+#   {{jurisdiction}}      → legal.jurisdiction
+#   {{court}}             → legal.court
+#   {{notice_days}}       → legal.noticeDays
+#   {{software_name}}     → "the Software" (default if not specified)
+#
+# Conditional blocks: {{#if field}}...{{/if}} — block is included only if field is non-null.
+# Industry additions: appended as additional paragraph when industry matches.
+
+clauses:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # IP_RIGHTS — Software License
+  # ════════════════════════════════════════════════════════════════════════════
+
+  IP_RIGHTS:
+
+    - id: IP_LICENSE_GRANT_PERPETUAL
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Curated from Fortune 500 enterprise software agreements"
+      template: |
+        Subject to the terms and conditions of this Agreement and Licensee's payment of all applicable fees, Licensor hereby grants to {{licensee}} a perpetual, non-exclusive, non-transferable, non-sublicensable license to install, copy, and use {{software_name}} in object code form solely for Licensee's internal business operations, limited to {{users}} authorized users at {{locations}} designated site(s). No right is granted hereunder to distribute, sublicense, rent, lease, or lend the Software to any third party. The license granted herein is conditioned upon Licensee's continued compliance with the terms of this Agreement, and any breach of a material term shall entitle Licensor to terminate the license upon written notice.
+      industry_additions:
+        financial_services: "Licensee acknowledges that use of the Software in connection with regulated financial activities shall comply with all applicable financial regulatory requirements, including but not limited to data residency and audit trail obligations imposed by relevant supervisory authorities."
+        healthcare: "Licensee shall ensure that any use of the Software involving Protected Health Information (as defined under HIPAA) complies with the Business Associate Agreement executed between the parties and all applicable provisions of the Health Insurance Portability and Accountability Act."
+
+    - id: IP_OWNERSHIP_RETENTION
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Curated from enterprise technology licensing precedents"
+      template: |
+        {{licensor}} retains all right, title, and interest in and to {{software_name}}, including all copies, modifications, enhancements, derivative works, and all intellectual property rights therein. Nothing in this Agreement shall be construed as transferring any ownership rights in the Software or any associated intellectual property to Licensee. All rights not expressly granted herein are reserved to Licensor. Licensee acknowledges that the Software contains valuable trade secrets and proprietary information of Licensor, and Licensee shall not reverse engineer, decompile, disassemble, or otherwise attempt to derive the source code of the Software except to the extent expressly permitted by applicable law notwithstanding this restriction.
+
+    - id: IP_SOURCE_ESCROW
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 4
+      source: "Standard escrow provisions from NCC Group / Iron Mountain templates"
+      template: |
+        {{#if security.escrow}}Within thirty (30) days following the Effective Date, Licensor shall deposit a complete and current copy of the source code for {{software_name}}, together with all build scripts, documentation, and tools necessary to compile and maintain the Software (collectively, the "Escrow Materials"), with a mutually agreed third-party escrow agent. Licensor shall update the Escrow Materials with each major release. The Escrow Materials shall be released to Licensee upon the occurrence of any of the following release conditions: (a) Licensor ceases to conduct business in the ordinary course; (b) Licensor files for or is subject to involuntary bankruptcy proceedings that are not dismissed within sixty (60) days; (c) Licensor materially breaches its maintenance and support obligations under this Agreement and fails to cure such breach within thirty (30) days of written notice; or (d) Licensor assigns this Agreement to a successor entity that does not assume all of Licensor's support obligations. Upon release, Licensee shall have a limited license to use the source code solely to maintain and support its authorized use of the Software.{{/if}}
+
+    - id: IP_DERIVATIVE_WORKS
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 4
+      source: "Enterprise software customization provisions"
+      template: |
+        {{#if license.derivativeRights}}Licensee may create derivative works, configurations, interfaces, and extensions of {{software_name}} solely for Licensee's internal business use ("Licensee Modifications"). Licensee shall own all intellectual property rights in any Licensee Modifications to the extent such modifications constitute original works of authorship that are separable from the underlying Software. Notwithstanding the foregoing, (a) Licensor retains all rights in the underlying Software incorporated in any Licensee Modification, (b) Licensee shall not distribute Licensee Modifications to any third party without Licensor's prior written consent, and (c) Licensor shall have no obligation to provide maintenance or support for any Licensee Modification unless separately agreed in writing.{{/if}}
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # PAYMENT — Software License
+  # ════════════════════════════════════════════════════════════════════════════
+
+  PAYMENT:
+
+    - id: PAY_LICENSE_FEE_STRUCTURE
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Standard enterprise license fee and payment terms"
+      template: |
+        In consideration of the license granted herein, Licensee shall pay to Licensor a one-time license fee of {{license_fee}} (the "License Fee"), payable within thirty (30) days of the Effective Date. All fees are quoted exclusive of applicable taxes, and Licensee shall be responsible for all sales, use, value-added, withholding, and similar taxes arising from this Agreement, excluding taxes based on Licensor's net income. Licensor reserves the right to suspend Licensee's access to support services in the event of any undisputed payment that remains outstanding for more than fifteen (15) days beyond its due date.
+
+    - id: PAY_MAINTENANCE_FEE
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Industry-standard annual maintenance provisions"
+      template: |
+        Commencing on the first anniversary of the Effective Date, Licensee shall pay an annual maintenance and support fee of {{maintenance_fee}} (the "Maintenance Fee"), payable in advance on each anniversary date. The Maintenance Fee entitles Licensee to receive all updates, patches, bug fixes, and standard telephone and email support in accordance with the support terms specified herein. Licensor may increase the Maintenance Fee upon each renewal period by providing not less than sixty (60) days' prior written notice, provided that any such increase shall not exceed five percent (5%) of the prior year's Maintenance Fee. If Licensee elects not to renew maintenance, Licensee may continue to use the Software under the existing license but shall not be entitled to any updates, patches, or support services, and reinstatement of lapsed maintenance shall require payment of all fees that would have been due during the lapse period.
+
+    - id: PAY_LATE_PAYMENT
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 4
+      source: "Standard commercial late payment provisions"
+      template: |
+        Any amount not paid when due shall accrue interest at the lesser of one and one-half percent (1.5%) per month or the maximum rate permitted by applicable law, calculated from the date such payment was due until the date of actual payment. In addition, Licensee shall reimburse Licensor for all reasonable costs of collection, including attorneys' fees, incurred as a result of Licensee's failure to make timely payment. Licensor's acceptance of late payment shall not constitute a waiver of any rights under this Agreement.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # LIABILITY — Software License
+  # ════════════════════════════════════════════════════════════════════════════
+
+  LIABILITY:
+
+    - id: LIAB_CAP_AT_FEES
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Market-standard technology liability cap provisions"
+      template: |
+        EXCEPT FOR THE OBLIGATIONS SET FORTH IN THE CARVE-OUT SECTION BELOW, IN NO EVENT SHALL EITHER PARTY'S AGGREGATE LIABILITY ARISING OUT OF OR RELATED TO THIS AGREEMENT, WHETHER IN CONTRACT, TORT (INCLUDING NEGLIGENCE), STRICT LIABILITY, OR ANY OTHER LEGAL OR EQUITABLE THEORY, EXCEED THE TOTAL AMOUNTS PAID AND PAYABLE BY LICENSEE TO LICENSOR UNDER THIS AGREEMENT DURING THE TWELVE (12) MONTH PERIOD IMMEDIATELY PRECEDING THE EVENT GIVING RISE TO THE CLAIM. THE EXISTENCE OF MULTIPLE CLAIMS SHALL NOT ENLARGE THIS LIMITATION.
+      industry_additions:
+        financial_services: "Notwithstanding the foregoing, for claims arising from the processing of financial transactions, the liability cap shall be the greater of (a) the amount stated above, or (b) the total value of transactions adversely affected by the applicable breach or failure, subject to a maximum of three (3) times the annual fees paid hereunder."
+
+    - id: LIAB_INDIRECT_DAMAGES_EXCLUSION
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Standard consequential damages exclusion"
+      template: |
+        IN NO EVENT SHALL EITHER PARTY BE LIABLE TO THE OTHER PARTY FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL, OR BUSINESS OPPORTUNITY, HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY, EVEN IF SUCH PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. THIS LIMITATION SHALL APPLY NOTWITHSTANDING THE FAILURE OF THE ESSENTIAL PURPOSE OF ANY LIMITED REMEDY PROVIDED HEREIN.
+
+    - id: LIAB_CARVE_OUTS
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Enterprise technology agreement carve-out provisions"
+      template: |
+        The limitations and exclusions of liability set forth above shall not apply to: (a) either party's indemnification obligations under this Agreement; (b) either party's breach of its confidentiality obligations; (c) Licensee's breach of the license scope or unauthorized use of the Software; (d) Licensor's infringement of Licensee's intellectual property rights; (e) damages arising from a party's gross negligence, willful misconduct, or fraud; or (f) any liability that cannot be limited or excluded under applicable law. For claims arising from the foregoing carve-outs, the aggregate liability of each party shall not exceed two (2) times the total amounts paid and payable by Licensee under this Agreement during the twelve (12) month period preceding the claim.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # SERVICES / SLA — Software License
+  # ════════════════════════════════════════════════════════════════════════════
+
+  SERVICES:
+
+    - id: SVC_SUPPORT_TIERS
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Enterprise SLA frameworks — ITIL-aligned"
+      template: |
+        Licensor shall provide maintenance and technical support for {{software_name}} during {{support_coverage}} in accordance with the following severity classifications: Severity 1 (Critical) — a production system is down or a core business function is completely unavailable, with no workaround; initial response within {{sla_hours}} hour(s), continuous effort until resolution or workaround is provided. Severity 2 (High) — significant functionality is impaired but a workaround exists; initial response within four (4) business hours, target resolution within one (1) business day. Severity 3 (Medium) — non-critical functionality is impaired with minimal business impact; initial response within one (1) business day, target resolution within five (5) business days. Licensee shall designate a primary technical contact for all support requests and shall provide Licensor with reasonable access to systems and information necessary to diagnose and resolve reported issues.
+      industry_additions:
+        financial_services: "For issues affecting trade execution, settlement processing, or regulatory reporting functions, Licensor shall treat all such issues as no less than Severity 2 regardless of the number of affected users, and shall maintain a dedicated escalation path for financial-critical incidents."
+        healthcare: "For issues affecting electronic health record availability, clinical decision support, or patient safety functions, Licensor shall escalate to Severity 1 regardless of workaround availability, and shall notify Licensee's designated compliance officer within one (1) hour of classification."
+
+    - id: SVC_SERVICE_CREDITS
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 4
+      source: "Cloud/SaaS service credit frameworks"
+      template: |
+        {{#if support.uptimeSla}}In the event that Licensor fails to meet the guaranteed uptime of {{support.uptimeSla}}% measured on a calendar-month basis (excluding scheduled maintenance windows for which Licensor has provided at least seventy-two (72) hours' advance notice), Licensee shall be entitled to service credits as follows: for each full one percent (1%) of downtime below the guaranteed threshold, Licensee shall receive a credit equal to five percent (5%) of the monthly portion of the Maintenance Fee, up to a maximum credit of thirty percent (30%) of the applicable monthly fee. Service credits are Licensee's sole and exclusive remedy for failure to meet the uptime guarantee. Licensee must request applicable credits in writing within thirty (30) days of the end of the affected calendar month.{{/if}}
+
+    - id: SVC_PATCH_MAINTENANCE
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 4
+      source: "Standard software maintenance schedules"
+      template: |
+        Licensor shall provide software updates and patches on a {{patch_frequency}} basis, which shall include security patches, bug fixes, and minor enhancements. Critical security patches addressing vulnerabilities with a CVSS score of 7.0 or above shall be made available within seventy-two (72) hours of Licensor's confirmed identification of the vulnerability. All patches shall be accompanied by release notes describing the changes, known issues, and any required configuration modifications. Licensee shall be responsible for applying patches to its environment within thirty (30) days of availability; failure to apply critical security patches within such period may relieve Licensor of liability for security incidents attributable to the unpatched vulnerability.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TERMINATION — Software License
+  # ════════════════════════════════════════════════════════════════════════════
+
+  TERMINATION:
+
+    - id: TERM_FOR_CAUSE
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Standard commercial contract termination provisions"
+      template: |
+        Either party may terminate this Agreement for cause upon written notice to the other party if: (a) the other party commits a material breach of this Agreement and fails to cure such breach within thirty (30) days after receiving written notice specifying the breach in reasonable detail (or, if such breach is not reasonably capable of cure within thirty (30) days, the breaching party fails to commence cure within such period and diligently pursue cure to completion within sixty (60) days); or (b) the other party becomes insolvent, files for or is subject to involuntary bankruptcy, makes an assignment for the benefit of creditors, or has a receiver appointed for a substantial portion of its assets.
+
+    - id: TERM_FOR_CONVENIENCE
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 4
+      source: "Enterprise software agreement convenience termination"
+      template: |
+        Either party may terminate this Agreement for convenience upon {{notice_days}} days' prior written notice to the other party. In the event of termination for convenience by Licensee, Licensee shall not be entitled to any refund of prepaid fees. In the event of termination for convenience by Licensor, Licensor shall refund to Licensee a pro rata portion of any prepaid and unused fees calculated from the effective date of termination through the end of the then-current prepaid period.
+
+    - id: TERM_EFFECTS
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 5
+      source: "Software license post-termination obligations"
+      template: |
+        Upon termination or expiration of this Agreement for any reason: (a) all license rights granted herein shall immediately terminate, except that for perpetual licenses terminated by Licensor for convenience, the license grant shall survive termination; (b) Licensee shall, within thirty (30) days, cease all use of the Software and either destroy or return to Licensor all copies of the Software and related documentation in Licensee's possession or control, and certify such destruction or return in writing; (c) Licensor shall, upon Licensee's written request made within thirty (30) days of termination, make available to Licensee an export of Licensee's data stored in or processed by the Software in a standard, machine-readable format; and (d) all payment obligations accrued prior to termination shall survive. The following provisions shall survive termination or expiration of this Agreement: confidentiality obligations, intellectual property ownership, limitation of liability, indemnification, and any other provisions that by their nature are intended to survive.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # GOVERNING_LAW — Jurisdiction-Specific
+  # ════════════════════════════════════════════════════════════════════════════
+
+  GOVERNING_LAW:
+
+    - id: GOV_LAW_DELAWARE
+      contract_type: software_license
+      jurisdiction: us
+      quality_score: 5
+      source: "Delaware choice of law — standard technology agreement"
+      template: |
+        This Agreement shall be governed by and construed in accordance with the laws of the State of Delaware, without regard to its conflict of laws principles. Each party irrevocably consents to the exclusive jurisdiction and venue of the federal courts located in the District of Delaware or, if federal jurisdiction is unavailable, the state courts of the State of Delaware located in New Castle County, for any action arising out of or relating to this Agreement. Each party irrevocably waives any objection to such jurisdiction and venue, including any objection based on forum non conveniens. EACH PARTY HEREBY IRREVOCABLY WAIVES ALL RIGHT TO A TRIAL BY JURY IN ANY ACTION, PROCEEDING, OR COUNTERCLAIM ARISING OUT OF OR RELATING TO THIS AGREEMENT.
+
+    - id: GOV_LAW_INDIA
+      contract_type: software_license
+      jurisdiction: india
+      quality_score: 5
+      source: "Indian jurisdiction — arbitration-centric"
+      template: |
+        This Agreement shall be governed by and construed in accordance with the laws of India. Any dispute, controversy, or claim arising out of or relating to this Agreement, including its existence, validity, interpretation, performance, breach, or termination, shall be referred to and finally resolved by arbitration administered under the Arbitration and Conciliation Act, 1996 (as amended). The arbitral tribunal shall consist of a sole arbitrator mutually appointed by the parties, or in the event of disagreement, appointed in accordance with the rules of the Mumbai Centre for International Arbitration. The seat of arbitration shall be Mumbai, India, and the language of arbitration shall be English. The award rendered by the arbitral tribunal shall be final and binding upon the parties and enforceable in any court of competent jurisdiction. Notwithstanding the foregoing, either party may seek interim or injunctive relief from the courts of Mumbai, India, to preserve the status quo pending arbitration.
+
+    - id: GOV_LAW_UK
+      contract_type: software_license
+      jurisdiction: uk
+      quality_score: 4
+      source: "English law governing provision — technology agreements"
+      template: |
+        This Agreement and any dispute or claim arising out of or in connection with it or its subject matter or formation (including non-contractual disputes or claims) shall be governed by and construed in accordance with the law of England and Wales. Each party irrevocably agrees that the courts of England and Wales shall have exclusive jurisdiction to settle any dispute or claim arising out of or in connection with this Agreement or its subject matter or formation. Nothing in this clause shall limit the right of either party to take proceedings against the other party in any other court of competent jurisdiction for the purposes of obtaining interim or protective relief, nor shall the taking of proceedings in any one or more jurisdictions preclude the taking of proceedings in any other jurisdictions.
+
+    - id: GOV_LAW_DEFAULT
+      contract_type: software_license
+      jurisdiction: default
+      quality_score: 4
+      source: "Generic governing law — flexible jurisdiction"
+      template: |
+        This Agreement shall be governed by and construed in accordance with the laws of {{jurisdiction}}, without regard to its conflict of laws principles. Any dispute arising out of or in connection with this Agreement shall be submitted to the exclusive jurisdiction of the courts located in {{court}}. Each party irrevocably consents to such jurisdiction and waives any objection to the laying of venue in such courts.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # SaaS Agreement Clauses
+  # ════════════════════════════════════════════════════════════════════════════
+
+  SERVICES:
+
+    - id: SVC_SAAS_SUBSCRIPTION
+      contract_type: saas
+      jurisdiction: default
+      quality_score: 4
+      source: "Standard SaaS subscription agreement"
+      template: |
+        Subject to the terms of this Agreement and payment of all applicable Subscription Fees, Provider hereby grants to Customer a non-exclusive, non-transferable right to access and use the Service during the Subscription Term solely for Customer's internal business purposes, for up to {{users}} authorized users. Customer shall not permit access to the Service by any person other than authorized users, and shall be responsible for all activities conducted under its user accounts. The Service is provided on a multi-tenant basis, and Provider reserves the right to modify the Service from time to time, provided that no such modification shall materially diminish the core functionality of the Service during the then-current Subscription Term.
+
+  PAYMENT:
+
+    - id: PAY_SAAS_SUBSCRIPTION
+      contract_type: saas
+      jurisdiction: default
+      quality_score: 4
+      source: "SaaS billing and auto-renewal provisions"
+      template: |
+        Customer shall pay the Subscription Fee of {{license_fee}} per {{fees.billingCycle}} cycle in advance. Unless Customer provides written notice of non-renewal at least thirty (30) days prior to the end of the then-current Subscription Term, the Subscription Term shall automatically renew for successive periods of equal duration at Provider's then-current list price. Provider may modify pricing for any renewal term by providing Customer not less than sixty (60) days' written notice prior to the commencement of such renewal term. All fees are non-refundable except as expressly set forth in this Agreement.
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # NDA Clauses
+  # ════════════════════════════════════════════════════════════════════════════
+
+  CONFIDENTIALITY:
+
+    - id: CONF_NDA_MUTUAL
+      contract_type: nda
+      jurisdiction: default
+      quality_score: 5
+      source: "Mutual NDA — market-standard bilateral confidentiality"
+      template: |
+        Each party (in its capacity as "Disclosing Party") may disclose to the other party (in its capacity as "Receiving Party") certain non-public, confidential, or proprietary information, whether disclosed orally, in writing, or by inspection ("Confidential Information"). Confidential Information includes, without limitation, trade secrets, business plans, financial data, customer lists, technical specifications, source code, algorithms, and any information marked as "Confidential" or that a reasonable person would understand to be confidential given the nature of the information and circumstances of disclosure. The Receiving Party shall: (a) hold all Confidential Information in strict confidence using at least the same degree of care it uses to protect its own confidential information, but in no event less than reasonable care; (b) not disclose Confidential Information to any third party except to its employees, agents, and contractors who have a need to know and are bound by confidentiality obligations no less protective than those herein; and (c) not use Confidential Information for any purpose other than evaluating or performing under the parties' business relationship. Confidential Information shall not include information that: (i) is or becomes publicly available through no fault of the Receiving Party; (ii) was known to the Receiving Party prior to disclosure without restriction; (iii) is independently developed by the Receiving Party without use of the Confidential Information; or (iv) is rightfully obtained from a third party without restriction on disclosure.
+
+    - id: CONF_NDA_TERM
+      contract_type: nda
+      jurisdiction: default
+      quality_score: 4
+      source: "NDA duration and survival"
+      template: |
+        The obligations of confidentiality set forth herein shall survive for a period of three (3) years from the date of disclosure of the applicable Confidential Information, provided that trade secrets shall be protected for so long as they remain trade secrets under applicable law. Upon termination or expiration of this Agreement, or upon the Disclosing Party's written request, the Receiving Party shall promptly return or destroy all tangible materials containing Confidential Information and permanently delete all electronic copies thereof, and shall certify such return or destruction in writing within fifteen (15) days.
+
+  TERMINATION:
+
+    - id: TERM_NDA
+      contract_type: nda
+      jurisdiction: default
+      quality_score: 4
+      source: "NDA termination provisions"
+      template: |
+        This Agreement shall remain in effect for a period of two (2) years from the Effective Date unless earlier terminated by either party upon thirty (30) days' written notice to the other party. Termination of this Agreement shall not affect the confidentiality obligations with respect to Confidential Information disclosed prior to the effective date of termination, which obligations shall survive in accordance with their stated duration.
