@@ -62,15 +62,44 @@ public class GoldenClauseLibrary {
     private static final Map<String, String> ALIASES = Map.ofEntries(
             Map.entry("license_fee", "fees.licenseFee"),
             Map.entry("maintenance_fee", "fees.maintenanceFee"),
+            Map.entry("subscription_fee", "fees.subscriptionFee"),
             Map.entry("users", "license.users"),
             Map.entry("locations", "license.locations"),
             Map.entry("sla_hours", "support.slaResponseHours"),
             Map.entry("support_coverage", "support.coverage"),
             Map.entry("patch_frequency", "support.patchFrequency"),
+            Map.entry("uptime_sla", "support.uptimeSla"),
             Map.entry("jurisdiction", "legal.jurisdiction"),
             Map.entry("court", "legal.court"),
             Map.entry("notice_days", "legal.noticeDays"),
+            Map.entry("cure_days", "legal.cureDays"),
+            Map.entry("survival_years", "legal.survivalYears"),
+            Map.entry("notice_period", "legal.noticePeriod"),
+            Map.entry("salary", "compensation.salary"),
+            Map.entry("license_type", "license.type"),
             Map.entry("software_name", "_software_name")
+    );
+
+    /**
+     * Role-based party placeholder names.
+     * Maps placeholder → expected role name (case-insensitive match against partyA/partyB roles).
+     * Falls back to partyA for first-listed roles and partyB for second-listed.
+     */
+    private static final Map<String, String> PARTY_A_ROLES = Map.ofEntries(
+            Map.entry("licensor", "Licensor"),
+            Map.entry("service_provider", "Service Provider"),
+            Map.entry("provider", "Provider"),
+            Map.entry("employer", "Employer"),
+            Map.entry("supplier", "Supplier"),
+            Map.entry("disclosing_party", "Disclosing Party")
+    );
+    private static final Map<String, String> PARTY_B_ROLES = Map.ofEntries(
+            Map.entry("licensee", "Licensee"),
+            Map.entry("client", "Client"),
+            Map.entry("customer", "Customer"),
+            Map.entry("employee", "Employee"),
+            Map.entry("buyer", "Buyer"),
+            Map.entry("receiving_party", "Receiving Party")
     );
 
     @PostConstruct
@@ -338,12 +367,13 @@ public class GoldenClauseLibrary {
     private String resolveValue(String placeholder, DealSpec dealSpec) {
         if (dealSpec == null) return null;
 
-        // Handle special cases
-        if ("licensor".equals(placeholder)) {
-            return resolveLicensorName(dealSpec);
+        // Handle role-based party placeholders (partyA-oriented roles)
+        if (PARTY_A_ROLES.containsKey(placeholder)) {
+            return resolvePartyByRole(dealSpec, PARTY_A_ROLES.get(placeholder), true);
         }
-        if ("licensee".equals(placeholder)) {
-            return resolveLicenseeName(dealSpec);
+        // Handle role-based party placeholders (partyB-oriented roles)
+        if (PARTY_B_ROLES.containsKey(placeholder)) {
+            return resolvePartyByRole(dealSpec, PARTY_B_ROLES.get(placeholder), false);
         }
 
         // Check alias map
@@ -399,45 +429,37 @@ public class GoldenClauseLibrary {
     }
 
     /**
-     * Determine the Licensor party name from DealSpec.
-     * Checks partyA.role first; if "Licensor" or "Provider", uses partyA.name.
-     * Otherwise falls back to partyB, then null.
+     * Resolve a party name from DealSpec by matching role.
+     * Searches both partyA and partyB for the given role (case-insensitive).
+     * If no role match is found, falls back to partyA (if defaultToA=true) or partyB.
+     *
+     * @param dealSpec    the deal terms
+     * @param targetRole  the role to match (e.g. "Licensor", "Service Provider", "Employer")
+     * @param defaultToA  if no role match, default to partyA (true) or partyB (false)
+     * @return the party name, or null
      */
-    private String resolveLicensorName(DealSpec dealSpec) {
+    private String resolvePartyByRole(DealSpec dealSpec, String targetRole, boolean defaultToA) {
+        // Check partyA role
         if (dealSpec.getPartyA() != null) {
             String role = dealSpec.getPartyA().getRole();
-            if (role != null && (role.equalsIgnoreCase("Licensor") || role.equalsIgnoreCase("Provider"))) {
+            if (role != null && role.equalsIgnoreCase(targetRole)) {
                 return dealSpec.getPartyA().getName();
             }
         }
+        // Check partyB role
         if (dealSpec.getPartyB() != null) {
             String role = dealSpec.getPartyB().getRole();
-            if (role != null && (role.equalsIgnoreCase("Licensor") || role.equalsIgnoreCase("Provider"))) {
+            if (role != null && role.equalsIgnoreCase(targetRole)) {
                 return dealSpec.getPartyB().getName();
             }
         }
-        // Default: partyA is typically the licensor
-        return dealSpec.getPartyA() != null ? dealSpec.getPartyA().getName() : null;
-    }
-
-    /**
-     * Determine the Licensee party name from DealSpec.
-     */
-    private String resolveLicenseeName(DealSpec dealSpec) {
-        if (dealSpec.getPartyA() != null) {
-            String role = dealSpec.getPartyA().getRole();
-            if (role != null && (role.equalsIgnoreCase("Licensee") || role.equalsIgnoreCase("Customer"))) {
-                return dealSpec.getPartyA().getName();
-            }
+        // Fallback: partyA for "A-oriented" roles (licensor, provider, employer, supplier),
+        // partyB for "B-oriented" roles (licensee, customer, employee, buyer)
+        if (defaultToA) {
+            return dealSpec.getPartyA() != null ? dealSpec.getPartyA().getName() : null;
+        } else {
+            return dealSpec.getPartyB() != null ? dealSpec.getPartyB().getName() : null;
         }
-        if (dealSpec.getPartyB() != null) {
-            String role = dealSpec.getPartyB().getRole();
-            if (role != null && (role.equalsIgnoreCase("Licensee") || role.equalsIgnoreCase("Customer"))) {
-                return dealSpec.getPartyB().getName();
-            }
-        }
-        // Default: partyB is typically the licensee
-        return dealSpec.getPartyB() != null ? dealSpec.getPartyB().getName() : null;
     }
 
     /**
