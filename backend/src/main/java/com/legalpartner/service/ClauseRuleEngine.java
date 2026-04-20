@@ -32,13 +32,27 @@ public class ClauseRuleEngine {
     private static final String CONFIG_PATH = "config/clause_requirements.yml";
 
     private List<ClauseRule> allRules = List.of();
+    private List<DeterministicTemplate> deterministicTemplates = List.of();
 
     // ── Inner records ───────────────────────────────────────────────────
 
+    /** A deterministic clause template rendered from structured deal values. */
+    public record DeterministicTemplate(
+            String id,
+            /** Condition expression (same syntax as rule "when"), e.g. "support.slaResponseHours != null" */
+            String appliesWhen,
+            /** Target clause type to inject into, e.g. "SERVICES", "IP_RIGHTS" */
+            String injectInto,
+            /** PREPEND or APPEND relative to the clause body */
+            String position,
+            /** Template text with {{field}} placeholders */
+            String template
+    ) {}
+
     public record RuleCondition(
-            /** contains_keywords | must_include_deal_value | must_not_contain | regex_match | min_subclauses | min_length */
+            /** contains_keywords | contains_any | must_include_deal_value | must_not_contain | regex_match | min_subclauses | min_length */
             String type,
-            /** Keywords list (for contains_keywords, must_not_contain) or single value */
+            /** Keywords list (for contains_keywords, contains_any, must_not_contain) or single value */
             List<String> keywords,
             /** Single value (for regex, min_subclauses, min_length) */
             String value,
@@ -66,9 +80,15 @@ public class ClauseRuleEngine {
             ClauseRule rule,
             boolean passed,
             String message,
-            /** What fix to apply: RETRY, TARGETED_RETRY, INJECT, FLAG */
+            /** What fix to apply: BLOCK, RETRY, TARGETED_RETRY, INJECT, FLAG */
             String fixAction
-    ) {}
+    ) {
+
+        /** True if this result represents a BLOCK-level violation. */
+        public boolean isBlock() {
+            return !passed && "BLOCK".equals(fixAction);
+        }
+    }
 
     // ── Initialisation ──────────────────────────────────────────────────
 
@@ -93,7 +113,29 @@ public class ClauseRuleEngine {
                 parsed.add(buildRule(raw));
             }
             this.allRules = Collections.unmodifiableList(parsed);
-            log.info("ClauseRuleEngine loaded {} rules from {}", allRules.size(), CONFIG_PATH);
+
+            // Parse deterministic templates
+            @SuppressWarnings("unchecked")
+            Map<String, Object> templateSection = (Map<String, Object>) root.get("deterministic_templates");
+            if (templateSection != null && !templateSection.isEmpty()) {
+                List<DeterministicTemplate> templates = new ArrayList<>();
+                for (Map.Entry<String, Object> entry : templateSection.entrySet()) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> tRaw = (Map<String, Object>) entry.getValue();
+                    templates.add(new DeterministicTemplate(
+                            entry.getKey(),
+                            str(tRaw.get("applies_when")),
+                            str(tRaw.get("inject_into")),
+                            str(tRaw.get("position")),
+                            str(tRaw.get("template"))
+                    ));
+                }
+                this.deterministicTemplates = Collections.unmodifiableList(templates);
+                log.info("ClauseRuleEngine loaded {} deterministic templates", deterministicTemplates.size());
+            }
+
+            long blockRules = allRules.stream().filter(r -> "BLOCK".equals(r.action())).count();
+            log.info("ClauseRuleEngine loaded {} rules ({} BLOCK) from {}", allRules.size(), blockRules, CONFIG_PATH);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load " + CONFIG_PATH, e);
         }
@@ -187,6 +229,8 @@ public class ClauseRuleEngine {
             String fixAction;
             if (allConditionsMet) {
                 fixAction = null;
+            } else if ("BLOCK".equals(rule.action())) {
+                fixAction = "BLOCK";
             } else if ("FLAG".equals(rule.action())) {
                 fixAction = "FLAG";
             } else {
@@ -224,11 +268,22 @@ public class ClauseRuleEngine {
         for (ClauseRule rule : applicable) {
             if ("FLAG".equals(rule.action())) continue; // don't include flag-only rules in generation prompt
 
+            // BLOCK rules get extra emphasis in the prompt
+            boolean isBlock = "BLOCK".equals(rule.action());
+            String prefix = isBlock ? "- [CRITICAL — BLOCK] You MUST " : "- You MUST ";
+
             for (RuleCondition cond : rule.conditions()) {
                 switch (cond.type()) {
                     case "contains_keywords" -> {
                         if (cond.keywords() != null) {
-                            sb.append("- You MUST include all of: ")
+                            sb.append(prefix).append("include all of: ")
+                              .append(String.join(", ", cond.keywords()))
+                              .append("\n");
+                        }
+                    }
+                    case "contains_any" -> {
+                        if (cond.keywords() != null) {
+                            sb.append(prefix).append("include at least one of: ")
                               .append(String.join(", ", cond.keywords()))
                               .append("\n");
                         }
@@ -237,7 +292,7 @@ public class ClauseRuleEngine {
                         if (cond.field() != null && dealSpec != null) {
                             String formatted = dealSpec.resolveFieldFormatted(cond.field());
                             if (formatted != null) {
-                                sb.append("- You MUST include this exact value: ")
+                                sb.append(prefix).append("include this exact value: ")
                                   .append(describeDealField(cond.field()))
                                   .append(" = ").append(formatted).append("\n");
                             }
@@ -245,14 +300,15 @@ public class ClauseRuleEngine {
                     }
                     case "must_not_contain" -> {
                         if (cond.keywords() != null) {
-                            sb.append("- You MUST NOT include any of: ")
+                            String notPrefix = isBlock ? "- [CRITICAL — BLOCK] You MUST NOT " : "- You MUST NOT ";
+                            sb.append(notPrefix).append("include any of: ")
                               .append(String.join(", ", cond.keywords()))
                               .append("\n");
                         }
                     }
                     case "min_subclauses" -> {
                         String count = cond.value() != null ? cond.value() : "3";
-                        sb.append("- You MUST include at least ").append(count)
+                        sb.append(prefix).append("include at least ").append(count)
                           .append(" sub-clauses\n");
                     }
                     case "min_length" -> {
@@ -285,6 +341,34 @@ public class ClauseRuleEngine {
         return sb.toString();
     }
 
+    /**
+     * Get deterministic templates applicable to a clause type, filtered by DealSpec conditions.
+     * Returns templates whose {@code applies_when} condition is satisfied and whose
+     * {@code inject_into} matches the given clause type.
+     */
+    public List<DeterministicTemplate> getDeterministicTemplates(String clauseType, DealSpec dealSpec) {
+        if (dealSpec == null || deterministicTemplates.isEmpty()) return List.of();
+        return deterministicTemplates.stream()
+                .filter(t -> clauseType.equals(t.injectInto()))
+                .filter(t -> evaluateWhenCondition(t.appliesWhen(), dealSpec))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Check if any BLOCK-level violations exist in the results.
+     */
+    public boolean hasBlockViolations(List<RuleResult> results) {
+        return results != null && results.stream().anyMatch(RuleResult::isBlock);
+    }
+
+    /**
+     * Extract only the BLOCK-level violations from results.
+     */
+    public List<RuleResult> getBlockViolations(List<RuleResult> results) {
+        if (results == null) return List.of();
+        return results.stream().filter(RuleResult::isBlock).collect(Collectors.toList());
+    }
+
     // ── Condition evaluation ────────────────────────────────────────────
 
     private boolean evaluateCondition(RuleCondition cond, String clauseHtml, DealSpec dealSpec) {
@@ -297,6 +381,13 @@ public class ClauseRuleEngine {
                 if (cond.keywords() == null) yield true;
                 yield cond.keywords().stream()
                         .allMatch(kw -> plainText.contains(kw.toLowerCase()));
+            }
+
+            case "contains_any" -> {
+                // OR logic: at least ONE of the listed phrases must appear
+                if (cond.keywords() == null) yield true;
+                yield cond.keywords().stream()
+                        .anyMatch(kw -> plainText.contains(kw.toLowerCase()));
             }
 
             case "must_include_deal_value" -> {
@@ -444,6 +535,8 @@ public class ClauseRuleEngine {
         return switch (cond.type()) {
             case "contains_keywords" ->
                     "Missing keywords: " + (cond.keywords() != null ? String.join(", ", cond.keywords()) : "?");
+            case "contains_any" ->
+                    "Missing at least one of: " + (cond.keywords() != null ? String.join(", ", cond.keywords()) : "?");
             case "must_include_deal_value" -> {
                 String formatted = dealSpec != null ? dealSpec.resolveFieldFormatted(cond.field()) : null;
                 yield "Missing deal value: " + describeDealField(cond.field())

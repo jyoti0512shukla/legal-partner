@@ -325,7 +325,44 @@ public class DraftService {
                                 key, fixResult.auditTrail().size());
                     }
                     allAuditEntries.addAll(fixResult.auditTrail());
+
+                    // ── Post-fix BLOCK check: re-validate to catch unresolved BLOCK violations ──
+                    List<ClauseRuleEngine.RuleResult> postFixResults = clauseRuleEngine.validate(
+                            result.html(), key, finalDealSpec);
+                    List<ClauseRuleEngine.RuleResult> residualBlocks = clauseRuleEngine.getBlockViolations(postFixResults);
+                    if (!residualBlocks.isEmpty()) {
+                        log.warn("Rule engine [{}]: {} BLOCK violation(s) still present after fix — applying deterministic templates",
+                                key, residualBlocks.size());
+                        String fixedHtml = applyDeterministicFallback(result.html(), key, residualBlocks, finalDealSpec);
+                        if (!fixedHtml.equals(result.html())) {
+                            result = new ClauseResult(fixedHtml, result.qaWarnings());
+                            for (ClauseRuleEngine.RuleResult block : residualBlocks) {
+                                allAuditEntries.add(new FixEngine.AuditEntry(
+                                        block.rule().id(),
+                                        block.message(),
+                                        "Deterministic template fallback applied after BLOCK retries exhausted",
+                                        "BLOCK",
+                                        "CRITICAL"
+                                ));
+                            }
+                        }
+                    }
+                    // Update rule results with post-fix validation
+                    ruleResults = postFixResults;
                 }
+
+                // ── Deterministic template injection (for structured deal values) ──
+                List<ClauseRuleEngine.DeterministicTemplate> templates =
+                        clauseRuleEngine.getDeterministicTemplates(key, finalDealSpec);
+                if (!templates.isEmpty()) {
+                    String enhanced = applyDeterministicTemplates(result.html(), templates, finalDealSpec);
+                    if (!enhanced.equals(result.html())) {
+                        result = new ClauseResult(enhanced, result.qaWarnings());
+                        log.info("Rule engine [{}]: {} deterministic template(s) applied",
+                                key, templates.size());
+                    }
+                }
+
                 allRuleResults.put(key, ruleResults);
             }
             sectionValues.put(key, result.html());
@@ -2349,5 +2386,175 @@ public class DraftService {
 
     private static String nullToDefault(String value, String defaultValue) {
         return (value == null || value.isBlank()) ? defaultValue : value;
+    }
+
+    // ── Deterministic template helpers for BLOCK enforcement ────────────
+
+    /**
+     * Apply deterministic fallback for unresolved BLOCK violations.
+     * For each BLOCK rule that has an inject_template, inject the resolved text.
+     * For BLOCK rules without templates, check if a matching deterministic template exists.
+     */
+    private String applyDeterministicFallback(String clauseHtml, String clauseType,
+                                               List<ClauseRuleEngine.RuleResult> blockViolations,
+                                               com.legalpartner.model.dto.DealSpec dealSpec) {
+        String result = clauseHtml;
+
+        for (ClauseRuleEngine.RuleResult block : blockViolations) {
+            String injectTemplate = block.rule().injectTemplate();
+            if (injectTemplate != null && !injectTemplate.isBlank()) {
+                String resolved = resolveSimpleTemplate(injectTemplate, dealSpec);
+                if (!resolved.contains("{{")) {
+                    String injectionHtml = "\n<p class=\"clause-sub\">" + escapeHtmlText(resolved) + "</p>";
+                    result = insertBeforeClosingTag(result, injectionHtml);
+                    log.info("BLOCK fallback [{}]: injected deterministic text for rule {}",
+                            clauseType, block.rule().id());
+                }
+            } else {
+                // Try to find a matching deterministic template for this clause type
+                List<ClauseRuleEngine.DeterministicTemplate> templates =
+                        clauseRuleEngine.getDeterministicTemplates(clauseType, dealSpec);
+                for (ClauseRuleEngine.DeterministicTemplate tmpl : templates) {
+                    String resolved = resolveSimpleTemplate(tmpl.template(), dealSpec);
+                    if (!resolved.contains("{{")) {
+                        String injectionHtml = "\n<p class=\"clause-sub\">" + escapeHtmlText(resolved) + "</p>";
+                        if ("PREPEND".equalsIgnoreCase(tmpl.position())) {
+                            result = insertAfterOpeningTag(result, injectionHtml);
+                        } else {
+                            result = insertBeforeClosingTag(result, injectionHtml);
+                        }
+                        log.info("BLOCK fallback [{}]: applied deterministic template {} for rule {}",
+                                clauseType, tmpl.id(), block.rule().id());
+                        break; // one template per block violation
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Apply deterministic templates to a clause — used for high-confidence structured values.
+     * Templates are only applied if all placeholders resolve successfully.
+     */
+    private String applyDeterministicTemplates(String clauseHtml,
+                                                List<ClauseRuleEngine.DeterministicTemplate> templates,
+                                                com.legalpartner.model.dto.DealSpec dealSpec) {
+        String result = clauseHtml;
+
+        for (ClauseRuleEngine.DeterministicTemplate tmpl : templates) {
+            String resolved = resolveSimpleTemplate(tmpl.template(), dealSpec);
+            // Strip Handlebars-style {{#if ...}} / {{/if}} blocks for fields that are null
+            resolved = stripConditionalBlocks(resolved, dealSpec);
+            if (resolved.contains("{{")) {
+                log.debug("Skipping deterministic template {}: unresolved placeholders", tmpl.id());
+                continue;
+            }
+
+            // Check if the clause already contains the key content (avoid duplication)
+            String plainResolved = resolved.replaceAll("\\s+", " ").trim().toLowerCase();
+            String plainClause = clauseHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim().toLowerCase();
+            if (plainClause.contains(plainResolved.substring(0, Math.min(60, plainResolved.length())))) {
+                log.debug("Skipping deterministic template {}: content already present in clause", tmpl.id());
+                continue;
+            }
+
+            String injectionHtml = "\n<p class=\"clause-sub\">" + escapeHtmlText(resolved) + "</p>";
+            if ("PREPEND".equalsIgnoreCase(tmpl.position())) {
+                result = insertAfterOpeningTag(result, injectionHtml);
+            } else {
+                result = insertBeforeClosingTag(result, injectionHtml);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Resolve {{field}} and {{field_formatted}} placeholders from DealSpec.
+     */
+    private String resolveSimpleTemplate(String template, com.legalpartner.model.dto.DealSpec dealSpec) {
+        if (dealSpec == null || template == null) return template != null ? template : "";
+
+        String result = template;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{\\{([^#/}][^}]*)}}").matcher(template);
+        while (m.find()) {
+            String placeholder = m.group(1).trim();
+            String replacement = null;
+
+            if (placeholder.contains(":")) {
+                // Cross-reference like {{article_number:IP_RIGHTS}} — leave as-is for now
+                continue;
+            }
+
+            if (placeholder.endsWith("_formatted")) {
+                String fieldPath = placeholder.replace("_formatted", "");
+                replacement = dealSpec.resolveFieldFormatted(fieldPath);
+            } else {
+                Object val = dealSpec.resolveField(placeholder);
+                if (val != null) replacement = val.toString();
+            }
+
+            if (replacement != null) {
+                result = result.replace("{{" + placeholder + "}}", replacement);
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Strip {{#if field}}...{{/if}} blocks where the field is null in DealSpec.
+     * Keeps the content if the field is present and truthy.
+     */
+    private String stripConditionalBlocks(String text, com.legalpartner.model.dto.DealSpec dealSpec) {
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+                "\\{\\{#if\\s+([^}]+)}}(.*?)\\{\\{/if}}", java.util.regex.Pattern.DOTALL);
+        java.util.regex.Matcher m = pattern.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String fieldPath = m.group(1).trim();
+            String content = m.group(2);
+            Object val = dealSpec != null ? dealSpec.resolveField(fieldPath) : null;
+            boolean truthy = val != null && !(val instanceof Boolean b && !b);
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(truthy ? content : ""));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /** Insert HTML before the last closing div/section/article tag. */
+    private static String insertBeforeClosingTag(String html, String injection) {
+        String lower = html.toLowerCase();
+        for (String tag : List.of("</div>", "</section>", "</article>")) {
+            int idx = lower.lastIndexOf(tag);
+            if (idx >= 0) {
+                return html.substring(0, idx) + injection + "\n" + html.substring(idx);
+            }
+        }
+        return html + injection;
+    }
+
+    /** Insert HTML after the first opening div/section/article tag. */
+    private static String insertAfterOpeningTag(String html, String injection) {
+        String lower = html.toLowerCase();
+        for (String tag : List.of("<div", "<section", "<article")) {
+            int idx = lower.indexOf(tag);
+            if (idx >= 0) {
+                int closeIdx = html.indexOf('>', idx);
+                if (closeIdx >= 0) {
+                    return html.substring(0, closeIdx + 1) + injection + "\n" + html.substring(closeIdx + 1);
+                }
+            }
+        }
+        return injection + "\n" + html;
+    }
+
+    private static String escapeHtmlText(String text) {
+        return text.replace("&", "&amp;")
+                   .replace("<", "&lt;")
+                   .replace(">", "&gt;")
+                   .replace("\"", "&quot;");
     }
 }

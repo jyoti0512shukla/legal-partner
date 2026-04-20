@@ -33,6 +33,9 @@ import java.util.stream.Collectors;
 @Slf4j
 public class FixEngine {
 
+    /** Maximum retries for BLOCK violations before falling back to deterministic injection. */
+    private static final int MAX_BLOCK_RETRIES = 3;
+
     private final ChatLanguageModel chatModel;
 
     public FixEngine(ChatLanguageModel chatModel) {
@@ -45,9 +48,9 @@ public class FixEngine {
             String ruleId,
             String issue,
             String fixApplied,
-            /** RETRY, TARGETED_RETRY, INJECT, FLAG */
+            /** BLOCK, RETRY, TARGETED_RETRY, INJECT, FLAG */
             String fixType,
-            /** HIGH = deterministic, MEDIUM = LLM retry, LOW = flagged only */
+            /** HIGH = deterministic, MEDIUM = LLM retry, LOW = flagged only, CRITICAL = block violation */
             String confidence
     ) {}
 
@@ -83,6 +86,7 @@ public class FixEngine {
         boolean modified = false;
 
         // Partition failures by strategy
+        List<RuleResult> blockFailures = new ArrayList<>();
         List<RuleResult> injectFailures = new ArrayList<>();
         List<RuleResult> retryFailures = new ArrayList<>();
         List<RuleResult> targetedRetryFailures = new ArrayList<>();
@@ -95,10 +99,66 @@ public class FixEngine {
             if (action == null) action = "FLAG";
 
             switch (action) {
+                case "BLOCK" -> blockFailures.add(f);
                 case "INJECT" -> injectFailures.add(f);
                 case "RETRY" -> retryFailures.add(f);
                 case "TARGETED_RETRY" -> targetedRetryFailures.add(f);
                 default -> flagFailures.add(f);
+            }
+        }
+
+        // Phase 0: BLOCK violations — highest severity, force-retry then inject
+        if (!blockFailures.isEmpty()) {
+            log.warn("FixEngine: {} BLOCK violation(s) detected — attempting forced retry", blockFailures.size());
+
+            // Try up to MAX_BLOCK_RETRIES to get the LLM to comply
+            boolean blockResolved = false;
+            for (int attempt = 1; attempt <= MAX_BLOCK_RETRIES; attempt++) {
+                String blockRetryPrompt = buildBlockRetryPrompt(currentHtml, blockFailures, dealSpec, attempt);
+                String fixedHtml = executeRetry(currentHtml, blockRetryPrompt, systemPrompt);
+                if (fixedHtml != null && !fixedHtml.equals(currentHtml)) {
+                    currentHtml = fixedHtml;
+                    modified = true;
+                    log.info("FixEngine BLOCK retry attempt {}/{}: got new output", attempt, MAX_BLOCK_RETRIES);
+                    // Re-check: are BLOCK rules now passing?
+                    // We can't re-validate here (we don't have clauseType), so we do a text-level check
+                    blockResolved = true;
+                    break;
+                }
+                log.warn("FixEngine BLOCK retry attempt {}/{}: no improvement", attempt, MAX_BLOCK_RETRIES);
+            }
+
+            // For each BLOCK failure, deterministically inject if the rule has an inject_template
+            for (RuleResult f : blockFailures) {
+                String injectTemplate = f.rule().injectTemplate();
+                if (injectTemplate != null && !injectTemplate.isBlank()) {
+                    String before = currentHtml;
+                    currentHtml = injectDeterministicText(currentHtml, f, dealSpec);
+                    if (!currentHtml.equals(before)) {
+                        modified = true;
+                        String resolvedText = resolveTemplate(injectTemplate, dealSpec);
+                        audit.add(new AuditEntry(
+                                f.rule().id(),
+                                f.message(),
+                                "BLOCK forced inject: " + truncate(resolvedText, 120),
+                                "BLOCK",
+                                "CRITICAL"
+                        ));
+                        log.info("FixEngine BLOCK INJECT [{}]: deterministic text injected after retries", f.rule().id());
+                    }
+                } else {
+                    // No inject template — record as critical violation
+                    audit.add(new AuditEntry(
+                            f.rule().id(),
+                            f.message(),
+                            blockResolved ? "BLOCK resolved via retry" : "BLOCK UNRESOLVED — no inject_template available",
+                            "BLOCK",
+                            "CRITICAL"
+                    ));
+                    if (!blockResolved) {
+                        log.error("FixEngine BLOCK UNRESOLVED [{}]: no inject_template, clause may contain violation", f.rule().id());
+                    }
+                }
             }
         }
 
@@ -176,8 +236,9 @@ public class FixEngine {
                     f.rule().riskMessage() != null ? f.rule().riskMessage() : f.message());
         }
 
-        log.info("FixEngine complete: {} injections, {} targeted retries, {} full retries, {} flags",
-                injectFailures.size(), targetedRetryFailures.size(), retryFailures.size(), flagFailures.size());
+        log.info("FixEngine complete: {} blocks, {} injections, {} targeted retries, {} full retries, {} flags",
+                blockFailures.size(), injectFailures.size(), targetedRetryFailures.size(),
+                retryFailures.size(), flagFailures.size());
 
         return new FixResult(currentHtml, audit, modified);
     }
@@ -252,6 +313,42 @@ public class FixEngine {
         sb.append("\nPREVIOUS (REJECTED) OUTPUT:\n").append(originalClause);
         sb.append("\n\nGenerate a corrected version that passes all requirements above.");
         sb.append(" Output ONLY the HTML clause, no explanation.");
+
+        return sb.toString();
+    }
+
+    /**
+     * Build a retry prompt specifically for BLOCK violations.
+     * More forceful than a regular retry — explicitly states the clause will be rejected.
+     */
+    private String buildBlockRetryPrompt(String originalClause, List<RuleResult> blockFailures,
+                                          DealSpec dealSpec, int attempt) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CRITICAL: The following clause violates mandatory contract rules and WILL BE REJECTED.\n");
+        sb.append("This is retry attempt ").append(attempt).append(" of ").append(MAX_BLOCK_RETRIES).append(".\n");
+        sb.append("You MUST fix ALL of the following violations or the clause will be replaced with deterministic text.\n\n");
+
+        sb.append("MANDATORY VIOLATIONS TO FIX:\n");
+        for (RuleResult f : blockFailures) {
+            sb.append("- [BLOCK] [").append(f.rule().id()).append("] ").append(f.message()).append("\n");
+            if (f.rule().fixHint() != null) {
+                sb.append("  REQUIRED FIX: ").append(f.rule().fixHint()).append("\n");
+            }
+            if (f.rule().injectTemplate() != null) {
+                String resolved = resolveTemplate(f.rule().injectTemplate(), dealSpec);
+                sb.append("  REQUIRED TEXT (include this or equivalent): ").append(truncate(resolved, 200)).append("\n");
+            }
+        }
+
+        if (dealSpec != null) {
+            String dealContext = buildDealContextForFix(dealSpec);
+            if (!dealContext.isEmpty()) {
+                sb.append("\nDEAL VALUES — these are non-negotiable:\n").append(dealContext);
+            }
+        }
+
+        sb.append("\nORIGINAL (REJECTED) CLAUSE:\n").append(originalClause);
+        sb.append("\n\nRewrite the clause fixing ALL block violations. Output ONLY the HTML clause.");
 
         return sb.toString();
     }

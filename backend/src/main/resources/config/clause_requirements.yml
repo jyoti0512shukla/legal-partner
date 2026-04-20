@@ -410,3 +410,155 @@ rules:
         field: support.uptimeSla
     fix_strategy: INJECT
     inject_template: "The Provider shall maintain a minimum uptime of {{support.uptimeSla}}% measured on a monthly basis, excluding scheduled maintenance windows."
+
+  # ════════════════════════════════════════════════════════════════════
+  # BLOCK RULES (non-negotiable, draft rejected if violated)
+  # ════════════════════════════════════════════════════════════════════
+
+  # IP ownership must NOT be assigned to licensee in a license agreement
+  - id: IP_OWNERSHIP_DIRECTION
+    applies_to: IP_RIGHTS
+    severity: CRITICAL
+    when: "license.type != null"
+    description: "IP ownership must not be assigned to licensee in a license agreement"
+    conditions:
+      - type: must_not_contain
+        value: ["all deliverables vest in Licensee", "owned by Licensee", "assigns to Licensee", "work made for hire", "work product owned by Licensee", "IP rights vest in Licensee"]
+    action: BLOCK
+    fix_strategy: INJECT
+    inject_template: "All intellectual property rights in and to the Licensed Software, including all modifications, enhancements, and derivative works thereof (excluding Licensee's proprietary data), shall remain the exclusive property of Licensor."
+
+  # License grant clause must exist for license agreements
+  - id: LICENSE_GRANT_REQUIRED
+    applies_to: [IP_RIGHTS, DEFINITIONS]
+    severity: CRITICAL
+    when: "license.type != null"
+    description: "License grant clause must exist for license agreements"
+    conditions:
+      - type: contains_keywords
+        value: ["grants", "license", "non-exclusive"]
+    action: BLOCK
+    fix_strategy: INJECT
+
+  # MSA contamination — these terms must NEVER appear in a software license
+  - id: MSA_CONTAMINATION_BLOCK
+    applies_to: [SERVICES, IP_RIGHTS, DEFINITIONS]
+    severity: CRITICAL
+    when: "license.type != null"
+    description: "Software license must not contain MSA/services agreement terminology"
+    conditions:
+      - type: must_not_contain
+        value: ["deliverables vest", "work product owned by", "acceptance testing of deliverables", "milestone payments", "statement of work deliverables"]
+    action: BLOCK
+    fix_hint: "This is a SOFTWARE LICENSE, not a services agreement. Remove all references to deliverables, work product ownership, milestones."
+
+  # SLA must exist when deal specifies it
+  - id: SLA_CLAUSE_REQUIRED
+    applies_to: SERVICES
+    severity: CRITICAL
+    when: "support.slaResponseHours != null"
+    description: "SLA clause must exist when deal specifies SLA response hours"
+    conditions:
+      - type: contains_keywords
+        value: ["response", "hours", "support"]
+    action: BLOCK
+    fix_strategy: INJECT
+
+  # Jurisdiction must match deal terms exactly
+  - id: JURISDICTION_EXACT_MATCH
+    applies_to: GOVERNING_LAW
+    severity: CRITICAL
+    description: "Jurisdiction must match deal terms exactly"
+    conditions:
+      - type: must_include_deal_value
+        field: legal.jurisdiction
+    action: BLOCK
+    fix_strategy: INJECT
+    inject_template: "This Agreement shall be governed by and construed in accordance with the laws of {{legal.jurisdiction}}."
+
+  # Escrow must be properly structured when required
+  - id: ESCROW_STRUCTURE_REQUIRED
+    applies_to: IP_RIGHTS
+    severity: HIGH
+    when: "security.escrow == true"
+    description: "Escrow must be properly structured when required"
+    conditions:
+      - type: contains_keywords
+        value: ["escrow", "source code", "release"]
+    fix_strategy: INJECT
+
+  # Healthcare compliance when industry is healthcare
+  - id: HEALTHCARE_COMPLIANCE
+    applies_to: DATA_PROTECTION
+    severity: HIGH
+    when: "license.deployment == on-premise"
+    description: "Healthcare compliance required for on-premise deployments in the United States"
+    conditions:
+      - type: contains_any
+        value: ["HIPAA", "health information", "PHI", "protected health information", "healthcare data"]
+    fix_strategy: INJECT
+    inject_template: "To the extent that Licensee processes Protected Health Information (PHI) as defined under HIPAA, Licensor shall execute a Business Associate Agreement (BAA) with Licensee and comply with the applicable provisions of the Health Insurance Portability and Accountability Act."
+
+  # Liability carve-outs for critical obligations
+  - id: LIABILITY_CARVEOUTS
+    applies_to: LIABILITY
+    severity: HIGH
+    description: "Liability cap must include carve-outs for critical obligations"
+    conditions:
+      - type: contains_any
+        value: ["carve-out", "exclusion shall not apply", "notwithstanding the foregoing", "IP infringement", "confidentiality breach"]
+    fix_strategy: RETRY
+    fix_hint: "Liability cap must include carve-outs for IP infringement, confidentiality breach, and data breach obligations."
+
+  # Cross-clause: perpetual license must survive termination
+  - id: PERPETUAL_SURVIVES_TERMINATION
+    applies_to: TERMINATION
+    severity: HIGH
+    when: "license.type == perpetual"
+    description: "Perpetual license rights must survive termination"
+    conditions:
+      - type: contains_any
+        value: ["license survives", "license rights continue", "perpetual rights", "license granted shall survive"]
+    fix_strategy: INJECT
+    inject_template: "Notwithstanding any termination of this Agreement, the license rights granted under Article {{article_number:IP_RIGHTS}} shall survive termination, subject to Licensee's continued compliance with the usage restrictions and payment of any outstanding fees."
+
+# ════════════════════════════════════════════════════════════════════════════
+# DETERMINISTIC TEMPLATES
+# Rendered from structured deal values when LLM output cannot be trusted.
+# Applied when: (a) the `applies_when` condition is met AND
+#               (b) a BLOCK rule would fire on the LLM output, OR
+#               (c) the deal has explicit structured values for the template.
+# ════════════════════════════════════════════════════════════════════════════
+
+deterministic_templates:
+  SLA_CLAUSE:
+    applies_when: "support.slaResponseHours != null"
+    inject_into: SERVICES
+    position: APPEND
+    template: |
+      Support Response Levels:
+      (a) Severity 1 (Critical — system down or data at risk): Response within {{support.slaResponseHours}} hours, {{support.coverage}} coverage.
+      (b) Severity 2 (Major — significant functionality impaired): Response within 8 business hours.
+      (c) Severity 3 (Minor — non-critical issues): Response within 2 business days.
+      Service credits shall apply for failure to meet Severity 1 response times as set forth in Schedule B.
+
+  LICENSE_GRANT:
+    applies_when: "license.type != null"
+    inject_into: IP_RIGHTS
+    position: PREPEND
+    template: |
+      Licensor hereby grants to Licensee a {{license.type}}, non-exclusive, non-transferable license to use the Licensed Software for up to {{license.users}} named users across {{license.locations}} licensed sites, solely for Licensee's internal business purposes.{{#if license.derivativeRights}} Licensee may create derivative works of the Licensed Software for {{license.derivativeRights}} use only; all such derivative works remain subject to the terms of this Agreement.{{/if}}
+
+  ESCROW_CLAUSE:
+    applies_when: "security.escrow == true"
+    inject_into: IP_RIGHTS
+    position: APPEND
+    template: |
+      Licensor shall deposit the source code of the Licensed Software with a reputable third-party escrow agent within thirty (30) days of the Effective Date. The source code shall be released to Licensee upon the occurrence of any of the following: (a) Licensor's bankruptcy or insolvency; (b) Licensor's material breach of its support obligations that remains uncured for sixty (60) days; or (c) Licensor's cessation of business operations. Licensor shall update the escrowed source code {{support.patchFrequency}} to reflect the current production version.
+
+  PAYMENT_STRUCTURE:
+    applies_when: "fees.licenseFee != null"
+    inject_into: PAYMENT
+    position: PREPEND
+    template: |
+      Licensee shall pay to Licensor a one-time license fee of {{fees.licenseFee_formatted}} upon execution of this Agreement.{{#if fees.maintenanceFee}} Annual maintenance and support fees of {{fees.maintenanceFee_formatted}} shall commence on the first anniversary of the Effective Date and shall be payable annually in advance.{{/if}}
