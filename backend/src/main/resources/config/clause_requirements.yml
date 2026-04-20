@@ -1,0 +1,412 @@
+# Clause requirements rule engine — single source of truth for clause validation
+# and deal-term enforcement. Evaluated by ClauseRuleEngine at draft time.
+#
+# Rule types:
+#   contains_keywords     — all listed keywords must appear (case-insensitive)
+#   must_include_deal_value — resolved field from DealSpec must appear in text
+#   must_not_contain      — none of the phrases may appear
+#   regex_match           — pattern must match somewhere in the clause
+#   min_subclauses        — minimum count of <p class="clause-sub"> tags
+#   min_length            — minimum character count
+#
+# Fix strategies:
+#   RETRY           — re-generate the entire clause with failure feedback
+#   TARGETED_RETRY  — re-generate with surgical "fix only X" prompt
+#   INJECT          — deterministically append text from inject_template
+#   FLAG            — no auto-fix; surface as a warning to the user
+#
+# Conditional rules:
+#   when: "field == value" — rule only applies when DealSpec field matches
+#   field resolution: dotted path like "license.type", "security.escrow"
+
+rules:
+
+  # ════════════════════════════════════════════════════════════════════
+  # DEFINITIONS
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: DEF_MIN_TERMS
+    applies_to: [DEFINITIONS]
+    severity: HIGH
+    description: "Definitions clause must define at least 5 key terms"
+    conditions:
+      - type: min_subclauses
+        value: 5
+    fix_strategy: RETRY
+    fix_hint: "Add more defined terms — include at minimum: Agreement, Confidential Information, Effective Date, Intellectual Property, and Party-specific definitions."
+
+  - id: DEF_MUST_DEFINE_PARTIES
+    applies_to: [DEFINITIONS]
+    severity: CRITICAL
+    description: "Definitions must reference both contracting parties"
+    conditions:
+      - type: contains_keywords
+        value: ["shall mean", "refers to"]
+    fix_strategy: TARGETED_RETRY
+    fix_hint: "Each defined term must use 'shall mean' or 'refers to' — do not leave definitions as placeholders."
+
+  # ════════════════════════════════════════════════════════════════════
+  # SERVICES
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: SVC_SCOPE_KEYWORDS
+    applies_to: [SERVICES]
+    severity: HIGH
+    description: "Services clause must describe scope, standards, and acceptance"
+    conditions:
+      - type: contains_keywords
+        value: ["scope", "service", "perform"]
+    fix_strategy: RETRY
+    fix_hint: "Include scope of services, performance standards, and acceptance criteria."
+
+  - id: SVC_MIN_LENGTH
+    applies_to: [SERVICES]
+    severity: MEDIUM
+    description: "Services clause must be substantive (min 500 chars)"
+    conditions:
+      - type: min_length
+        value: 500
+    fix_strategy: RETRY
+    fix_hint: "Expand the services clause with more detail on deliverables, timelines, and standards."
+
+  - id: SVC_USER_COUNT
+    applies_to: [SERVICES]
+    severity: HIGH
+    when: "license.users != null"
+    description: "Services clause must state the authorized user count"
+    conditions:
+      - type: must_include_deal_value
+        field: license.users
+    fix_strategy: INJECT
+    inject_template: "The Services shall be provided for up to {{license.users}} authorized users."
+
+  - id: SVC_DEPLOYMENT_MODEL
+    applies_to: [SERVICES]
+    severity: MEDIUM
+    when: "license.deployment != null"
+    description: "Services clause must specify the deployment model"
+    conditions:
+      - type: must_include_deal_value
+        field: license.deployment
+    fix_strategy: INJECT
+    inject_template: "The Software shall be deployed in a {{license.deployment}} environment."
+
+  # ════════════════════════════════════════════════════════════════════
+  # PAYMENT
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: PAY_KEY_TERMS
+    applies_to: [PAYMENT]
+    severity: HIGH
+    description: "Payment clause must include core commercial terms"
+    conditions:
+      - type: contains_keywords
+        value: ["invoice", "due", "late payment"]
+    fix_strategy: RETRY
+    fix_hint: "Add invoice cycle, due date, and late payment interest provision."
+
+  - id: PAY_LICENSE_FEE
+    applies_to: [PAYMENT]
+    severity: CRITICAL
+    when: "fees.licenseFee != null"
+    description: "Payment clause must state the exact license fee amount"
+    conditions:
+      - type: must_include_deal_value
+        field: fees.licenseFee
+    fix_strategy: INJECT
+    inject_template: "The one-time license fee shall be {{fees.licenseFee_formatted}}, payable upon execution of this Agreement."
+
+  - id: PAY_MAINTENANCE_FEE
+    applies_to: [PAYMENT]
+    severity: HIGH
+    when: "fees.maintenanceFee != null"
+    description: "Payment clause must state the maintenance fee"
+    conditions:
+      - type: must_include_deal_value
+        field: fees.maintenanceFee
+    fix_strategy: INJECT
+    inject_template: "The annual maintenance and support fee shall be {{fees.maintenanceFee_formatted}}."
+
+  - id: PAY_BILLING_CYCLE
+    applies_to: [PAYMENT]
+    severity: MEDIUM
+    when: "fees.billingCycle != null"
+    description: "Payment clause must specify the billing cycle"
+    conditions:
+      - type: must_include_deal_value
+        field: fees.billingCycle
+    fix_strategy: TARGETED_RETRY
+    fix_hint: "Specify the billing cycle (monthly/quarterly/annually) in the payment terms."
+
+  - id: PAY_CURRENCY
+    applies_to: [PAYMENT]
+    severity: MEDIUM
+    description: "Payment clause must specify currency"
+    conditions:
+      - type: regex_match
+        value: "(?:USD|EUR|GBP|INR|\\$|€|£|₹|United States Dollars?|dollars?)"
+    fix_strategy: TARGETED_RETRY
+    fix_hint: "Specify the currency for all payment obligations (e.g. USD, EUR)."
+
+  # ════════════════════════════════════════════════════════════════════
+  # CONFIDENTIALITY
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: CONF_CORE_OBLIGATIONS
+    applies_to: [CONFIDENTIALITY]
+    severity: HIGH
+    description: "Confidentiality clause must include core obligations and exceptions"
+    conditions:
+      - type: contains_keywords
+        value: ["confidential information", "shall not disclose", "exception"]
+    fix_strategy: RETRY
+    fix_hint: "Include definition of confidential information, non-disclosure obligations, and standard exceptions (public domain, prior knowledge, independent development)."
+
+  - id: CONF_RETURN_DESTROY
+    applies_to: [CONFIDENTIALITY]
+    severity: MEDIUM
+    description: "Confidentiality clause must address return or destruction of information"
+    conditions:
+      - type: contains_keywords
+        value: ["return", "destroy"]
+    fix_strategy: TARGETED_RETRY
+    fix_hint: "Add provisions for return or destruction of confidential information upon termination."
+
+  # ════════════════════════════════════════════════════════════════════
+  # DATA PROTECTION
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: DP_CORE_TERMS
+    applies_to: [DATA_PROTECTION]
+    severity: HIGH
+    description: "Data protection clause must cover processing, security, and breach notification"
+    conditions:
+      - type: contains_keywords
+        value: ["personal data", "security", "breach"]
+    fix_strategy: RETRY
+    fix_hint: "Include data processing obligations, security measures, and breach notification procedures."
+
+  - id: DP_SOC2_COMPLIANCE
+    applies_to: [DATA_PROTECTION]
+    severity: HIGH
+    when: "security.soc2 == true"
+    description: "Data protection must reference SOC 2 compliance when required"
+    conditions:
+      - type: contains_keywords
+        value: ["SOC 2"]
+    fix_strategy: INJECT
+    inject_template: "The Service Provider shall maintain SOC 2 Type II certification and provide audit reports upon reasonable request."
+
+  - id: DP_ISO27001
+    applies_to: [DATA_PROTECTION]
+    severity: HIGH
+    when: "security.iso27001 == true"
+    description: "Data protection must reference ISO 27001 when required"
+    conditions:
+      - type: contains_keywords
+        value: ["ISO 27001"]
+    fix_strategy: INJECT
+    inject_template: "The Service Provider shall maintain ISO 27001 certification for information security management."
+
+  # ════════════════════════════════════════════════════════════════════
+  # IP RIGHTS
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: IP_OWNERSHIP_KEYWORDS
+    applies_to: [IP_RIGHTS]
+    severity: HIGH
+    description: "IP clause must address ownership and license grants"
+    conditions:
+      - type: contains_keywords
+        value: ["ownership", "license", "intellectual property"]
+    fix_strategy: RETRY
+    fix_hint: "Clearly state IP ownership (who owns what) and license grants (what rights are given)."
+
+  - id: IP_DERIVATIVE_WORKS
+    applies_to: [IP_RIGHTS]
+    severity: HIGH
+    when: "license.derivativeRights == true"
+    description: "IP clause must address derivative works rights"
+    conditions:
+      - type: contains_keywords
+        value: ["derivative"]
+    fix_strategy: INJECT
+    inject_template: "Licensee shall have the right to create derivative works based on the Licensed Software, subject to the terms of this Agreement."
+
+  - id: IP_ESCROW
+    applies_to: [IP_RIGHTS]
+    severity: HIGH
+    when: "security.escrow == true"
+    description: "IP clause must include source code escrow provisions"
+    conditions:
+      - type: contains_keywords
+        value: ["escrow"]
+    fix_strategy: INJECT
+    inject_template: "Licensor shall deposit a complete copy of the source code with a mutually agreed escrow agent. The source code shall be released to Licensee upon the occurrence of any release condition specified in the Escrow Agreement."
+
+  # ════════════════════════════════════════════════════════════════════
+  # LIABILITY
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: LIA_CAP_KEYWORDS
+    applies_to: [LIABILITY]
+    severity: HIGH
+    description: "Liability clause must include cap and indemnification"
+    conditions:
+      - type: contains_keywords
+        value: ["shall not exceed", "aggregate", "indemnif"]
+    fix_strategy: RETRY
+    fix_hint: "Include liability cap (aggregate maximum), exclusion of consequential damages, and indemnification obligations."
+
+  - id: LIA_NO_UNLIMITED
+    applies_to: [LIABILITY]
+    severity: MEDIUM
+    description: "Liability clause must not impose unlimited liability"
+    conditions:
+      - type: must_not_contain
+        value: ["unlimited liability", "without limitation on liability", "no cap on liability"]
+    action: FLAG
+    risk_message: "Potential unlimited liability detected — ensure a liability cap is specified."
+
+  - id: LIA_CAP_AMOUNT
+    applies_to: [LIABILITY]
+    severity: HIGH
+    when: "legal.liabilityCap != null"
+    description: "Liability clause must state the agreed liability cap"
+    conditions:
+      - type: must_include_deal_value
+        field: legal.liabilityCap
+    fix_strategy: INJECT
+    inject_template: "The aggregate liability of either party under this Agreement shall not exceed {{legal.liabilityCap}}."
+
+  # ════════════════════════════════════════════════════════════════════
+  # TERMINATION
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: TERM_CORE_PROVISIONS
+    applies_to: [TERMINATION]
+    severity: HIGH
+    description: "Termination clause must include notice, breach cure, and effect of termination"
+    conditions:
+      - type: contains_keywords
+        value: ["written notice", "material breach", "effect"]
+    fix_strategy: RETRY
+    fix_hint: "Include termination for convenience (with notice period), termination for cause (with cure period), and effects of termination."
+
+  - id: TERM_NOTICE_DAYS
+    applies_to: [TERMINATION]
+    severity: MEDIUM
+    when: "legal.noticeDays != null"
+    description: "Termination clause must state the agreed notice period"
+    conditions:
+      - type: must_include_deal_value
+        field: legal.noticeDays
+    fix_strategy: INJECT
+    inject_template: "Either party may terminate this Agreement for convenience upon {{legal.noticeDays}} days' prior written notice to the other party."
+
+  - id: TERM_PERPETUAL_SURVIVAL
+    applies_to: [TERMINATION]
+    severity: HIGH
+    when: "license.type == perpetual"
+    description: "Perpetual license rights must survive termination"
+    conditions:
+      - type: must_not_contain
+        value: ["license shall terminate", "all rights cease", "revoke the license", "license is revoked"]
+    fix_strategy: TARGETED_RETRY
+    fix_hint: "Perpetual license rights survive termination — the license grant must not be revoked upon termination. Only support and maintenance obligations should cease."
+
+  # ════════════════════════════════════════════════════════════════════
+  # GOVERNING LAW
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: GOV_CORE_PROVISIONS
+    applies_to: [GOVERNING_LAW]
+    severity: HIGH
+    description: "Governing law clause must specify jurisdiction and dispute resolution"
+    conditions:
+      - type: contains_keywords
+        value: ["governed by", "jurisdiction", "dispute"]
+    fix_strategy: RETRY
+    fix_hint: "Specify governing law, jurisdiction for courts, and dispute resolution mechanism (arbitration or litigation)."
+
+  - id: GOV_JURISDICTION_VALUE
+    applies_to: [GOVERNING_LAW]
+    severity: CRITICAL
+    when: "legal.jurisdiction != null"
+    description: "Governing law must state the agreed jurisdiction"
+    conditions:
+      - type: must_include_deal_value
+        field: legal.jurisdiction
+    fix_strategy: INJECT
+    inject_template: "This Agreement shall be governed by and construed in accordance with the laws of {{legal.jurisdiction}}, without regard to its conflict of laws principles."
+
+  - id: GOV_ARBITRATION
+    applies_to: [GOVERNING_LAW]
+    severity: MEDIUM
+    when: "legal.arbitration != null"
+    description: "Governing law must reference the agreed arbitration body"
+    conditions:
+      - type: must_include_deal_value
+        field: legal.arbitration
+    fix_strategy: INJECT
+    inject_template: "Any dispute arising out of or in connection with this Agreement shall be finally resolved by arbitration in accordance with the {{legal.arbitration}}."
+
+  # ════════════════════════════════════════════════════════════════════
+  # GENERAL PROVISIONS
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: GEN_BOILERPLATE
+    applies_to: [GENERAL_PROVISIONS]
+    severity: MEDIUM
+    description: "General provisions must include standard boilerplate terms"
+    conditions:
+      - type: contains_keywords
+        value: ["entire agreement", "amendment", "waiver", "severability"]
+    fix_strategy: RETRY
+    fix_hint: "Include: entire agreement, amendment procedures, waiver, severability, assignment, notices, counterparts."
+
+  - id: GEN_MIN_SUBCLAUSES
+    applies_to: [GENERAL_PROVISIONS]
+    severity: MEDIUM
+    description: "General provisions must have sufficient sub-clauses"
+    conditions:
+      - type: min_subclauses
+        value: 5
+    fix_strategy: RETRY
+    fix_hint: "Expand general provisions to cover: entire agreement, amendments, waiver, severability, assignment, notices, counterparts, and independent contractor."
+
+  # ════════════════════════════════════════════════════════════════════
+  # CROSS-CUTTING RULES (apply to multiple clause types)
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: ALL_MIN_LENGTH
+    applies_to: [DEFINITIONS, SERVICES, PAYMENT, CONFIDENTIALITY, DATA_PROTECTION, IP_RIGHTS, LIABILITY, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS]
+    severity: LOW
+    description: "Every clause must meet a minimum length threshold"
+    conditions:
+      - type: min_length
+        value: 300
+    fix_strategy: RETRY
+    fix_hint: "Clause is too short — expand with substantive legal provisions, not filler text."
+
+  - id: SLA_RESPONSE_TIME
+    applies_to: [SERVICES, PAYMENT]
+    severity: HIGH
+    when: "support.slaResponseHours != null"
+    description: "SLA response time must appear in services or payment clause"
+    conditions:
+      - type: must_include_deal_value
+        field: support.slaResponseHours
+    fix_strategy: INJECT
+    inject_template: "The Provider shall respond to all support requests within {{support.slaResponseHours}} hours of receipt."
+
+  - id: UPTIME_SLA
+    applies_to: [SERVICES]
+    severity: HIGH
+    when: "support.uptimeSla != null"
+    description: "Services clause must state the uptime SLA when specified"
+    conditions:
+      - type: must_include_deal_value
+        field: support.uptimeSla
+    fix_strategy: INJECT
+    inject_template: "The Provider shall maintain a minimum uptime of {{support.uptimeSla}}% measured on a monthly basis, excluding scheduled maintenance windows."

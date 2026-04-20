@@ -60,6 +60,10 @@ public class DraftService {
     private final ContractTypeRegistry contractRegistry;
     private final DenylistRegistry denylistRegistry;
     private final DynamicEntityDenylistService dynamicDenylist;
+    private final DealSpecExtractor dealSpecExtractor;
+    private final ClauseRuleEngine clauseRuleEngine;
+    private final FixEngine fixEngine;
+    private final DealCoverageScore dealCoverageScore;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -76,6 +80,10 @@ public class DraftService {
                         ContractTypeRegistry contractRegistry,
                         DenylistRegistry denylistRegistry,
                         DynamicEntityDenylistService dynamicDenylist,
+                        DealSpecExtractor dealSpecExtractor,
+                        ClauseRuleEngine clauseRuleEngine,
+                        FixEngine fixEngine,
+                        DealCoverageScore dealCoverageScore,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
@@ -89,6 +97,10 @@ public class DraftService {
         this.contractRegistry = contractRegistry;
         this.denylistRegistry = denylistRegistry;
         this.dynamicDenylist = dynamicDenylist;
+        this.dealSpecExtractor = dealSpecExtractor;
+        this.clauseRuleEngine = clauseRuleEngine;
+        this.fixEngine = fixEngine;
+        this.dealCoverageScore = dealCoverageScore;
         this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
@@ -218,6 +230,32 @@ public class DraftService {
 
     private void doAsyncDraft(UUID docId, DraftRequest request, String username) throws Exception {
         hydrateFromMatter(request);
+
+        // ── Phase 0a: Extract structured deal spec (single source of truth) ──
+        String brief = request.getDealBrief() != null ? request.getDealBrief() : request.getDealContext();
+        com.legalpartner.model.dto.DealSpec dealSpec = null;
+        if (brief != null && !brief.isBlank()) {
+            dealSpec = dealSpecExtractor.extract(brief);
+            // Hydrate request fields from DealSpec for template rendering
+            if (dealSpec.getPartyA() != null) {
+                if (request.getPartyA() == null || request.getPartyA().isBlank())
+                    request.setPartyA(dealSpec.getPartyA().getName());
+                if (request.getPartyAAddress() == null || request.getPartyAAddress().isBlank())
+                    request.setPartyAAddress(dealSpec.getPartyA().getAddress());
+            }
+            if (dealSpec.getPartyB() != null) {
+                if (request.getPartyB() == null || request.getPartyB().isBlank())
+                    request.setPartyB(dealSpec.getPartyB().getName());
+                if (request.getPartyBAddress() == null || request.getPartyBAddress().isBlank())
+                    request.setPartyBAddress(dealSpec.getPartyB().getAddress());
+            }
+            log.info("DealSpec extracted: partyA={}, partyB={}, fees={}, license={}",
+                    dealSpec.getPartyA() != null ? dealSpec.getPartyA().getName() : "?",
+                    dealSpec.getPartyB() != null ? dealSpec.getPartyB().getName() : "?",
+                    dealSpec.getFees() != null ? dealSpec.getFees().getLicenseFee() : "?",
+                    dealSpec.getLicense() != null ? dealSpec.getLicense().getType() : "?");
+        }
+        // Keep old extraction as fallback
         hydratePartiesFromDealBrief(request);
 
         DocumentMetadata doc = documentRepository.findById(docId)
@@ -246,9 +284,12 @@ public class DraftService {
         storeHtml(doc, buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
         doc = documentRepository.save(doc);
 
-        // ── Phase 2: generate each section ──
+        // ── Phase 2: generate each section with rule enforcement ──
         TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
         Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
+        Map<String, List<ClauseRuleEngine.RuleResult>> allRuleResults = new LinkedHashMap<>();
+        List<FixEngine.AuditEntry> allAuditEntries = new ArrayList<>();
+        final com.legalpartner.model.dto.DealSpec finalDealSpec = dealSpec;
 
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
@@ -262,6 +303,28 @@ public class DraftService {
             ClauseResult result = generateClauseWithQa(
                     request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(),
                     spec.expectedSubclauses(), null, manifest);
+
+            // ── Rule engine: validate + fix ──
+            if (finalDealSpec != null) {
+                List<ClauseRuleEngine.RuleResult> ruleResults = clauseRuleEngine.validate(
+                        result.html(), key, finalDealSpec);
+                List<ClauseRuleEngine.RuleResult> failures = ruleResults.stream()
+                        .filter(r -> !r.passed()).toList();
+                if (!failures.isEmpty()) {
+                    log.info("Rule engine [{}]: {}/{} rules failed — running fix engine",
+                            key, failures.size(), ruleResults.size());
+                    FixEngine.FixResult fixResult = fixEngine.fix(
+                            result.html(), failures, finalDealSpec,
+                            spec.systemPrompt(), spec.userPromptTemplate());
+                    if (fixResult.wasModified()) {
+                        result = new ClauseResult(fixResult.fixedHtml(), result.qaWarnings());
+                        log.info("Rule engine [{}]: fix applied ({} audit entries)",
+                                key, fixResult.auditTrail().size());
+                    }
+                    allAuditEntries.addAll(fixResult.auditTrail());
+                }
+                allRuleResults.put(key, ruleResults);
+            }
             sectionValues.put(key, result.html());
             if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(result.html()));
             manifest = manifest.withAppendedClause(
@@ -279,11 +342,20 @@ public class DraftService {
         // ── Phase 3: post-processing + mark complete ──
         runCoherenceScan(plannedSections, sectionValues, manifest); // log-only; result ignored for async
 
-        // Build the full HTML, then run missing terms detector
+        // Build the full HTML, then run missing terms detector + coverage score
         String fullHtml = buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues);
         List<String> missingTerms = detectMissingTerms(fullHtml, request);
         if (!missingTerms.isEmpty()) {
             log.warn("Draft {}: {} deal terms not found in output: {}", docId, missingTerms.size(), missingTerms);
+        }
+
+        // Compute deal coverage score
+        if (finalDealSpec != null && !allRuleResults.isEmpty()) {
+            DealCoverageScore.CoverageReport coverage = dealCoverageScore.compute(
+                    allRuleResults, allAuditEntries, finalDealSpec);
+            log.info("Draft {}: coverage={}, risk={}, blockers={}, fixes={}",
+                    docId, String.format("%.0f%%", coverage.overallCoverage() * 100),
+                    coverage.overallRisk(), coverage.blockers().size(), coverage.fixesApplied().size());
         }
 
         // Append input summary schedule to the draft
@@ -794,11 +866,19 @@ public class DraftService {
         // Moving the invariants to the front means the first ~N tokens are identical
         // across every clause of a draft and every draft ever — vLLM's APC reuses the
         // KV cache for those tokens instead of re-computing prefill.
+        // Pre-generation: inject deal-specific requirements from rule engine
+        String dealRequirements = "";
+        if (request.getExtractedDealTerms() != null) {
+            // Use the new rule engine if DealSpec is available on the request
+            dealRequirements = clauseRuleEngine.buildRequirementsPrompt(clauseKey, null);
+        }
+
         String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction);
         String fullSystemAndInitial = PromptTemplates.DRAFT_CONTENT_GUARDRAILS
                 + manifestConstraint
                 + ragGrounding
                 + scratchpadConstraint
+                + dealRequirements
                 + "\n\n" + localizedSystemPrompt
                 + "\n\n" + initialPrompt;
 
