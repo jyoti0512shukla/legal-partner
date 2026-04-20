@@ -2072,44 +2072,50 @@ public class DraftService {
         String roleB = config != null ? config.partyBRole() : "Party B";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("\n<h2>SCHEDULE — DRAFT PARAMETERS</h2>\n");
-        sb.append("<div class=\"article-body\" style=\"font-size:10pt; color:#555;\">\n");
-        sb.append("<p><em>This section summarizes the input parameters used to generate this draft. ")
-          .append("It is included for verification purposes and should be removed from the final executed version.</em></p>\n");
-        sb.append("<table style=\"width:100%; border-collapse:collapse; margin:10px 0;\">\n");
+        // Collapsible section, visually distinct from the contract body
+        sb.append("\n<hr style=\"margin-top:40px; border:none; border-top:2px dashed #ccc;\">\n");
+        sb.append("<details style=\"margin-top:20px; background:#f8f9fa; border:1px solid #e0e0e0; border-radius:6px; padding:0;\">\n");
+        sb.append("<summary style=\"cursor:pointer; padding:12px 16px; font-weight:bold; font-size:11pt; color:#555; user-select:none;\">");
+        sb.append("Draft Generation Parameters (click to expand)</summary>\n");
+        sb.append("<div style=\"padding:12px 16px; font-size:10pt; color:#666; line-height:1.5;\">\n");
+        sb.append("<p style=\"margin:0 0 10px 0; font-style:italic; color:#999;\">")
+          .append("This section shows the input used to generate this draft. Not part of the agreement.</p>\n");
 
-        addParamRow(sb, "Contract Type", displayName);
-        addParamRow(sb, roleA, nullToDefault(request.getPartyA(), "—"));
+        addParamItem(sb, "Contract Type", displayName);
+        addParamItem(sb, roleA, nullToDefault(request.getPartyA(), "—"));
         if (request.getPartyAAddress() != null && !request.getPartyAAddress().isBlank()) {
-            addParamRow(sb, roleA + " Address", request.getPartyAAddress());
+            addParamItem(sb, roleA + " Address", request.getPartyAAddress());
         }
-        addParamRow(sb, roleB, nullToDefault(request.getPartyB(), "—"));
+        addParamItem(sb, roleB, nullToDefault(request.getPartyB(), "—"));
         if (request.getPartyBAddress() != null && !request.getPartyBAddress().isBlank()) {
-            addParamRow(sb, roleB + " Address", request.getPartyBAddress());
+            addParamItem(sb, roleB + " Address", request.getPartyBAddress());
         }
-        addParamRow(sb, "Jurisdiction", nullToDefault(request.getJurisdiction(), "—"));
-        addParamRow(sb, "Practice Area", nullToDefault(request.getPracticeArea(), "—"));
-        addParamRow(sb, "Counterparty Type", nullToDefault(request.getCounterpartyType(), "—"));
+        addParamItem(sb, "Jurisdiction", nullToDefault(request.getJurisdiction(), "—"));
+        addParamItem(sb, "Practice Area", nullToDefault(request.getPracticeArea(), "—"));
+        addParamItem(sb, "Counterparty Type", nullToDefault(request.getCounterpartyType(), "—"));
 
         String brief = request.getDealBrief() != null ? request.getDealBrief() : request.getDealContext();
         if (brief != null && !brief.isBlank()) {
-            addParamRow(sb, "Deal Brief", brief);
+            sb.append("<div style=\"margin-top:10px; padding:8px 12px; background:#fff; border:1px solid #eee; border-radius:4px;\">\n");
+            sb.append("<strong style=\"color:#555;\">Deal Brief:</strong><br>\n");
+            sb.append("<span style=\"color:#333;\">").append(brief).append("</span>\n");
+            sb.append("</div>\n");
         }
         if (request.getExtractedDealTerms() != null && !request.getExtractedDealTerms().isBlank()) {
+            sb.append("<div style=\"margin-top:10px; padding:8px 12px; background:#fff; border:1px solid #eee; border-radius:4px;\">\n");
+            sb.append("<strong style=\"color:#555;\">Extracted Deal Terms:</strong><br>\n");
             String termsHtml = request.getExtractedDealTerms().replace("\n", "<br>");
-            addParamRow(sb, "Extracted Deal Terms", termsHtml);
+            sb.append("<span style=\"color:#333;\">").append(termsHtml).append("</span>\n");
+            sb.append("</div>\n");
         }
 
-        sb.append("</table>\n</div>\n");
+        sb.append("</div>\n</details>\n");
         return sb.toString();
     }
 
-    private void addParamRow(StringBuilder sb, String label, String value) {
-        sb.append("<tr><td style=\"border:1px solid #ddd; padding:4px 8px; font-weight:bold; width:30%; vertical-align:top;\">")
-          .append(label)
-          .append("</td><td style=\"border:1px solid #ddd; padding:4px 8px;\">")
-          .append(value)
-          .append("</td></tr>\n");
+    private void addParamItem(StringBuilder sb, String label, String value) {
+        sb.append("<p style=\"margin:3px 0;\"><strong style=\"color:#555;\">").append(label)
+          .append(":</strong> <span style=\"color:#333;\">").append(value).append("</span></p>\n");
     }
 
     // ── Post-generation coherence scan ────────────────────────────────────────
