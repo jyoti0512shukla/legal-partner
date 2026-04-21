@@ -383,18 +383,7 @@ public class GoldenClauseLibrary {
                 return "the Software";
             }
             String fieldValue = resolveFormattedField(fieldPath, dealSpec);
-            // Provide sensible defaults for critical fields that must never be empty
-            if (fieldValue == null || fieldValue.isBlank()) {
-                return switch (placeholder) {
-                    case "jurisdiction" -> "the State of Delaware";
-                    case "court" -> "the state and federal courts located in Wilmington, Delaware";
-                    case "notice_days" -> "thirty (30)";
-                    case "cure_days" -> "thirty (30)";
-                    case "survival_years" -> "five (5)";
-                    default -> null; // leave for stripUnresolved
-                };
-            }
-            return fieldValue;
+            return fieldValue; // null values handled by stripUnresolved
         }
 
         // Try direct DealSpec field path (e.g. "fees.billingCycle", "support.uptimeSla")
@@ -480,8 +469,13 @@ public class GoldenClauseLibrary {
      */
     private String stripUnresolved(String text) {
         if (text == null) return "";
-        // Remove any remaining {{...}} that weren't resolved
-        return text.replaceAll("\\{\\{[^}]*}}", "");
+        // If critical placeholders remain unresolved, reject the entire clause
+        // rather than outputting "laws of , without..." garbage
+        if (text.contains("{{")) {
+            log.warn("Golden clause has unresolved placeholders — rejecting to prevent garbage output");
+            return "";
+        }
+        return text;
     }
 
     /**
