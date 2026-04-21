@@ -380,9 +380,21 @@ public class GoldenClauseLibrary {
         String fieldPath = ALIASES.get(placeholder);
         if (fieldPath != null) {
             if ("_software_name".equals(fieldPath)) {
-                return "the Software"; // Default — future: extract from DealSpec
+                return "the Software";
             }
-            return resolveFormattedField(fieldPath, dealSpec);
+            String fieldValue = resolveFormattedField(fieldPath, dealSpec);
+            // Provide sensible defaults for critical fields that must never be empty
+            if (fieldValue == null || fieldValue.isBlank()) {
+                return switch (placeholder) {
+                    case "jurisdiction" -> "the State of Delaware";
+                    case "court" -> "the state and federal courts located in Wilmington, Delaware";
+                    case "notice_days" -> "thirty (30)";
+                    case "cure_days" -> "thirty (30)";
+                    case "survival_years" -> "five (5)";
+                    default -> null; // leave for stripUnresolved
+                };
+            }
+            return fieldValue;
         }
 
         // Try direct DealSpec field path (e.g. "fees.billingCycle", "support.uptimeSla")

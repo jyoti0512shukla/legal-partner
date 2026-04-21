@@ -797,7 +797,7 @@ public class DraftService {
     }
 
     private String buildStyleFingerprint(DraftRequest request) {
-        String jurisdiction = nullToDefault(request.getJurisdiction(), "India").toLowerCase();
+        String jurisdiction = nullToDefault(request.getJurisdiction(), "United States (Delaware)").toLowerCase();
         String register = jurisdiction.contains("india")
                 ? "formal Indian legal English (Indian Contract Act, 1872 conventions)"
                 : "formal legal English appropriate to the governing law";
@@ -929,7 +929,7 @@ public class DraftService {
                                                String userPromptTemplate, int expectedSubclauses,
                                                SseEmitter emitter, TerminologyManifest manifest) {
         String contractType = resolveContractTypeName(request);
-        String jurisdiction = nullToDefault(request.getJurisdiction(), "India");
+        String jurisdiction = nullToDefault(request.getJurisdiction(), "United States (Delaware)");
         String counterparty = nullToDefault(request.getCounterpartyType(), "general");
         String practiceArea = nullToDefault(request.getPracticeArea(), "general");
         String dealContext = buildDealContext(request);
@@ -1635,6 +1635,10 @@ public class DraftService {
             // Mistral instruction tokens that leaked through vLLM
             "[/INST]",
             "[INST]",
+            // Fix engine retry artifacts
+            "REVISED ORIGINAL CLAUSE",
+            "MODIFIED CLAUSE",
+            "Correct version",
             // Model copying input context verbatim as a "schedule"
             "SCHEDULE — DRAFT PARAMETERS",
             "SCHEDULE - DRAFT PARAMETERS",
@@ -1893,6 +1897,21 @@ public class DraftService {
         if (lower.contains("fixing") && lower.contains("violation")) return true;
         if (lower.contains("corrected clause")) return true;
         if (lower.contains("deal values embedded")) return true;
+        if (lower.contains("revised original clause")) return true;
+        if (lower.contains("passed all requirements")) return true;
+        if (lower.contains("passed requirements")) return true;
+        if (lower.contains("correct version")) return true;
+        if (lower.startsWith("contract type:")) return true;
+        if (lower.startsWith("jurisdiction:")) return true;
+        if (lower.startsWith("counterparty type:")) return true;
+        if (lower.startsWith("practice area:")) return true;
+        if (lower.startsWith("license fee:")) return true;
+        if (lower.startsWith("maintenance fee:")) return true;
+        if (lower.startsWith("license type:")) return true;
+        if (lower.startsWith("users:")) return true;
+        if (lower.startsWith("locations:")) return true;
+        if (lower.contains("indian contract act")) return true;
+        if (lower.contains("sections 73 and 74")) return true;
         if (lower.startsWith("here is the")) return true;
         if (lower.startsWith("this version satisfies")) return true;
         if (lower.startsWith("this satisfies")) return true;
@@ -2418,7 +2437,7 @@ public class DraftService {
         m.put("PARTY_A_REP", nullToDefault(r.getPartyARep(), "its authorised signatory"));
         m.put("PARTY_B_REP", nullToDefault(r.getPartyBRep(), "its authorised signatory"));
         m.put("EFFECTIVE_DATE", nullToDefault(r.getEffectiveDate(), java.time.LocalDate.now().toString()));
-        m.put("JURISDICTION", nullToDefault(r.getJurisdiction(), "India"));
+        m.put("JURISDICTION", nullToDefault(r.getJurisdiction(), "United States (Delaware)"));
         m.put("AGREEMENT_REF", nullToDefault(r.getAgreementRef(), generateAgreementRef(r)));
         m.put("TERM_YEARS", nullToDefault(r.getTermYears(), "3"));
         m.put("NOTICE_DAYS", nullToDefault(r.getNoticeDays(), "30"));
