@@ -1639,6 +1639,10 @@ public class DraftService {
             "REVISED ORIGINAL CLAUSE",
             "MODIFIED CLAUSE",
             "Correct version",
+            "Here is the fixed clause",
+            "Here is the corrected",
+            "```html",
+            "```json",
             // Model copying input context verbatim as a "schedule"
             "SCHEDULE — DRAFT PARAMETERS",
             "SCHEDULE - DRAFT PARAMETERS",
@@ -1860,71 +1864,52 @@ public class DraftService {
         return html;
     }
 
-    /** Returns true if the line is model meta-commentary, not legal prose. */
+    /**
+     * Returns true if the line is model meta-commentary, not legal prose.
+     * Uses PATTERN DETECTION instead of specific strings — catches all variations
+     * of fix engine leaks, prompt echoes, and model self-commentary.
+     */
     private boolean isMetaCommentary(String line) {
-        String lower = line.toLowerCase();
-        // Exact prefix patterns — high confidence
-        if (lower.startsWith("note:")) return true;
-        if (lower.startsWith("[note:")) return true;
-        if (lower.startsWith("reference:")) return true;
-        if (lower.startsWith("source:")) return true;
-        if (lower.startsWith("instruction:")) return true;
-        if (lower.startsWith("end of ")) return true;
-        if (lower.startsWith("do not ")) return true;
-        if (lower.startsWith("sub-clause ") && lower.contains(":")) {
-            // "Sub-clause 8: ..." overflow past expected count
-            try {
-                int num = Integer.parseInt(lower.substring(11, lower.indexOf(':')).trim());
-                return num > 7; // strip overflow sub-clauses numbered 8+
-            } catch (NumberFormatException ignored) {}
-        }
-        // Containment patterns — model explaining itself
-        if (lower.contains("this clause is drafted")) return true;
-        if (lower.contains("this clause is tailored")) return true;
-        if (lower.contains("this clause complies")) return true;
-        if (lower.contains("this payment clause")) return true;
-        if (lower.contains("the following sub-clauses were provided")) return true;
-        if (lower.contains("do not include sub-clause headings")) return true;
-        if (lower.contains("keep the same structure")) return true;
-        if (lower.contains("as per the given prompt")) return true;
-        if (lower.contains("the above sub-clauses")) return true;
-        if (lower.contains("are not required to be included")) return true;
-        if (lower.contains("the data protection and privacy focus")) return true;
-        if (lower.contains("this is a first draft")) return true;
-        // Fix engine / retry prompt leaks
-        if (lower.startsWith("fixed clause")) return true;
-        if (lower.startsWith("fixing")) return true;
-        if (lower.contains("fixing") && lower.contains("violation")) return true;
-        if (lower.contains("corrected clause")) return true;
-        if (lower.contains("deal values embedded")) return true;
-        if (lower.contains("revised original clause")) return true;
-        if (lower.contains("passed all requirements")) return true;
-        if (lower.contains("passed requirements")) return true;
-        if (lower.contains("correct version")) return true;
-        if (lower.startsWith("contract type:")) return true;
-        if (lower.startsWith("jurisdiction:")) return true;
-        if (lower.startsWith("counterparty type:")) return true;
-        if (lower.startsWith("practice area:")) return true;
-        if (lower.startsWith("license fee:")) return true;
-        if (lower.startsWith("maintenance fee:")) return true;
-        if (lower.startsWith("license type:")) return true;
-        if (lower.startsWith("users:")) return true;
-        if (lower.startsWith("locations:")) return true;
-        if (lower.contains("indian contract act")) return true;
-        if (lower.contains("sections 73 and 74")) return true;
-        if (lower.startsWith("here is the")) return true;
-        if (lower.startsWith("this version satisfies")) return true;
-        if (lower.startsWith("this satisfies")) return true;
-        if (lower.startsWith("the corrected version")) return true;
-        if (lower.startsWith("article ") && lower.contains(". ") && lower.length() < 30) return true; // "Article 2. Services" heading echo
-        if (lower.contains("satisfies all requirements")) return true;
-        if (lower.contains("stated above")) return true;
-        if (lower.contains("```")) return true;
-        if (lower.startsWith("to summarize")) return true;
-        if (lower.startsWith("drafting complete")) return true;
-        if (lower.startsWith("to conclude")) return true;
-        if (lower.startsWith("in summary")) return true;
-        if (lower.startsWith("the above clauses")) return true;
+        String lower = line.toLowerCase().trim();
+        if (lower.isEmpty()) return false;
+
+        // ── Pattern 1: Non-prose prefixes (instructions, metadata, labels) ──
+        if (lower.matches("^(note:|\\[note|reference:|source:|instruction:|end of |do not |sub-clause \\d).*")) return true;
+
+        // ── Pattern 2: Model talking ABOUT its output (self-reference) ──
+        String[] selfRef = {
+            "this clause", "this version", "this section", "this payment",
+            "the above", "as per the", "the following sub-clauses",
+            "satisfies all", "satisfies the", "requirements stated",
+            "passed requirements", "passed all", "not required to be",
+            "data protection and privacy focus", "is a first draft",
+        };
+        for (String p : selfRef) { if (lower.contains(p)) return true; }
+
+        // ── Pattern 3: Fix engine / retry prompt leaks ──
+        String[] fixLeaks = {
+            "fixed clause", "fixing", "corrected clause", "corrected version",
+            "revised clause", "revised original", "correct version",
+            "required fix", "only the required", "deal values embedded",
+            "violation", "rewrite", "modified clause",
+        };
+        for (String p : fixLeaks) { if (lower.contains(p)) return true; }
+
+        // ── Pattern 4: Response-style prefixes (model introducing its answer) ──
+        if (lower.matches("^(here is|here are|below is|the following|to summarize|to conclude|in summary|drafting complete|in conclusion).*")) return true;
+
+        // ── Pattern 5: Code / markup artifacts ──
+        if (lower.contains("```") || lower.contains("\\text{") || lower.contains("\\section{")) return true;
+
+        // ── Pattern 6: Raw DealSpec / prompt key-value dumps ──
+        if (lower.matches("^(contract type|jurisdiction|counterparty type|practice area|license fee|maintenance fee|license type|users|locations|deal brief|severity|coverage|deployment|industry):.*")) return true;
+
+        // ── Pattern 7: Cross-jurisdiction contamination ──
+        if (lower.contains("indian contract act") || lower.contains("sections 73 and 74")) return true;
+
+        // ── Pattern 8: Heading echoes (article/section labels without content) ──
+        if (lower.matches("^article \\d+\\..*") && lower.length() < 40) return true;
+
         return false;
     }
 
