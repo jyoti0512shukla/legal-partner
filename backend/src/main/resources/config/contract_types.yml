@@ -29,6 +29,8 @@ contract_types:
     contract_mode: NDA
     party_roles: ["Disclosing Party", "Receiving Party"]
     banned_terms: ["Statement of Work", "subscription", "license fee", "SLA"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
+    recommended_fields: ["legal.survivalYears"]
     default_sections:
       - DEFINITIONS
       - CONFIDENTIALITY
@@ -43,6 +45,8 @@ contract_types:
     contract_mode: MSA
     party_roles: ["Service Provider", "Client"]
     banned_terms: ["subscription fee", "authorized users", "uptime", "license grant"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
+    recommended_fields: ["fees.billingCycle", "support.slaResponseHours", "legal.noticeDays"]
     default_sections:
       - DEFINITIONS
       - SERVICES
@@ -60,6 +64,8 @@ contract_types:
     contract_mode: SAAS
     party_roles: ["Provider", "Customer"]
     banned_terms: ["Statement of Work", "Deliverables", "milestone", "perpetual license"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction", "fees.subscriptionFee"]
+    recommended_fields: ["license.users", "support.uptimeSla", "support.slaResponseHours"]
     default_sections:
       - DEFINITIONS
       - SERVICES
@@ -105,6 +111,8 @@ contract_types:
     contract_mode: EMPLOYMENT
     party_roles: ["Employer", "Employee"]
     banned_terms: ["Statement of Work", "subscription", "license", "SLA"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
+    recommended_fields: ["compensation.salary", "legal.noticePeriod"]
     default_sections:
       - DEFINITIONS
       - SERVICES
@@ -121,6 +129,8 @@ contract_types:
     contract_mode: SUPPLY
     party_roles: ["Supplier", "Buyer"]
     banned_terms: ["subscription", "authorized users", "SaaS", "license grant"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
+    recommended_fields: ["fees.billingCycle", "legal.noticeDays"]
     default_sections:
       - DEFINITIONS
       - SERVICES
@@ -137,6 +147,8 @@ contract_types:
     contract_mode: SOFTWARE_LICENSE
     party_roles: ["Licensor", "Licensee"]
     banned_terms: ["Statement of Work", "Deliverables", "subscription fee", "SaaS"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction", "license.type", "fees.licenseFee"]
+    recommended_fields: ["license.users", "license.locations", "fees.maintenanceFee", "support.slaResponseHours", "security.escrow"]
     default_sections:
       - DEFINITIONS
       - IP_RIGHTS
@@ -154,6 +166,8 @@ contract_types:
     contract_mode: IP_LICENSE
     party_roles: ["Licensor", "Licensee"]
     banned_terms: ["Statement of Work", "Deliverables", "subscription fee", "SaaS"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction", "license.type"]
+    recommended_fields: ["fees.licenseFee", "fees.maintenanceFee"]
     default_sections:
       - DEFINITIONS
       - IP_RIGHTS

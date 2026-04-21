@@ -32,7 +32,9 @@ public class ContractTypeRegistry {
             List<String> defaultSections,
             String contractMode,
             List<String> partyRoles,
-            List<String> bannedTerms
+            List<String> bannedTerms,
+            List<String> requiredFields,
+            List<String> recommendedFields
     ) {
         /** Party A role (e.g. "Licensor", "Provider"). Falls back to "Party A". */
         public String partyARole() { return partyRoles != null && partyRoles.size() > 0 ? partyRoles.get(0) : "Party A"; }
@@ -79,7 +81,9 @@ public class ContractTypeRegistry {
                 stringListOrEmpty(raw.get("default_sections")),
                 stringOrDefault(raw.get("contract_mode"), null),
                 stringListOrEmpty(raw.get("party_roles")),
-                stringListOrEmpty(raw.get("banned_terms"))
+                stringListOrEmpty(raw.get("banned_terms")),
+                stringListOrEmpty(raw.get("required_fields")),
+                stringListOrEmpty(raw.get("recommended_fields"))
         );
     }
 

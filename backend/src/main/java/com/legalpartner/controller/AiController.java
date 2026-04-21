@@ -36,6 +36,7 @@ public class AiController {
 
     private final AiService aiService;
     private final DraftService draftService;
+    private final com.legalpartner.service.DraftIntakeValidator draftIntakeValidator;
     private final TemplateService templateService;
     private final LegalSystemConfig legalSystemConfig;
     private final DocumentService documentService;
@@ -75,6 +76,33 @@ public class AiController {
      * Kick off a draft that runs in the background. Returns immediately with
      * a draft id the UI can poll. Survives tab close, logout, and device switch.
      */
+    /**
+     * Validate draft request before generation. Extracts DealSpec from brief,
+     * checks required/recommended fields, returns what's missing.
+     * Frontend calls this first — if ready=true, proceed to /draft/async.
+     * If ready=false, show missing fields for user to fill in or skip.
+     */
+    @PostMapping("/draft/validate")
+    public java.util.Map<String, Object> validateDraft(
+            @Valid @RequestBody DraftRequest request, Authentication auth) {
+        var result = draftIntakeValidator.validate(request);
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("ready", result.ready());
+        out.put("missingRequired", result.missingRequired().stream().map(f ->
+                java.util.Map.of("field", f.fieldPath(), "label", f.label(), "required", f.required())
+        ).toList());
+        out.put("missingRecommended", result.missingRecommended().stream().map(f ->
+                java.util.Map.of("field", f.fieldPath(), "label", f.label(), "required", f.required())
+        ).toList());
+        // Return extracted DealSpec so frontend can show what was understood
+        if (result.dealSpec() != null) {
+            out.put("extractedPartyA", result.dealSpec().getPartyA() != null ? result.dealSpec().getPartyA().getName() : null);
+            out.put("extractedPartyB", result.dealSpec().getPartyB() != null ? result.dealSpec().getPartyB().getName() : null);
+            out.put("extractedJurisdiction", result.dealSpec().getLegal() != null ? result.dealSpec().getLegal().getJurisdiction() : null);
+        }
+        return out;
+    }
+
     @PostMapping("/draft/async")
     public java.util.Map<String, Object> submitAsyncDraft(
             @Valid @RequestBody DraftRequest request,
