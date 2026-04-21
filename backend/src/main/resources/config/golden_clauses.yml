@@ -1434,3 +1434,89 @@ clauses:
       relief in any court of competent jurisdiction to protect the Licensed IP from unauthorized use, disclosure or infringement.
 
       '
+  WARRANTIES:
+  - id: WARR_SOFTWARE_LICENSE
+    contract_type: software_license
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from Fortune 500 enterprise software license warranty provisions
+    template: 'Licensor represents and warrants that: (a) the Licensed Software shall perform substantially in accordance
+      with the Documentation for a period of twelve (12) months from the Effective Date (the "Warranty Period"); (b) the
+      Licensed Software, as delivered, does not infringe, misappropriate or otherwise violate any patent, copyright, trademark,
+      trade secret or other intellectual property right of any third party; (c) Licensor has full corporate authority and
+      power to enter into this Agreement and to grant the licenses and rights set forth herein; and (d) the Licensed Software,
+      as delivered, is free from any virus, Trojan horse, worm, back door, disabling device or other malicious code designed
+      to disrupt, disable or harm the operation of the Licensed Software or any computer system on which it is installed.
+      {{licensee}} represents and warrants that: (a) {{licensee}} has full corporate authority and power to enter into this
+      Agreement and to perform its obligations hereunder; (b) {{licensee}} shall use the Licensed Software solely in accordance
+      with the usage restrictions set forth in this Agreement and the Documentation; and (c) {{licensee}} shall not reverse
+      engineer, decompile, disassemble or otherwise attempt to derive the source code of the Licensed Software except to the
+      extent expressly permitted by applicable law. DISCLAIMER OF WARRANTIES: EXCEPT AS EXPRESSLY SET FORTH IN THIS SECTION,
+      THE LICENSED SOFTWARE IS PROVIDED "AS IS" AND LICENSOR HEREBY DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS, IMPLIED,
+      STATUTORY OR OTHERWISE, INCLUDING WITHOUT LIMITATION ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+      PURPOSE, TITLE, NON-INFRINGEMENT, AND ANY WARRANTIES ARISING OUT OF COURSE OF DEALING OR USAGE OF TRADE. LICENSOR
+      DOES NOT WARRANT THAT THE LICENSED SOFTWARE WILL BE ERROR-FREE OR THAT ITS OPERATION WILL BE UNINTERRUPTED.
+
+      '
+  - id: WARR_SAAS
+    contract_type: saas
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from enterprise SaaS warranty and disclaimer provisions
+    template: '{{provider}} represents and warrants that: (a) the Service shall be available in accordance with the uptime
+      commitments set forth in the applicable Service Level Agreement during the Subscription Term; (b) {{provider}} shall
+      comply with all applicable data protection laws and regulations in connection with its processing of Customer Data,
+      including without limitation the General Data Protection Regulation (where applicable) and the Digital Personal Data
+      Protection Act, 2023 (where applicable); (c) {{provider}} has full corporate authority and power to enter into this
+      Agreement and to grant the rights and licenses set forth herein; and (d) the Service, as provided, does not infringe,
+      misappropriate or otherwise violate any intellectual property right of any third party. {{customer}} represents and
+      warrants that: (a) all Customer Data provided to {{provider}} through the Service is accurate, complete and not
+      misleading in any material respect; (b) {{customer}} shall use the Service solely in accordance with the acceptable
+      use policy and the Documentation; and (c) {{customer}} has full corporate authority and power to enter into this
+      Agreement and to perform its obligations hereunder. EXCEPT AS EXPRESSLY SET FORTH IN THIS SECTION, THE SERVICE IS
+      PROVIDED "AS IS" AND {{provider}} HEREBY DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, STATUTORY OR OTHERWISE,
+      INCLUDING WITHOUT LIMITATION ANY IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+      NON-INFRINGEMENT.
+
+      '
+  FORCE_MAJEURE:
+  - id: FM_STANDARD_US
+    contract_type: default
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from Fortune 500 force majeure provisions (US standard)
+    template: 'Neither party shall be liable for any failure or delay in the performance of its obligations under this Agreement
+      (other than payment obligations) to the extent that such failure or delay results from events, circumstances or causes
+      beyond the reasonable control of the affected party, including without limitation: acts of God, natural disasters,
+      epidemics, pandemics, fire, flood, earthquake, hurricane or other severe weather events; war, armed conflict, terrorism,
+      insurrection, riot, civil commotion or sanctions; actions, embargoes, blockades or orders of any governmental authority;
+      strikes, lockouts or labor disputes (other than those involving the affected party''s own employees); and failure or
+      disruption of telecommunications, internet, utility or transportation infrastructure. The affected party shall provide
+      written notice to the other party within {{notice_days}} days of becoming aware of the force majeure event, describing
+      the nature and expected duration of such event and the steps being taken to mitigate its effects. If any force majeure
+      event continues for a period of ninety (90) consecutive days or more, either party may terminate this Agreement upon
+      thirty (30) days'' prior written notice to the other party without liability for such termination.
+
+      '
+  - id: FM_SOFTWARE_LICENSE
+    contract_type: software_license
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from enterprise software license force majeure provisions
+    template: 'Neither party shall be liable for any failure or delay in the performance of its obligations under this Agreement
+      (other than payment obligations) to the extent that such failure or delay results from events, circumstances or causes
+      beyond the reasonable control of the affected party, including without limitation: acts of God, natural disasters,
+      epidemics, pandemics, fire, flood, earthquake, hurricane or other severe weather events; war, armed conflict, terrorism,
+      insurrection, riot, civil commotion or sanctions; actions, embargoes, blockades or orders of any governmental authority;
+      strikes, lockouts or labor disputes; failure or disruption of telecommunications, internet, utility or transportation
+      infrastructure; server or cloud infrastructure outages affecting third-party hosting providers; cyberattacks, including
+      distributed denial-of-service attacks, ransomware or other malicious interference with computer systems; and widespread
+      power failures or electrical grid disruptions. The affected party shall provide written notice to the other party within
+      {{notice_days}} days of becoming aware of the force majeure event, describing the nature and expected duration of such
+      event and the steps being taken to mitigate its effects. Notwithstanding any force majeure event, all license rights
+      previously granted to {{licensee}} under this Agreement shall remain in full force and effect, and {{licensee}} shall
+      retain the right to continue using the Licensed Software during the pendency of any such event. If any force majeure
+      event continues for a period of ninety (90) consecutive days or more, either party may terminate this Agreement upon
+      thirty (30) days'' prior written notice to the other party without liability for such termination.
+
+      '

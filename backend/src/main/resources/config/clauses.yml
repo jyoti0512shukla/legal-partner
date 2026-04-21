@@ -217,6 +217,19 @@ clauses:
       - "Limitation of Liability"
       - "Termination for Convenience"
 
+  WARRANTIES:
+    title: "Representations and Warranties"
+    expected_subclauses: 4
+    system_prompt_id: DRAFT_WARRANTIES_SYSTEM
+    user_prompt_id: DRAFT_WARRANTIES_USER
+    search_queries:
+      - "representations warranties disclaimers"
+      - "warranty merchantability fitness particular purpose"
+      - "warranty authority performance specifications"
+    acceptable_clause_types: [WARRANTIES, GENERAL]
+    semantic_requirements: ["warrant", "represent"]
+    forbidden_headings: []
+
   GENERAL_PROVISIONS:
     title: "General Provisions"
     expected_subclauses: 8

@@ -172,6 +172,11 @@ public class AiController {
         out.put("errorMessage", doc.getErrorMessage());
         out.put("draftHtml", html);
         out.put("createdAt", doc.getUploadDate() != null ? doc.getUploadDate().toString() : null);
+        // Draft parameters HTML (stored separately from the contract body)
+        String parametersHtml = draftService.readParametersHtml(doc);
+        if (parametersHtml != null) {
+            out.put("draftParametersHtml", parametersHtml);
+        }
         // Duration in seconds (only when complete)
         if (doc.getProcessingStatus() == com.legalpartner.model.enums.ProcessingStatus.INDEXED
                 && doc.getUploadDate() != null && doc.getLastProgressAt() != null) {

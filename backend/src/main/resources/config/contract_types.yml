@@ -54,6 +54,8 @@ contract_types:
       - CONFIDENTIALITY
       - IP_RIGHTS
       - LIABILITY
+      - WARRANTIES
+      - FORCE_MAJEURE
       - TERMINATION
       - GOVERNING_LAW
       - GENERAL_PROVISIONS
@@ -73,6 +75,8 @@ contract_types:
       - CONFIDENTIALITY
       - DATA_PROTECTION
       - LIABILITY
+      - WARRANTIES
+      - FORCE_MAJEURE
       - TERMINATION
       - GOVERNING_LAW
       - GENERAL_PROVISIONS
@@ -135,8 +139,9 @@ contract_types:
       - DEFINITIONS
       - SERVICES
       - PAYMENT
-      - FORCE_MAJEURE
       - LIABILITY
+      - WARRANTIES
+      - FORCE_MAJEURE
       - TERMINATION
       - GOVERNING_LAW
       - GENERAL_PROVISIONS
@@ -156,6 +161,8 @@ contract_types:
       - PAYMENT
       - CONFIDENTIALITY
       - LIABILITY
+      - WARRANTIES
+      - FORCE_MAJEURE
       - TERMINATION
       - GOVERNING_LAW
       - GENERAL_PROVISIONS

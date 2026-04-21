@@ -198,7 +198,7 @@ export default function DraftPage() {
         if (cancelled) return;
         const d = r.data;
         // Always update the preview with whatever is persisted server-side.
-        setDraft({ draftHtml: d.draftHtml || '', suggestions: [] });
+        setDraft({ draftHtml: d.draftHtml || '', suggestions: [], draftParametersHtml: d.draftParametersHtml || '' });
 
         if (d.status === 'PENDING') {
           setGeneratingStatus({ label: 'Queued — waiting for capacity', index: 0, total: d.totalClauses || 0 });
@@ -299,7 +299,7 @@ export default function DraftPage() {
               setQaWarnings(prev => ({ ...prev, [event.clauseType]: event.qaWarnings }));
             }
           } else if (event.type === 'complete') {
-            setDraft({ draftHtml: event.draftHtml, suggestions: event.suggestions });
+            setDraft({ draftHtml: event.draftHtml, suggestions: event.suggestions, draftParametersHtml: event.draftParametersHtml || '' });
             if (event.qaWarnings && Object.keys(event.qaWarnings).length > 0) {
               setQaWarnings(event.qaWarnings);
             }
@@ -782,6 +782,18 @@ export default function DraftPage() {
                   dangerouslySetInnerHTML={{ __html: extractBodyContent(draft.draftHtml) }}
                 />
               </div>
+
+              {draft.draftParametersHtml && (
+                <details className="card border border-border/50 mt-4">
+                  <summary className="cursor-pointer px-4 py-3 font-semibold text-sm text-text-muted select-none hover:text-text-primary transition-colors">
+                    Draft Generation Parameters (click to expand)
+                  </summary>
+                  <div
+                    className="px-4 pb-4 text-sm text-text-secondary [&_p]:mb-1 [&_strong]:text-text-muted [&_span]:text-text-primary"
+                    dangerouslySetInnerHTML={{ __html: draft.draftParametersHtml }}
+                  />
+                </details>
+              )}
             </>
           )}
 

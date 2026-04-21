@@ -306,7 +306,8 @@ public class DraftService {
         // and GENERAL_PROVISIONS were the last 4 to be added.
         Set<String> deterministicPreferred = Set.of(
                 "IP_RIGHTS", "PAYMENT", "SERVICES", "TERMINATION", "GOVERNING_LAW",
-                "DEFINITIONS", "CONFIDENTIALITY", "LIABILITY", "GENERAL_PROVISIONS");
+                "DEFINITIONS", "CONFIDENTIALITY", "LIABILITY", "GENERAL_PROVISIONS",
+                "WARRANTIES", "FORCE_MAJEURE");
 
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
@@ -450,9 +451,9 @@ public class DraftService {
                     coverage.overallRisk(), coverage.blockers().size(), coverage.fixesApplied().size());
         }
 
-        // Append input summary schedule to the draft
+        // Store input summary separately (not inside the contract HTML/DOCX)
         String inputSummary = buildInputSummaryHtml(request);
-        fullHtml = fullHtml.replace("</body>", inputSummary + "\n</body>");
+        storeParametersHtml(doc, inputSummary);
 
         storeHtml(doc, fullHtml);
 
@@ -482,6 +483,38 @@ public class DraftService {
         } catch (IOException e) {
             log.warn("Async draft {}: partial HTML store failed — {}", doc.getId(), e.getMessage());
         }
+    }
+
+    /** Stores draft parameters HTML as a separate file alongside the draft. */
+    private void storeParametersHtml(DocumentMetadata doc, String parametersHtml) {
+        try {
+            // Store with a distinct path: <storageDir>/<docId>_params.html
+            // Using direct file write since FileStorageService.store derives name from docId+ext only.
+            String mainPath = doc.getStoredPath();
+            if (mainPath == null) {
+                // Draft HTML not yet stored — derive the path from conventions
+                mainPath = "/data/documents/" + doc.getId() + ".html";
+            }
+            String paramsPath = mainPath.replace(".html", "_params.html");
+            java.nio.file.Files.write(java.nio.file.Path.of(paramsPath), parametersHtml.getBytes());
+        } catch (IOException e) {
+            log.warn("Async draft {}: parameters HTML store failed — {}", doc.getId(), e.getMessage());
+        }
+    }
+
+    /** Reads the separately-stored parameters HTML for a draft, or returns null. */
+    public String readParametersHtml(DocumentMetadata doc) {
+        if (doc.getStoredPath() == null) return null;
+        String paramsPath = doc.getStoredPath().replace(".html", "_params.html");
+        try {
+            java.nio.file.Path p = java.nio.file.Path.of(paramsPath);
+            if (java.nio.file.Files.exists(p)) {
+                return new String(java.nio.file.Files.readAllBytes(p));
+            }
+        } catch (IOException e) {
+            log.debug("Could not read parameters HTML for draft {}: {}", doc.getId(), e.getMessage());
+        }
+        return null;
     }
 
     private void markDraftFailed(UUID docId, String reason) {
@@ -551,6 +584,7 @@ public class DraftService {
 
         return DraftResponse.builder()
                 .draftHtml(buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues))
+                .draftParametersHtml(buildInputSummaryHtml(request))
                 .suggestions(suggestions)
                 .qaWarnings(allQaWarnings.isEmpty() ? null : allQaWarnings)
                 .coherenceIssues(coherenceSummary.isEmpty() ? null : coherenceSummary)
@@ -639,6 +673,7 @@ public class DraftService {
         Map<String, Object> completePayload = new LinkedHashMap<>();
         completePayload.put("type", "complete");
         completePayload.put("draftHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
+        completePayload.put("draftParametersHtml", buildInputSummaryHtml(request));
         completePayload.put("suggestions", suggestions);
         completePayload.put("qaWarnings", allQaWarnings);
         if (!coherenceSummary.isEmpty()) {
