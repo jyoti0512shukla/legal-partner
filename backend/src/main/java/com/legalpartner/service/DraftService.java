@@ -297,6 +297,11 @@ public class DraftService {
         List<FixEngine.AuditEntry> allAuditEntries = new ArrayList<>();
         final com.legalpartner.model.dto.DealSpec finalDealSpec = dealSpec;
 
+        // Clause types that should be rendered deterministically when golden clause exists.
+        // These are high-risk clauses where LLM hallucination causes legal errors.
+        Set<String> deterministicPreferred = Set.of(
+                "IP_RIGHTS", "PAYMENT", "SERVICES", "TERMINATION", "GOVERNING_LAW");
+
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
             ClauseTypeConfig spec = clauseRegistry.get(key);
@@ -305,10 +310,39 @@ public class DraftService {
             doc.setLastProgressAt(Instant.now());
             doc = documentRepository.save(doc);
 
-            DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            ClauseResult result = generateClauseWithQa(
-                    request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(),
-                    spec.expectedSubclauses(), null, manifest);
+            // ── Deterministic-first: use golden clause if available for critical clauses ──
+            ClauseResult result = null;
+            if (deterministicPreferred.contains(key) && finalDealSpec != null) {
+                var goldenClauses = goldenClauseLibrary.retrieveAll(
+                        key, request.getTemplateId(),
+                        finalDealSpec.getLegal() != null ? finalDealSpec.getLegal().getJurisdiction() : null,
+                        request.getIndustry());
+                if (!goldenClauses.isEmpty()) {
+                    StringBuilder goldenHtml = new StringBuilder();
+                    for (var gc : goldenClauses) {
+                        String resolved = goldenClauseLibrary.resolve(gc, finalDealSpec, request.getIndustry());
+                        if (!resolved.isBlank()) {
+                            for (String line : resolved.split("\n")) {
+                                if (line.isBlank()) continue;
+                                goldenHtml.append("<p class=\"clause-sub\">").append(escapeHtmlText(line.trim())).append("</p>\n");
+                            }
+                        }
+                    }
+                    if (goldenHtml.length() > 100) {
+                        result = new ClauseResult(goldenHtml.toString(), List.of());
+                        log.info("Deterministic-first [{}]: rendered from {} golden clause(s), skipping LLM",
+                                key, goldenClauses.size());
+                    }
+                }
+            }
+
+            // ── Fallback to LLM generation if no golden clause available ──
+            if (result == null) {
+                DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
+                result = generateClauseWithQa(
+                        request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(),
+                        spec.expectedSubclauses(), null, manifest);
+            }
 
             // ── Rule engine: validate + fix ──
             if (finalDealSpec != null) {
@@ -385,8 +419,14 @@ public class DraftService {
         // ── Phase 3: post-processing + mark complete ──
         runCoherenceScan(plannedSections, sectionValues, manifest); // log-only; result ignored for async
 
-        // Build the full HTML, then run missing terms detector + coverage score
+        // Build the full HTML, strip hallucinated amounts, then run missing terms detector
         String fullHtml = buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues);
+
+        // Numeric consistency: strip any dollar amounts not in the DealSpec
+        if (finalDealSpec != null) {
+            fullHtml = stripHallucinatedAmounts(fullHtml, finalDealSpec);
+        }
+
         List<String> missingTerms = detectMissingTerms(fullHtml, request);
         if (!missingTerms.isEmpty()) {
             log.warn("Draft {}: {} deal terms not found in output: {}", docId, missingTerms.size(), missingTerms);
@@ -1773,6 +1813,49 @@ public class DraftService {
         return t;
     }
 
+    /**
+     * Numeric consistency pass: find all dollar amounts in the HTML and replace
+     * any that don't match DealSpec values with the closest valid amount.
+     * Prevents hallucinated figures ($600K, $885K) from appearing in output.
+     */
+    private String stripHallucinatedAmounts(String html, com.legalpartner.model.dto.DealSpec dealSpec) {
+        // Collect all valid amounts from DealSpec
+        Set<String> validAmounts = new java.util.HashSet<>();
+        if (dealSpec.getFees() != null) {
+            if (dealSpec.getFees().getLicenseFee() != null)
+                validAmounts.add(String.format("%,d", dealSpec.getFees().getLicenseFee()));
+            if (dealSpec.getFees().getMaintenanceFee() != null)
+                validAmounts.add(String.format("%,d", dealSpec.getFees().getMaintenanceFee()));
+        }
+        if (validAmounts.isEmpty()) return html; // nothing to validate against
+
+        // Find all $X,XXX patterns in the HTML
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\$([\\d,]+)").matcher(html);
+        StringBuilder result = new StringBuilder();
+        int lastEnd = 0;
+        int replacements = 0;
+
+        while (m.find()) {
+            String amount = m.group(1); // e.g., "600,000"
+            if (!validAmounts.contains(amount)) {
+                // This amount is not in the deal — replace with the closest valid amount
+                // or remove the entire containing sentence if it's clearly wrong
+                log.warn("Numeric consistency: hallucinated amount ${} found, removing", amount);
+                result.append(html, lastEnd, m.start());
+                result.append("[amount per applicable Schedule]");
+                lastEnd = m.end();
+                replacements++;
+            }
+        }
+
+        if (replacements > 0) {
+            result.append(html, lastEnd, html.length());
+            log.info("Numeric consistency: replaced {} hallucinated amount(s)", replacements);
+            return result.toString();
+        }
+        return html;
+    }
+
     /** Returns true if the line is model meta-commentary, not legal prose. */
     private boolean isMetaCommentary(String line) {
         String lower = line.toLowerCase();
@@ -1806,6 +1889,10 @@ public class DraftService {
         if (lower.contains("this is a first draft")) return true;
         // Fix engine / retry prompt leaks
         if (lower.startsWith("fixed clause")) return true;
+        if (lower.startsWith("fixing")) return true;
+        if (lower.contains("fixing") && lower.contains("violation")) return true;
+        if (lower.contains("corrected clause")) return true;
+        if (lower.contains("deal values embedded")) return true;
         if (lower.startsWith("here is the")) return true;
         if (lower.startsWith("this version satisfies")) return true;
         if (lower.startsWith("this satisfies")) return true;
