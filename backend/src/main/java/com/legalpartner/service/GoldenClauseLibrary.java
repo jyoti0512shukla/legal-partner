@@ -208,8 +208,8 @@ public class GoldenClauseLibrary {
         List<GoldenClause> candidates = byClauseType.get(clauseType.toUpperCase());
         if (candidates == null || candidates.isEmpty()) return Optional.empty();
 
-        String ct = contractType != null ? contractType.toLowerCase() : "default";
-        String jur = jurisdiction != null ? jurisdiction.toLowerCase() : "default";
+        String ct = contractType != null ? contractType.toLowerCase().replace("-", "_") : "default";
+        String jur = jurisdiction != null ? jurisdiction.toLowerCase().replace("-", "_") : "default";
         String ind = industry != null ? industry.toLowerCase() : null;
 
         // Level 1: exact contract_type + jurisdiction, prefer those with industry_additions matching
@@ -248,8 +248,8 @@ public class GoldenClauseLibrary {
         List<GoldenClause> candidates = byClauseType.get(clauseType.toUpperCase());
         if (candidates == null || candidates.isEmpty()) return List.of();
 
-        String ct = contractType != null ? contractType.toLowerCase() : "default";
-        String jur = jurisdiction != null ? jurisdiction.toLowerCase() : "default";
+        String ct = contractType != null ? contractType.toLowerCase().replace("-", "_") : "default";
+        String jur = jurisdiction != null ? jurisdiction.toLowerCase().replace("-", "_") : "default";
 
         // Return all clauses matching contract_type and (jurisdiction or default)
         return candidates.stream()
