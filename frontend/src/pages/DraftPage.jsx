@@ -59,6 +59,7 @@ export default function DraftPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [submittingAsync, setSubmittingAsync] = useState(false);
   const [submitToast, setSubmitToast] = useState('');
+  const [validationResult, setValidationResult] = useState(null); // {ready, missingRequired, missingRecommended}
   // When set, the right panel shows an existing async draft (polled from the server)
   // instead of whatever `draft` held from a fresh live stream.
   const [activeAsyncId, setActiveAsyncId] = useState(null);
@@ -146,11 +147,32 @@ export default function DraftPage() {
   // Every "Generate" click runs async. The draft appears in the Recent Drafts
   // strip; the preview pane stays on whatever the user was looking at. User
   // clicks the strip entry to watch it (or see the finished result).
-  const handleGenerateAsync = async () => {
+  const handleGenerateAsync = async (skipValidation = false) => {
     if (!form.templateId) return;
     if (form.templateId === 'custom' && !form.contractTypeName.trim()) return;
-    setSubmittingAsync(true);
     setError('');
+
+    // Step 1: Validate unless explicitly skipped
+    if (!skipValidation) {
+      setSubmittingAsync(true);
+      try {
+        const v = await api.post('/ai/draft/validate', form);
+        if (!v.data.ready && v.data.missingRequired?.length > 0) {
+          setValidationResult(v.data);
+          setSubmittingAsync(false);
+          return; // Show modal — user decides
+        }
+        // Ready or only missing recommended fields — proceed
+        setValidationResult(null);
+      } catch (e) {
+        // Validation endpoint unavailable — proceed anyway
+        setValidationResult(null);
+      }
+    }
+
+    // Step 2: Submit draft
+    setSubmittingAsync(true);
+    setValidationResult(null);
     try {
       await api.post('/ai/draft/async', form);
       if (stripRef.current?.refresh) await stripRef.current.refresh();
@@ -593,6 +615,39 @@ export default function DraftPage() {
                   <p className="text-xs text-success flex items-center gap-1.5 py-1">
                     <Clock className="w-3 h-3" /> {submitToast}
                   </p>
+                )}
+                {validationResult && !validationResult.ready && (
+                  <div className="mt-3 p-3 border border-amber-300 bg-amber-50 rounded-lg text-sm">
+                    <p className="font-medium text-amber-800 mb-2">Missing information for this contract type:</p>
+                    {validationResult.missingRequired?.length > 0 && (
+                      <div className="mb-2">
+                        <p className="text-xs font-semibold text-red-700 mb-1">Required:</p>
+                        <ul className="list-disc list-inside text-red-700 text-xs space-y-0.5">
+                          {validationResult.missingRequired.map(f => (
+                            <li key={f.field}>{f.label}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {validationResult.missingRecommended?.length > 0 && (
+                      <div className="mb-2">
+                        <p className="text-xs font-semibold text-amber-700 mb-1">Recommended (will use [TO BE AGREED] if skipped):</p>
+                        <ul className="list-disc list-inside text-amber-700 text-xs space-y-0.5">
+                          {validationResult.missingRecommended.map(f => (
+                            <li key={f.field}>{f.label}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={() => handleGenerateAsync(true)} className="btn-primary text-xs py-1.5 px-3">
+                        Generate Anyway
+                      </button>
+                      <button onClick={() => setValidationResult(null)} className="btn-secondary text-xs py-1.5 px-3">
+                        Add Details
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
