@@ -66,6 +66,7 @@ public class DraftService {
     private final DealCoverageScore dealCoverageScore;
     private final HtmlToDocxConverter htmlToDocxConverter;
     private final GoldenClauseLibrary goldenClauseLibrary;
+    private final DraftNormalizer draftNormalizer;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -88,6 +89,7 @@ public class DraftService {
                         DealCoverageScore dealCoverageScore,
                         HtmlToDocxConverter htmlToDocxConverter,
                         GoldenClauseLibrary goldenClauseLibrary,
+                        DraftNormalizer draftNormalizer,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
@@ -107,6 +109,7 @@ public class DraftService {
         this.dealCoverageScore = dealCoverageScore;
         this.htmlToDocxConverter = htmlToDocxConverter;
         this.goldenClauseLibrary = goldenClauseLibrary;
+        this.draftNormalizer = draftNormalizer;
         this.fileStorageService = fileStorageService;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
@@ -299,8 +302,11 @@ public class DraftService {
 
         // Clause types that should be rendered deterministically when golden clause exists.
         // These are high-risk clauses where LLM hallucination causes legal errors.
+        // All 9 types now have golden clauses — DEFINITIONS, CONFIDENTIALITY, LIABILITY
+        // and GENERAL_PROVISIONS were the last 4 to be added.
         Set<String> deterministicPreferred = Set.of(
-                "IP_RIGHTS", "PAYMENT", "SERVICES", "TERMINATION", "GOVERNING_LAW");
+                "IP_RIGHTS", "PAYMENT", "SERVICES", "TERMINATION", "GOVERNING_LAW",
+                "DEFINITIONS", "CONFIDENTIALITY", "LIABILITY", "GENERAL_PROVISIONS");
 
         for (int i = 0; i < plannedSections.size(); i++) {
             String key = plannedSections.get(i);
@@ -418,6 +424,9 @@ public class DraftService {
 
         // ── Phase 3: post-processing + mark complete ──
         runCoherenceScan(plannedSections, sectionValues, manifest); // log-only; result ignored for async
+
+        // Run final normalization pass (dedup, meta-strip, numbering, cross-refs, amounts)
+        sectionValues = draftNormalizer.normalize(sectionValues, finalDealSpec);
 
         // Build the full HTML, strip hallucinated amounts, then run missing terms detector
         String fullHtml = buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues);

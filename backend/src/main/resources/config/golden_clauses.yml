@@ -144,6 +144,28 @@ clauses:
       Schedule to which the license granted hereunder is limited.
 
       '
+  - id: DEF_SOFTWARE_LICENSE_KEY_TERMS
+    contract_type: software_license
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from Fortune 500 enterprise software license agreements
+    template: 'As used in this Agreement, the following terms shall have the following meanings: "Software" means the computer
+      software programs, including all modules, components, application programming interfaces, libraries and related documentation,
+      developed, owned or licensed by {{licensor}} and made available to {{licensee}} under this Agreement. "Licensed Software"
+      means the specific version and configuration of {{software_name}} identified in the License Schedule or Order Form, together
+      with all updates, patches and maintenance releases provided by {{licensor}} during the term of this Agreement. "Named User"
+      means an individual person who is authorized by {{licensee}} to access and use the Licensed Software, identified by a unique
+      user credential; the total number of Named Users shall not exceed {{users}} at any time unless additional user licenses
+      are purchased. "Licensed Site" means the physical location or data center operated by or on behalf of {{licensee}} at which
+      the Licensed Software is installed and operated, limited to {{locations}} designated site(s) as specified in the License
+      Schedule. "License Fee" means the one-time or recurring fee of {{license_fee}} payable by {{licensee}} to {{licensor}}
+      for the rights granted under this Agreement, as further specified in the Payment section hereof. "Maintenance Fee" means
+      the annual fee of {{maintenance_fee}} payable by {{licensee}} to {{licensor}} in consideration of {{licensor}}''s obligation
+      to provide maintenance and support services for the Licensed Software. "Effective Date" means the date on which this
+      Agreement is executed by both parties or, if executed on different dates, the date on which the last party executes this
+      Agreement.
+
+      '
   SERVICES:
   - id: SVC_SUPPORT_TIERS
     contract_type: software_license
@@ -456,6 +478,60 @@ clauses:
 
       '
   CONFIDENTIALITY:
+  - id: CONF_SOFTWARE_LICENSE_FULL
+    contract_type: software_license
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from Fortune 500 enterprise software license confidentiality provisions
+    template: 'Definition of Confidential Information. "Confidential Information" means any and all non-public, confidential
+      or proprietary information disclosed by either party (the "Disclosing Party") to the other party (the "Receiving Party")
+      in connection with this Agreement, whether disclosed orally, in writing, electronically or by inspection, including without
+      limitation: (a) the Software, including its source code, object code, architecture, algorithms, data structures, trade
+      secrets, technical specifications and documentation; (b) business plans, financial data, pricing information, customer
+      lists, marketing strategies and operational information; (c) the terms and conditions of this Agreement, including all
+      fees and commercial terms; and (d) any information designated as "Confidential" or "Proprietary" at the time of disclosure,
+      or that a reasonable person would understand to be confidential given the nature of the information and the circumstances
+      of disclosure.
+
+      Obligations of Confidentiality. The Receiving Party shall: (a) hold all Confidential Information in strict confidence
+      using at least the same degree of care it uses to protect its own confidential information, but in no event less than
+      reasonable care; (b) not disclose Confidential Information to any third party without the Disclosing Party''s prior written
+      consent, except to the Receiving Party''s employees, officers, directors, contractors and professional advisors who have
+      a demonstrable need to know for the purposes of this Agreement and who are bound by written confidentiality obligations
+      no less protective than those set forth herein; (c) not use Confidential Information for any purpose other than the
+      performance of obligations and exercise of rights under this Agreement; and (d) promptly notify the Disclosing Party
+      in writing upon discovery of any unauthorized use or disclosure of Confidential Information and cooperate with the
+      Disclosing Party in remedying such unauthorized use or disclosure.
+
+      Exceptions. Confidential Information shall not include information that: (a) is or becomes generally available to the
+      public through no fault of the Receiving Party; (b) was known to the Receiving Party prior to disclosure by the Disclosing
+      Party, as demonstrated by the Receiving Party''s contemporaneous written records; (c) becomes available to the Receiving
+      Party on a non-confidential basis from a source other than the Disclosing Party, provided that such source is not bound
+      by a confidentiality obligation to the Disclosing Party; (d) is independently developed by the Receiving Party without
+      reference to or use of the Disclosing Party''s Confidential Information, as demonstrated by contemporaneous documentation;
+      or (e) is required to be disclosed by law, regulation, or court order, provided that the Receiving Party gives the Disclosing
+      Party prompt written notice of such requirement (to the extent legally permitted) and reasonable cooperation in any effort
+      to obtain protective treatment of such information.
+
+      Return and Destruction. Upon termination or expiration of this Agreement, or upon the Disclosing Party''s written request
+      at any time, the Receiving Party shall promptly return or destroy all tangible and electronic materials containing or
+      embodying Confidential Information, including all copies, notes, summaries, analyses and derivative materials, and shall
+      certify such return or destruction in writing within fifteen (15) days. Notwithstanding the foregoing, the Receiving Party
+      may retain one (1) archival copy of Confidential Information solely for legal compliance and audit purposes, subject to
+      the continuing confidentiality obligations set forth herein.
+
+      Survival. The obligations of confidentiality set forth in this Section shall survive termination or expiration of this
+      Agreement for a period of {{survival_years}} years from the date of disclosure, provided that obligations with respect
+      to trade secrets shall continue for so long as such information remains a trade secret under applicable law.
+
+      '
+    industry_additions:
+      financial_services: Confidential Information shall include all non-public personal information as defined under the
+        Gramm-Leach-Bliley Act and its implementing regulations, and each party shall comply with all applicable financial
+        data privacy and security requirements in the handling of such information.
+      healthcare: Confidential Information may include Protected Health Information as defined under the Health Insurance
+        Portability and Accountability Act. The parties shall execute a Business Associate Agreement prior to any disclosure
+        of PHI and shall comply with all applicable HIPAA requirements.
   - id: CONF_NDA_MUTUAL
     contract_type: nda
     jurisdiction: default
@@ -773,6 +849,166 @@ clauses:
       hereunder without additional fees.
 
       '
+  GENERAL_PROVISIONS:
+  - id: GP_SOFTWARE_LICENSE_BOILERPLATE
+    contract_type: software_license
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from Fortune 500 enterprise software agreement boilerplate provisions
+    template: 'Entire Agreement. This Agreement, together with all exhibits, schedules and addenda attached hereto, constitutes
+      the entire agreement between the parties with respect to the subject matter hereof and supersedes all prior and contemporaneous
+      agreements, proposals, negotiations, representations, warranties, understandings and communications, whether written or
+      oral, relating to such subject matter. Each party acknowledges that it has not relied on any statement, promise, representation
+      or warranty not set forth in this Agreement.
+
+      Amendments. No amendment, modification, supplement or waiver of this Agreement or any provision hereof shall be binding
+      unless executed in writing by both parties. No terms or conditions stated in any purchase order, acknowledgment or other
+      business form issued by either party shall modify, supersede or supplement the terms of this Agreement, and any such
+      terms or conditions are hereby rejected.
+
+      Severability. If any provision of this Agreement is held to be invalid, illegal or unenforceable by a court of competent
+      jurisdiction, such provision shall be modified to the minimum extent necessary to make it valid, legal and enforceable
+      while preserving the parties'' original intent, and the validity, legality and enforceability of the remaining provisions
+      shall not be affected or impaired thereby.
+
+      Waiver. No failure or delay by either party in exercising any right, power or remedy under this Agreement shall operate
+      as a waiver thereof, nor shall any single or partial exercise of any right, power or remedy preclude any other or further
+      exercise thereof or the exercise of any other right, power or remedy. All waivers must be in writing and signed by the
+      waiving party.
+
+      Notices. All notices, requests, demands and other communications under this Agreement shall be in writing and shall be
+      deemed to have been duly given: (a) when delivered personally; (b) when sent by confirmed electronic mail; (c) one (1)
+      business day after deposit with a nationally recognized overnight courier, freight prepaid; or (d) three (3) business
+      days after mailing by certified or registered mail, postage prepaid, return receipt requested, to the addresses set forth
+      in this Agreement or to such other address as either party may designate by notice in accordance with this Section.
+
+      Assignment. Neither party may assign, delegate or otherwise transfer this Agreement or any of its rights or obligations
+      hereunder without the prior written consent of the other party, provided that either party may assign this Agreement
+      without consent to a successor in connection with a merger, acquisition, corporate reorganization or sale of all or
+      substantially all of such party''s assets, so long as the assignee assumes all obligations under this Agreement. Any
+      purported assignment in violation of this Section shall be null and void. This Agreement shall be binding upon and inure
+      to the benefit of the parties and their respective successors and permitted assigns.
+
+      Counterparts. This Agreement may be executed in one or more counterparts, each of which shall be deemed an original
+      and all of which together shall constitute one and the same instrument. Execution and delivery of this Agreement by
+      exchange of electronic signatures or facsimile copies bearing the parties'' signatures shall have the same force and
+      effect as execution and delivery of original signatures.
+
+      Relationship of the Parties. The relationship between the parties is that of independent contracting parties. Nothing
+      in this Agreement shall be construed to create a partnership, joint venture, agency, franchise, or employer-employee
+      relationship between the parties. Neither party has the authority to bind the other or to incur any obligation on behalf
+      of the other without the other party''s prior written consent.
+
+      '
+  - id: GP_NDA_BOILERPLATE
+    contract_type: nda
+    jurisdiction: default
+    quality_score: 5
+    source: Market-standard mutual NDA boilerplate provisions
+    template: 'Entire Agreement. This Agreement constitutes the entire agreement between the parties with respect to the subject
+      matter hereof and supersedes all prior and contemporaneous agreements, negotiations, representations and understandings,
+      whether written or oral, relating to the protection and disclosure of Confidential Information between the parties.
+
+      Amendments. No amendment, modification or waiver of any provision of this Agreement shall be effective unless in writing
+      and signed by both parties.
+
+      Severability. If any provision of this Agreement is held to be invalid, illegal or unenforceable, the remaining provisions
+      shall continue in full force and effect, and the invalid provision shall be modified to the minimum extent necessary to
+      make it valid while preserving the parties'' original intent.
+
+      Waiver. No failure or delay by either party in exercising any right under this Agreement shall operate as a waiver thereof,
+      nor shall any single or partial exercise preclude any further exercise of that right or any other right.
+
+      Notices. All notices under this Agreement shall be in writing and shall be deemed duly given when delivered personally,
+      by confirmed electronic mail, or one (1) business day after deposit with a nationally recognized overnight courier to
+      the addresses set forth herein.
+
+      Assignment. Neither party may assign this Agreement without the prior written consent of the other party, except in
+      connection with a merger, acquisition or sale of all or substantially all of the assigning party''s assets, provided
+      the assignee agrees in writing to be bound by the terms hereof. This Agreement shall be binding upon and inure to the
+      benefit of the parties and their respective successors and permitted assigns.
+
+      Counterparts. This Agreement may be executed in counterparts, each of which shall be deemed an original. Electronic
+      signatures shall have the same force and effect as original signatures.
+
+      Relationship of the Parties. Nothing in this Agreement shall be construed to create a partnership, joint venture, agency
+      or employment relationship between the parties. Neither party has the authority to bind the other without prior written
+      consent.
+
+      '
+  - id: GP_MSA_BOILERPLATE
+    contract_type: msa
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from enterprise MSA boilerplate provisions (Reynolds, Federated patterns)
+    template: 'Entire Agreement. This Agreement, together with all SOWs and exhibits executed hereunder, constitutes the entire
+      agreement between the parties and supersedes all prior and contemporaneous agreements, proposals, negotiations, representations
+      and understandings, whether written or oral, relating to the subject matter hereof.
+
+      Amendments. No amendment or modification of this Agreement shall be valid or binding unless set forth in writing and signed
+      by authorized representatives of both parties. No terms contained in any SOW, purchase order or other business form shall
+      modify this Agreement unless expressly stated therein.
+
+      Severability. If any provision of this Agreement is held invalid, illegal or unenforceable, the remaining provisions shall
+      continue in full force and effect. The parties shall negotiate in good faith to replace any invalid provision with a valid
+      provision that achieves the original commercial intent.
+
+      Waiver. No failure or delay by either party in exercising any right, power or remedy under this Agreement shall operate
+      as a waiver thereof. All waivers must be in writing and signed by the waiving party.
+
+      Notices. All notices required or permitted under this Agreement shall be in writing and shall be deemed duly given when
+      delivered personally, by confirmed electronic mail, one (1) business day after deposit with a nationally recognized overnight
+      courier, or three (3) business days after mailing by certified or registered mail, return receipt requested, to the addresses
+      set forth herein or such other address as a party may designate by notice.
+
+      Assignment. Neither party may assign this Agreement or any rights or obligations hereunder without the prior written consent
+      of the other party, except that either party may assign this Agreement to a successor entity in connection with a merger,
+      acquisition, corporate reorganization or sale of all or substantially all of its assets, provided the assignee assumes
+      all obligations hereunder. Any purported assignment in violation of this Section shall be void.
+
+      Counterparts. This Agreement may be executed in counterparts, each of which shall be deemed an original. Electronic
+      signatures shall be valid and binding.
+
+      Relationship of the Parties. The parties are independent contractors. Nothing in this Agreement creates a partnership,
+      joint venture, agency or employment relationship. Neither party may bind the other or incur obligations on behalf of
+      the other without prior written consent.
+
+      '
+  - id: GP_SAAS_BOILERPLATE
+    contract_type: saas
+    jurisdiction: default
+    quality_score: 5
+    source: Curated from SaaS agreement boilerplate provisions (EVEMeta, GulpData patterns)
+    template: 'Entire Agreement. This Agreement, together with all Order Forms and exhibits, constitutes the entire agreement
+      between {{provider}} and {{customer}} with respect to the subject matter hereof and supersedes all prior agreements,
+      negotiations, representations and understandings, whether written or oral.
+
+      Amendments. No amendment or modification of this Agreement shall be binding unless in writing and signed by authorized
+      representatives of both parties. Notwithstanding the foregoing, {{provider}} may update its Acceptable Use Policy and
+      Documentation from time to time, provided that such updates do not materially diminish {{customer}}''s rights hereunder.
+
+      Severability. If any provision of this Agreement is held invalid, illegal or unenforceable by a court of competent
+      jurisdiction, the remaining provisions shall continue in full force and effect.
+
+      Waiver. No waiver of any provision of this Agreement shall be effective unless in writing and signed by the waiving party.
+      No failure or delay in exercising any right shall operate as a waiver thereof.
+
+      Notices. All notices under this Agreement shall be in writing and shall be deemed given when: (a) delivered personally;
+      (b) sent by confirmed electronic mail to the contact addresses specified in the Order Form; or (c) one (1) business day
+      after deposit with a nationally recognized overnight courier.
+
+      Assignment. Neither party may assign this Agreement without the prior written consent of the other party, except that
+      either party may assign this Agreement to a successor in connection with a merger, acquisition or sale of substantially
+      all of its assets, provided the assignee assumes all obligations hereunder. Any purported assignment in violation of this
+      Section shall be null and void.
+
+      Counterparts. This Agreement may be executed in counterparts, including by electronic signature, each of which shall be
+      deemed an original.
+
+      Relationship of the Parties. The relationship between {{provider}} and {{customer}} is that of independent contractors.
+      Nothing in this Agreement shall create a partnership, joint venture, agency or employment relationship.
+
+      '
   LIABILITY:
   - id: LIAB_CAP_AT_FEES
     contract_type: software_license
@@ -815,6 +1051,51 @@ clauses:
       during the twelve (12) month period preceding the claim.
 
       '
+  - id: LIAB_INDEMNIFICATION
+    contract_type: software_license
+    jurisdiction: default
+    quality_score: 5
+    source: Enterprise software agreement mutual indemnification provisions
+    template: 'Mutual Indemnification. Each party (the "Indemnifying Party") shall defend, indemnify and hold harmless the other
+      party and its officers, directors, employees, agents, successors and permitted assigns (collectively, the "Indemnified
+      Parties") from and against all third-party claims, actions, suits, proceedings, damages, losses, liabilities, costs and
+      expenses (including reasonable attorneys'' fees and court costs) arising out of or relating to: (a) the Indemnifying Party''s
+      material breach of any representation, warranty or obligation under this Agreement; or (b) the Indemnifying Party''s gross
+      negligence or willful misconduct in connection with this Agreement.
+
+      IP Indemnification by Licensor. Licensor shall defend, indemnify and hold harmless Licensee and the Licensee Indemnified
+      Parties from and against all third-party claims alleging that Licensee''s authorized use of {{software_name}} in accordance
+      with this Agreement infringes any patent, copyright, trademark or trade secret of such third party. In the event of any
+      such claim, Licensor may, at its sole option and expense: (i) procure for Licensee the right to continue using the Software;
+      (ii) modify the Software to make it non-infringing while maintaining substantially equivalent functionality; or (iii) replace
+      the Software with a non-infringing alternative of substantially equivalent functionality. If none of the foregoing options
+      is commercially practicable, Licensor may terminate this Agreement and refund to Licensee a pro rata portion of any prepaid
+      fees. This Section states Licensor''s entire liability and Licensee''s sole and exclusive remedy for any claim of intellectual
+      property infringement. Licensor shall have no obligation under this Section for any claim arising from: (A) modification
+      of the Software by anyone other than Licensor; (B) use of the Software in combination with products, services or technology
+      not provided or approved by Licensor; or (C) use of the Software in violation of this Agreement.
+
+      Indemnification Procedures. The Indemnified Party shall: (a) provide prompt written notice of any claim to the Indemnifying
+      Party (provided that failure to give prompt notice shall not relieve the Indemnifying Party except to the extent materially
+      prejudiced thereby); (b) grant the Indemnifying Party sole control of the defense and settlement of such claim; and (c)
+      provide reasonable cooperation and assistance, at the Indemnifying Party''s expense, in the defense and settlement of such
+      claim. The Indemnifying Party shall not settle any claim in a manner that imposes any obligation or liability on the
+      Indemnified Party without the Indemnified Party''s prior written consent, which shall not be unreasonably withheld.
+
+      Survival of Liability Provisions. The limitations of liability, exclusions of damages, indemnification obligations and
+      related provisions set forth in this Section shall survive any termination or expiration of this Agreement and shall continue
+      in full force and effect with respect to any claims arising out of or relating to events that occurred during the term
+      of this Agreement.
+
+      '
+    industry_additions:
+      financial_services: In addition to the foregoing, Licensor shall indemnify Licensee from and against any regulatory fines,
+        penalties or sanctions imposed on Licensee by any financial regulatory authority to the extent directly attributable to
+        a defect in the Software or Licensor''s failure to comply with applicable financial regulatory requirements.
+      healthcare: In addition to the foregoing, Licensor shall indemnify Licensee from and against any fines, penalties or
+        corrective action costs imposed on Licensee by any governmental authority under HIPAA, HITECH or applicable state
+        health data privacy laws to the extent directly attributable to a security breach caused by a defect in the Software
+        or Licensor''s failure to maintain the security safeguards required under this Agreement.
   - id: LIAB_MSA_CAP
     contract_type: msa
     jurisdiction: default
