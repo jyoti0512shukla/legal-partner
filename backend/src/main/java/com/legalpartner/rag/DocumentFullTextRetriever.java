@@ -156,6 +156,59 @@ public class DocumentFullTextRetriever {
         }
     }
 
+    /**
+     * Retrieve full text WITHOUT any character cap. Used by the batched risk
+     * assessment pipeline which handles large documents by analyzing each clause
+     * individually (4K chars per clause). The pipeline only needs the full text
+     * for clause heading detection, not for sending to LLM in one shot.
+     */
+    public String retrieveFullTextUncapped(UUID documentId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                """
+                SELECT text,
+                       (metadata->>'chunk_index')::int AS chunk_index,
+                       metadata->>'section_path'       AS section_path
+                FROM   embeddings
+                WHERE  metadata->>'document_id' = ?
+                ORDER  BY (metadata->>'chunk_index')::int
+                """,
+                documentId.toString()
+        );
+
+        if (rows.isEmpty()) {
+            // Fallback for generated drafts — read HTML file directly, no cap
+            String storagePath = "/data/documents/" + documentId + ".html";
+            try {
+                byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(storagePath));
+                String html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                String plain = html
+                        .replaceAll("<style[^>]*>[\\s\\S]*?</style>", "")
+                        .replaceAll("<script[^>]*>[\\s\\S]*?</script>", "")
+                        .replaceAll("<[^>]+>", " ")
+                        .replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">")
+                        .replaceAll("&nbsp;", " ").replaceAll("&#160;", " ").replaceAll("&#x23F3;", "")
+                        .replaceAll("\\s{2,}", " ").replaceAll("\\n{3,}", "\n\n").trim();
+                log.info("Full-text uncapped retrieval for doc {} via HTML: {} chars", documentId, plain.length());
+                return plain;
+            } catch (Exception e) {
+                log.warn("Uncapped retrieval failed for {}: {}", documentId, e.getMessage());
+                return "";
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (Map<String, Object> row : rows) {
+            String encryptedText = (String) row.get("text");
+            String plain;
+            try { plain = encryptionService.decrypt(encryptedText); }
+            catch (Exception e) { plain = encryptedText; }
+            sb.append(plain).append("\n\n");
+        }
+        log.info("Full-text uncapped retrieval for doc {}: {} chunks, {} chars",
+                documentId, rows.size(), sb.length());
+        return sb.toString();
+    }
+
     /** Returns the number of indexed chunks for a document. */
     public int countChunks(UUID documentId) {
         Integer count = jdbcTemplate.queryForObject(

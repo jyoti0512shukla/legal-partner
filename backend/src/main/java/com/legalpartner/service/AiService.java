@@ -279,9 +279,11 @@ public class AiService {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
 
-        // Full document context — not just top-K chunks. A missing clause (e.g. no
-        // force majeure) can only be detected by seeing the whole contract.
-        String context = fullTextRetriever.retrieveFullText(documentId);
+        // Risk assessment uses the BATCHED pipeline which analyzes each clause
+        // individually (4K chars per clause). It only needs the full text for
+        // clause heading detection (Pass 1), not for sending to LLM in one shot.
+        // So we read the FULL document without any char cap — the batching handles size.
+        String context = fullTextRetriever.retrieveFullTextUncapped(documentId);
 
         if (context.isBlank()) {
             return new RiskAssessmentResult("UNKNOWN", List.of(new RiskCategory(
