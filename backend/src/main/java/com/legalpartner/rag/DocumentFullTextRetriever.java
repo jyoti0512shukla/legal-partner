@@ -38,17 +38,17 @@ public class DocumentFullTextRetriever {
     /**
      * Contracts at or below this character count are sent whole — the model
      * can attend to all clauses without "lost in the middle" degradation.
-     * ~10 pages × ~900 chars/page = 9,000 chars.
+     * With vLLM max-model-len 16384: ~14K input tokens = ~40K chars safe.
      */
-    @Value("${legalpartner.fulltext.short-doc-threshold:9000}")
+    @Value("${legalpartner.fulltext.short-doc-threshold:40000}")
     private int shortDocThreshold;
 
     /**
      * Hard cap applied to all documents regardless of length.
-     * Keeps total tokens safely under --max-model-len 8192 even with
-     * the longest system prompts (checklist system prompt ≈ 500 tokens).
+     * With vLLM max-model-len 16384 and shortChatModel maxTokens 2000:
+     * ~14K tokens for input = ~40K chars. Leaves room for system prompt.
      */
-    @Value("${legalpartner.fulltext.max-chars:9000}")
+    @Value("${legalpartner.fulltext.max-chars:40000}")
     private int maxChars;
 
     public DocumentFullTextRetriever(JdbcTemplate jdbcTemplate, EncryptionService encryptionService) {
