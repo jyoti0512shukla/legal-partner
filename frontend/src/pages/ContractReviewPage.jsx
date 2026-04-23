@@ -142,12 +142,42 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
             <p className={`text-2xl font-bold mt-4 text-${RISK_COLOR[result.overallRisk] || 'text-muted'}`}>
               {result.overallRisk}
             </p>
-            <p className="text-text-muted text-sm mt-1">
-              {result.categories?.filter(c => c.rating === 'HIGH').length || 0} High ·{' '}
-              {result.categories?.filter(c => c.rating === 'MEDIUM').length || 0} Medium ·{' '}
-              {result.categories?.filter(c => c.rating === 'LOW').length || 0} Low
-            </p>
+            <div className="flex items-center justify-center gap-4 text-text-muted text-sm mt-1">
+              <span>{result.categories?.filter(c => c.rating === 'HIGH').length || 0} High</span>
+              <span>{result.categories?.filter(c => c.rating === 'MEDIUM').length || 0} Medium</span>
+              <span>{result.categories?.filter(c => c.rating === 'LOW').length || 0} Low</span>
+              {result.riskScore != null && (
+                <span className="text-xs bg-surface-el px-2 py-0.5 rounded">Score: {Math.round(result.riskScore)}/100</span>
+              )}
+            </div>
           </div>
+
+          {/* Key Findings — top issues at a glance */}
+          {result.keyFindings?.length > 0 && (
+            <div className="card mb-4 !p-3 border-l-4 border-amber-400 bg-amber-50/50">
+              <h4 className="text-xs font-semibold text-amber-800 mb-2">Key Findings</h4>
+              <ul className="space-y-1">
+                {result.keyFindings.map((f, i) => (
+                  <li key={i} className="text-xs text-amber-900 flex items-start gap-1.5">
+                    <ShieldAlert className="w-3 h-3 mt-0.5 shrink-0 text-amber-600" />
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Missing Clauses */}
+          {result.missingClauses?.length > 0 && (
+            <div className="card mb-4 !p-3 border-l-4 border-red-400 bg-red-50/50">
+              <h4 className="text-xs font-semibold text-red-800 mb-2">Missing Clauses</h4>
+              <div className="flex flex-wrap gap-2">
+                {result.missingClauses.map((c, i) => (
+                  <span key={i} className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full">{c}</span>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             {result.categories?.map((cat, i) => {
@@ -183,7 +213,32 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
                     )}
                   </button>
 
-                  {canDrilldown && isOpen && (
+                  {/* Structured per-question results (new engine) */}
+                  {isOpen && result.clauseResults?.find(cr => cr.clauseType === cat.name)?.questions?.length > 0 && (
+                    <div className="border-t border-border/60 px-4 py-3">
+                      <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide mb-2">Detailed Assessment</p>
+                      <div className="space-y-2">
+                        {result.clauseResults.find(cr => cr.clauseType === cat.name).questions.map((q, qi) => (
+                          <div key={qi} className={`text-xs rounded p-2 ${q.answer === 'NO' ? 'bg-red-50 border border-red-200' : q.answer === 'YES' ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
+                            <div className="flex items-start gap-2">
+                              <span className={`shrink-0 font-bold ${q.answer === 'NO' ? 'text-red-600' : q.answer === 'YES' ? 'text-green-600' : 'text-gray-400'}`}>
+                                {q.answer === 'YES' ? '✓' : q.answer === 'NO' ? '✗' : '?'}
+                              </span>
+                              <div className="flex-1">
+                                <p className="text-gray-800">{q.question || q.id}</p>
+                                {q.quote && (
+                                  <p className="mt-1 text-[10px] text-gray-500 italic border-l-2 border-gray-300 pl-2">"{q.quote}"</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Legacy drilldown (fallback for old-format results) */}
+                  {canDrilldown && isOpen && !result.clauseResults?.find(cr => cr.clauseType === cat.name)?.questions?.length && (
                     <div className="border-t border-border/60 px-4 pb-4">
                       {!dd || dd.loading ? (
                         <div className="flex items-center gap-2 text-xs text-text-muted py-3">
