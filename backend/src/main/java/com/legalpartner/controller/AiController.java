@@ -139,6 +139,7 @@ public class AiController {
             out.put("contractDisplayName", config.displayName());
             out.put("partyRoles", config.partyRoles());
             // Build clause list with display names from clauseRegistry
+            var defaultKeys = new java.util.HashSet<>(config.defaultSections());
             out.put("plannedClauses", config.defaultSections().stream().map(key -> {
                 var clauseConfig = clauseRegistry.get(key);
                 return java.util.Map.of(
@@ -147,6 +148,16 @@ public class AiController {
                         "enabled", true
                 );
             }).toList());
+            // All available clause types not in the default list — for "Add clause"
+            out.put("availableClauses", clauseRegistry.allKeys().stream()
+                    .filter(key -> !defaultKeys.contains(key))
+                    .map(key -> {
+                        var clauseConfig = clauseRegistry.get(key);
+                        return java.util.Map.of(
+                                "key", key,
+                                "title", clauseConfig != null ? clauseConfig.title() : key
+                        );
+                    }).toList());
         }
         return out;
     }

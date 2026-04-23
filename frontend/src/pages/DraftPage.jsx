@@ -675,6 +675,26 @@ export default function DraftPage() {
                             </label>
                           ))}
                         </div>
+                        {/* Add clause dropdown */}
+                        {validationResult.availableClauses?.length > 0 && (
+                          <select
+                            className="mt-2 text-xs border border-dashed border-blue-300 rounded px-2 py-1 text-blue-600 bg-white cursor-pointer"
+                            value=""
+                            onChange={e => {
+                              const key = e.target.value;
+                              if (!key) return;
+                              const clause = validationResult.availableClauses.find(c => c.key === key);
+                              if (clause) {
+                                setPreviewClauses(prev => [...prev, { key: clause.key, title: clause.title, enabled: true }]);
+                              }
+                            }}
+                          >
+                            <option value="">+ Add clause...</option>
+                            {validationResult.availableClauses
+                              .filter(c => !previewClauses.some(p => p.key === c.key))
+                              .map(c => <option key={c.key} value={c.key}>{c.title}</option>)}
+                          </select>
+                        )}
                       </div>
                     )}
 
