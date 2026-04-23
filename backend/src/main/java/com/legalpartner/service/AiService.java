@@ -417,9 +417,25 @@ public class AiService {
             ));
         }
 
+        // Deduplicate risk categories — LLM sometimes generates multiple entries per clause.
+        // Keep the highest severity entry per unique clause name.
+        java.util.Map<String, RiskCategory> deduped = new java.util.LinkedHashMap<>();
+        java.util.Map<String, Integer> severityRank = java.util.Map.of("HIGH", 3, "MEDIUM", 2, "LOW", 1, "UNKNOWN", 0);
+        for (RiskCategory risk : allRisks) {
+            String key = risk.name().toUpperCase().trim();
+            RiskCategory existing = deduped.get(key);
+            if (existing == null || severityRank.getOrDefault(risk.rating(), 0) > severityRank.getOrDefault(existing.rating(), 0)) {
+                deduped.put(key, risk);
+            }
+        }
+        List<RiskCategory> dedupedRisks = new ArrayList<>(deduped.values());
+        if (dedupedRisks.size() < allRisks.size()) {
+            log.info("Risk assessment: deduped {} → {} categories", allRisks.size(), dedupedRisks.size());
+        }
+
         // Compute overall rating from category ratings
-        String overall = computeOverallRating(allRisks);
-        return new RiskAssessmentResult(overall, allRisks);
+        String overall = computeOverallRating(dedupedRisks);
+        return new RiskAssessmentResult(overall, dedupedRisks);
     }
 
     /**
