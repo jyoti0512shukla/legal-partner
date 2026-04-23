@@ -37,6 +37,8 @@ public class AiController {
     private final AiService aiService;
     private final DraftService draftService;
     private final com.legalpartner.service.DraftIntakeValidator draftIntakeValidator;
+    private final com.legalpartner.config.ContractTypeRegistry contractTypeRegistry;
+    private final com.legalpartner.config.ClauseTypeRegistry clauseRegistry;
     private final TemplateService templateService;
     private final LegalSystemConfig legalSystemConfig;
     private final DocumentService documentService;
@@ -96,9 +98,55 @@ public class AiController {
         ).toList());
         // Return extracted DealSpec so frontend can show what was understood
         if (result.dealSpec() != null) {
-            out.put("extractedPartyA", result.dealSpec().getPartyA() != null ? result.dealSpec().getPartyA().getName() : null);
-            out.put("extractedPartyB", result.dealSpec().getPartyB() != null ? result.dealSpec().getPartyB().getName() : null);
-            out.put("extractedJurisdiction", result.dealSpec().getLegal() != null ? result.dealSpec().getLegal().getJurisdiction() : null);
+            var ds = result.dealSpec();
+            java.util.Map<String, Object> extracted = new java.util.LinkedHashMap<>();
+            if (ds.getPartyA() != null) {
+                extracted.put("partyA", ds.getPartyA().getName());
+                extracted.put("partyAAddress", ds.getPartyA().getAddress());
+                extracted.put("partyARole", ds.getPartyA().getRole());
+            }
+            if (ds.getPartyB() != null) {
+                extracted.put("partyB", ds.getPartyB().getName());
+                extracted.put("partyBAddress", ds.getPartyB().getAddress());
+                extracted.put("partyBRole", ds.getPartyB().getRole());
+            }
+            if (ds.getLegal() != null) {
+                extracted.put("jurisdiction", ds.getLegal().getJurisdiction());
+                extracted.put("court", ds.getLegal().getCourt());
+            }
+            if (ds.getLicense() != null) {
+                extracted.put("licenseType", ds.getLicense().getType());
+                extracted.put("users", ds.getLicense().getUsers());
+                extracted.put("locations", ds.getLicense().getLocations());
+            }
+            if (ds.getFees() != null) {
+                extracted.put("licenseFee", ds.getFees().getLicenseFee());
+                extracted.put("maintenanceFee", ds.getFees().getMaintenanceFee());
+            }
+            if (ds.getSupport() != null) {
+                extracted.put("slaResponseHours", ds.getSupport().getSlaResponseHours());
+                extracted.put("coverage", ds.getSupport().getCoverage());
+            }
+            if (ds.getSecurity() != null) {
+                extracted.put("escrow", ds.getSecurity().getEscrow());
+            }
+            out.put("extracted", extracted);
+        }
+
+        // Return planned clauses from contract_types.yml
+        var config = contractTypeRegistry.get(request.getTemplateId());
+        if (config != null) {
+            out.put("contractDisplayName", config.displayName());
+            out.put("partyRoles", config.partyRoles());
+            // Build clause list with display names from clauseRegistry
+            out.put("plannedClauses", config.defaultSections().stream().map(key -> {
+                var clauseConfig = clauseRegistry.get(key);
+                return java.util.Map.of(
+                        "key", key,
+                        "title", clauseConfig != null ? clauseConfig.title() : key,
+                        "enabled", true
+                );
+            }).toList());
         }
         return out;
     }

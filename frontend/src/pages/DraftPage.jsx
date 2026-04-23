@@ -59,7 +59,8 @@ export default function DraftPage() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [submittingAsync, setSubmittingAsync] = useState(false);
   const [submitToast, setSubmitToast] = useState('');
-  const [validationResult, setValidationResult] = useState(null); // {ready, missingRequired, missingRecommended}
+  const [validationResult, setValidationResult] = useState(null); // full validation response with preview
+  const [previewClauses, setPreviewClauses] = useState([]); // [{key, title, enabled}]
   // When set, the right panel shows an existing async draft (polled from the server)
   // instead of whatever `draft` held from a fresh live stream.
   const [activeAsyncId, setActiveAsyncId] = useState(null);
@@ -147,42 +148,46 @@ export default function DraftPage() {
   // Every "Generate" click runs async. The draft appears in the Recent Drafts
   // strip; the preview pane stays on whatever the user was looking at. User
   // clicks the strip entry to watch it (or see the finished result).
-  const handleGenerateAsync = async (skipValidation = false) => {
+  // Step 1: Validate and show preview
+  const handleGenerateAsync = async () => {
     if (!form.templateId) return;
     if (form.templateId === 'custom' && !form.contractTypeName.trim()) return;
     setError('');
-
-    // Step 1: Validate unless explicitly skipped
-    if (!skipValidation) {
-      setSubmittingAsync(true);
-      try {
-        const v = await api.post('/ai/draft/validate', form);
-        if (!v.data.ready && v.data.missingRequired?.length > 0) {
-          setValidationResult(v.data);
-          setSubmittingAsync(false);
-          return; // Show modal — user decides
-        }
-        // Ready or only missing recommended fields — proceed
-        setValidationResult(null);
-      } catch (e) {
-        // Validation endpoint unavailable — proceed anyway
-        setValidationResult(null);
-      }
-    }
-
-    // Step 2: Submit draft
     setSubmittingAsync(true);
-    setValidationResult(null);
     try {
-      await api.post('/ai/draft/async', form);
+      const v = await api.post('/ai/draft/validate', form);
+      setValidationResult(v.data);
+      setPreviewClauses(v.data.plannedClauses?.map(c => ({ ...c })) || []);
+    } catch (e) {
+      // Validation unavailable — skip preview, generate directly
+      confirmGenerate();
+    } finally {
+      setSubmittingAsync(false);
+    }
+  };
+
+  // Step 2: User confirms preview → actually generate
+  const confirmGenerate = async () => {
+    setSubmittingAsync(true);
+    setError('');
+    const selectedKeys = previewClauses.filter(c => c.enabled).map(c => c.key);
+    const payload = { ...form, selectedClauses: selectedKeys.length > 0 ? selectedKeys : undefined };
+    try {
+      await api.post('/ai/draft/async', payload);
       if (stripRef.current?.refresh) await stripRef.current.refresh();
       setSubmitToast('Draft started — watch it in “Your recent drafts” above.');
       setTimeout(() => setSubmitToast(''), 6000);
+      setValidationResult(null);
+      setPreviewClauses([]);
     } catch (e) {
       setError(e.response?.data?.message || e.message || 'Failed to submit draft');
     } finally {
       setSubmittingAsync(false);
     }
+  };
+
+  const toggleClause = (key) => {
+    setPreviewClauses(prev => prev.map(c => c.key === key ? { ...c, enabled: !c.enabled } : c));
   };
 
   // Poll a single async draft when the user selects one from the strip (or just
@@ -198,7 +203,7 @@ export default function DraftPage() {
         if (cancelled) return;
         const d = r.data;
         // Always update the preview with whatever is persisted server-side.
-        setDraft({ draftHtml: d.draftHtml || '', suggestions: [], draftParametersHtml: d.draftParametersHtml || '' });
+        setDraft({ id: d.id, fileName: d.fileName, draftHtml: d.draftHtml || '', suggestions: [], draftParametersHtml: d.draftParametersHtml || '', durationSeconds: d.durationSeconds });
 
         if (d.status === 'PENDING') {
           setGeneratingStatus({ label: 'Queued — waiting for capacity', index: 0, total: d.totalClauses || 0 });
@@ -616,35 +621,72 @@ export default function DraftPage() {
                     <Clock className="w-3 h-3" /> {submitToast}
                   </p>
                 )}
-                {validationResult && !validationResult.ready && (
-                  <div className="mt-3 p-3 border border-amber-300 bg-amber-50 rounded-lg text-sm">
-                    <p className="font-medium text-amber-800 mb-2">Missing information for this contract type:</p>
+                {validationResult && (
+                  <div className="mt-3 p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm">
+                    <p className="font-semibold text-blue-900 mb-3">
+                      {validationResult.contractDisplayName || 'Contract'} — Review before generating
+                    </p>
+
+                    {/* Extracted deal terms */}
+                    {validationResult.extracted && (
+                      <div className="mb-3 p-2 bg-white rounded border border-blue-100">
+                        <p className="text-xs font-semibold text-gray-600 mb-1">Extracted from your brief:</p>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-700">
+                          {validationResult.extracted.partyA && <div><strong>{validationResult.partyRoles?.[0] || 'Party A'}:</strong> {validationResult.extracted.partyA}</div>}
+                          {validationResult.extracted.partyB && <div><strong>{validationResult.partyRoles?.[1] || 'Party B'}:</strong> {validationResult.extracted.partyB}</div>}
+                          {validationResult.extracted.jurisdiction && <div><strong>Jurisdiction:</strong> {validationResult.extracted.jurisdiction}</div>}
+                          {validationResult.extracted.licenseType && <div><strong>License:</strong> {validationResult.extracted.licenseType}</div>}
+                          {validationResult.extracted.licenseFee && <div><strong>Fee:</strong> ${Number(validationResult.extracted.licenseFee).toLocaleString()}</div>}
+                          {validationResult.extracted.users && <div><strong>Users:</strong> {validationResult.extracted.users}</div>}
+                          {validationResult.extracted.slaResponseHours && <div><strong>SLA:</strong> {validationResult.extracted.slaResponseHours}h response</div>}
+                          {validationResult.extracted.escrow && <div><strong>Escrow:</strong> Yes</div>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Missing fields */}
                     {validationResult.missingRequired?.length > 0 && (
-                      <div className="mb-2">
-                        <p className="text-xs font-semibold text-red-700 mb-1">Required:</p>
-                        <ul className="list-disc list-inside text-red-700 text-xs space-y-0.5">
-                          {validationResult.missingRequired.map(f => (
-                            <li key={f.field}>{f.label}</li>
-                          ))}
+                      <div className="mb-2 p-2 bg-red-50 rounded border border-red-200">
+                        <p className="text-xs font-semibold text-red-700 mb-1">Missing (required):</p>
+                        <ul className="list-disc list-inside text-red-600 text-xs space-y-0.5">
+                          {validationResult.missingRequired.map(f => <li key={f.field}>{f.label}</li>)}
                         </ul>
                       </div>
                     )}
                     {validationResult.missingRecommended?.length > 0 && (
-                      <div className="mb-2">
+                      <div className="mb-2 p-2 bg-amber-50 rounded border border-amber-200">
                         <p className="text-xs font-semibold text-amber-700 mb-1">Recommended (will use [TO BE AGREED] if skipped):</p>
-                        <ul className="list-disc list-inside text-amber-700 text-xs space-y-0.5">
-                          {validationResult.missingRecommended.map(f => (
-                            <li key={f.field}>{f.label}</li>
-                          ))}
+                        <ul className="list-disc list-inside text-amber-600 text-xs space-y-0.5">
+                          {validationResult.missingRecommended.map(f => <li key={f.field}>{f.label}</li>)}
                         </ul>
                       </div>
                     )}
-                    <div className="flex gap-2 mt-2">
-                      <button onClick={() => handleGenerateAsync(true)} className="btn-primary text-xs py-1.5 px-3">
-                        Generate Anyway
+
+                    {/* Clause selection */}
+                    {previewClauses.length > 0 && (
+                      <div className="mb-3">
+                        <p className="text-xs font-semibold text-gray-600 mb-1">Clauses to generate:</p>
+                        <div className="space-y-1">
+                          {previewClauses.map(c => (
+                            <label key={c.key} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-blue-100 rounded px-1.5 py-0.5">
+                              <input type="checkbox" checked={c.enabled} onChange={() => toggleClause(c.key)}
+                                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                              <span className={c.enabled ? 'text-gray-800' : 'text-gray-400 line-through'}>{c.title}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button onClick={confirmGenerate} disabled={submittingAsync}
+                              className="btn-primary text-xs py-1.5 px-4 flex items-center gap-1">
+                        {submittingAsync ? <Loader className="w-3 h-3 animate-spin" /> : null}
+                        Confirm & Generate
                       </button>
-                      <button onClick={() => setValidationResult(null)} className="btn-secondary text-xs py-1.5 px-3">
-                        Add Details
+                      <button onClick={() => { setValidationResult(null); setPreviewClauses([]); }}
+                              className="btn-secondary text-xs py-1.5 px-3">
+                        Edit Details
                       </button>
                     </div>
                   </div>

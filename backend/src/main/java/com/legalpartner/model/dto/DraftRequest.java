@@ -72,4 +72,11 @@ public class DraftRequest {
 
     /** Alias for dealBrief — API callers may send dealContext instead. */
     private String dealContext;
+
+    /**
+     * Optional — user-selected clauses from the preview step.
+     * If provided, overrides the default_sections from contract_types.yml.
+     * Each entry is a clause type key (e.g. "DEFINITIONS", "IP_RIGHTS").
+     */
+    private java.util.List<String> selectedClauses;
 }
