@@ -1,0 +1,927 @@
+# Structured risk questions per clause type.
+# Source: CUAD 41 categories + ACC/ABA contract review checklists.
+#
+# Each question:
+#   id        — unique identifier
+#   question  — YES/NO question for the LLM
+#   risk_if_no  — risk level if answer is NO (HIGH/MEDIUM/LOW/INFO)
+#   risk_if_yes — risk level if answer is YES
+#   category  — display grouping
+#   applies_to — contract types this question applies to (empty = all)
+#   weight    — importance (1-10)
+
+clause_questions:
+
+  LIABILITY:
+    - id: liability_cap_exists
+      question: "Is there a monetary cap on the aggregate liability of either party?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 10
+
+    - id: liability_cap_mutual
+      question: "Does the liability cap apply equally to both parties (mutual cap)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 9
+
+    - id: liability_consequential_exclusion
+      question: "Are consequential, indirect, or special damages explicitly excluded?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 9
+
+    - id: liability_carveouts
+      question: "Are there carve-outs from the liability cap for IP infringement, confidentiality breach, or gross negligence?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 7
+
+    - id: liability_cap_reasonable
+      question: "Is the liability cap tied to a reasonable measure such as fees paid in the preceding 12 months?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 7
+
+    - id: liability_insurance_required
+      question: "Does the agreement require either party to maintain professional liability or general liability insurance?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: [MSA, SAAS]
+      weight: 4
+
+    - id: liability_sole_remedy
+      question: "Is there a sole and exclusive remedy clause limiting available remedies?"
+      risk_if_no: INFO
+      risk_if_yes: MEDIUM
+      category: Remedies
+      applies_to: []
+      weight: 5
+
+    - id: liability_fraud_exclusion
+      question: "Does the agreement clarify that the liability limitation does not apply to fraud, willful misconduct, or death/personal injury?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 8
+
+  INDEMNIFICATION:
+    - id: indemnity_obligation_exists
+      question: "Does the agreement contain an indemnification obligation?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 10
+
+    - id: indemnity_mutual
+      question: "Is the indemnification mutual (both parties indemnify each other)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Balance
+      applies_to: []
+      weight: 9
+
+    - id: indemnity_ip_infringement
+      question: "Does the indemnification cover third-party intellectual property infringement claims?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: IP Protection
+      applies_to: []
+      weight: 9
+
+    - id: indemnity_notice_procedure
+      question: "Is there a clear procedure for notifying the indemnifying party of a claim?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 6
+
+    - id: indemnity_defense_control
+      question: "Does the indemnifying party have the right to control the defense of indemnified claims?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 5
+
+    - id: indemnity_duty_mitigate
+      question: "Is there a duty to mitigate damages for the indemnified party?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Balance
+      applies_to: []
+      weight: 4
+
+    - id: indemnity_survival
+      question: "Does the indemnification obligation survive termination or expiry of the agreement?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Duration
+      applies_to: []
+      weight: 7
+
+  TERMINATION:
+    - id: termination_for_breach
+      question: "Can either party terminate the agreement for material breach by the other party?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Exit Rights
+      applies_to: []
+      weight: 10
+
+    - id: termination_cure_period
+      question: "Is there a cure period allowing the breaching party to remedy the breach before termination takes effect?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Fairness
+      applies_to: []
+      weight: 9
+
+    - id: termination_for_convenience
+      question: "Can either party terminate for convenience (without cause) upon written notice?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Exit Rights
+      applies_to: []
+      weight: 8
+
+    - id: termination_notice_period
+      question: "Is a specific notice period stated for termination (e.g., 30 days, 60 days, 90 days)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 7
+
+    - id: termination_insolvency
+      question: "Can the agreement be terminated if the other party becomes insolvent or enters bankruptcy?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Exit Rights
+      applies_to: []
+      weight: 7
+
+    - id: termination_effects
+      question: "Does the agreement specify the effects of termination (e.g., return of materials, final payments, wind-down)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Post-Termination
+      applies_to: []
+      weight: 8
+
+    - id: termination_survival_clauses
+      question: "Does the agreement list specific clauses that survive termination (e.g., confidentiality, indemnification, liability)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Post-Termination
+      applies_to: []
+      weight: 7
+
+    - id: termination_data_return
+      question: "Does the agreement require return or deletion of data and confidential information upon termination?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Post-Termination
+      applies_to: [SAAS, MSA]
+      weight: 7
+
+    - id: termination_transition_assistance
+      question: "Does the agreement provide for transition or migration assistance upon termination?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Post-Termination
+      applies_to: [SAAS, MSA]
+      weight: 6
+
+    - id: termination_mutual_right
+      question: "Is the right to terminate mutual (available to both parties on equal terms)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Balance
+      applies_to: []
+      weight: 8
+
+  CONFIDENTIALITY:
+    - id: confidentiality_defined
+      question: "Is 'Confidential Information' clearly defined with specificity?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Scope
+      applies_to: []
+      weight: 10
+
+    - id: confidentiality_mutual
+      question: "Is the confidentiality obligation mutual (binding on both parties)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Balance
+      applies_to: []
+      weight: 8
+
+    - id: confidentiality_exceptions
+      question: "Are standard exceptions included (publicly known information, independently developed, required by law)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Scope
+      applies_to: []
+      weight: 9
+
+    - id: confidentiality_use_restriction
+      question: "Is the use of confidential information restricted to the purposes of the agreement?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Scope
+      applies_to: []
+      weight: 9
+
+    - id: confidentiality_return_destroy
+      question: "Is there a requirement to return or destroy confidential information upon termination?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Post-Termination
+      applies_to: []
+      weight: 7
+
+    - id: confidentiality_survival_period
+      question: "Is a specific survival period stated for confidentiality obligations after termination (e.g., 2-5 years)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Duration
+      applies_to: []
+      weight: 7
+
+    - id: confidentiality_permitted_disclosure
+      question: "Are permitted disclosures defined (e.g., to employees, advisors, affiliates on a need-to-know basis)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Scope
+      applies_to: []
+      weight: 6
+
+    - id: confidentiality_injunctive_relief
+      question: "Does the agreement acknowledge that breach may cause irreparable harm entitling the non-breaching party to injunctive relief?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Remedies
+      applies_to: []
+      weight: 5
+
+    - id: confidentiality_marking_requirement
+      question: "Is there a marking or designation requirement for confidential information (e.g., marked 'Confidential')?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Process
+      applies_to: [NDA]
+      weight: 4
+
+  IP_RIGHTS:
+    - id: ip_ownership_clear
+      question: "Is intellectual property ownership clearly stated (who owns what IP)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Ownership
+      applies_to: []
+      weight: 10
+
+    - id: ip_background_ip_protected
+      question: "Is pre-existing (background) IP of each party protected and excluded from any transfer?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Ownership
+      applies_to: []
+      weight: 9
+
+    - id: ip_license_scope_defined
+      question: "Is the scope of any IP license grant clearly defined (exclusive/non-exclusive, territory, field of use)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: License
+      applies_to: []
+      weight: 9
+
+    - id: ip_work_product_assignment
+      question: "Is there a clear assignment or license of work product and deliverables to the commissioning party?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Ownership
+      applies_to: [MSA, EMPLOYMENT]
+      weight: 9
+
+    - id: ip_moral_rights_waiver
+      question: "Are moral rights addressed (waived or acknowledged as non-transferable depending on jurisdiction)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Ownership
+      applies_to: []
+      weight: 5
+
+    - id: ip_infringement_indemnity
+      question: "Does the IP owner indemnify the other party against third-party IP infringement claims?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 8
+
+    - id: ip_no_reverse_engineer
+      question: "Are restrictions on reverse engineering, decompilation, or disassembly of software clearly stated?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Restrictions
+      applies_to: [SAAS, IP_LICENSE, SOFTWARE_LICENSE]
+      weight: 7
+
+    - id: ip_sublicense_restricted
+      question: "Are sublicensing rights explicitly addressed (either granted or restricted)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: License
+      applies_to: []
+      weight: 6
+
+    - id: ip_improvements_ownership
+      question: "Is ownership of improvements, modifications, or derivative works clearly allocated?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Ownership
+      applies_to: []
+      weight: 7
+
+    - id: ip_escrow_provision
+      question: "Is there a source code escrow provision for critical software?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Business Continuity
+      applies_to: [SOFTWARE_LICENSE, IP_LICENSE]
+      weight: 5
+
+  WARRANTIES:
+    - id: warranty_authority
+      question: "Do both parties warrant that they have the authority and capacity to enter into the agreement?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Fundamental
+      applies_to: []
+      weight: 9
+
+    - id: warranty_compliance
+      question: "Is there a warranty of compliance with applicable laws and regulations?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Compliance
+      applies_to: []
+      weight: 7
+
+    - id: warranty_no_conflict
+      question: "Is there a warranty that the agreement does not conflict with other obligations or agreements?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Fundamental
+      applies_to: []
+      weight: 7
+
+    - id: warranty_service_quality
+      question: "Is there a warranty that services will be performed in a professional and workmanlike manner?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Performance
+      applies_to: [MSA, SAAS, EMPLOYMENT]
+      weight: 7
+
+    - id: warranty_fitness
+      question: "Are warranties of merchantability and fitness for a particular purpose addressed (whether provided or disclaimed)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Product
+      applies_to: [SAAS, IP_LICENSE, SOFTWARE_LICENSE, SUPPLY]
+      weight: 7
+
+    - id: warranty_non_infringement
+      question: "Is there a warranty that the deliverables or software do not infringe third-party IP rights?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: IP Protection
+      applies_to: []
+      weight: 8
+
+    - id: warranty_disclaimer_clear
+      question: "If warranties are disclaimed, is the disclaimer conspicuous and clearly stated?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Clarity
+      applies_to: []
+      weight: 6
+
+    - id: warranty_remedy
+      question: "Are remedies for breach of warranty clearly specified (repair, replace, refund, or re-perform)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Remedies
+      applies_to: []
+      weight: 6
+
+  FORCE_MAJEURE:
+    - id: fm_clause_exists
+      question: "Is there a force majeure clause present in the agreement?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 9
+
+    - id: fm_events_defined
+      question: "Are force majeure events specifically defined (e.g., natural disaster, pandemic, war, government action)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Scope
+      applies_to: []
+      weight: 7
+
+    - id: fm_pandemic_included
+      question: "Are pandemics, epidemics, or public health emergencies explicitly listed as force majeure events?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Scope
+      applies_to: []
+      weight: 7
+
+    - id: fm_notification_required
+      question: "Is there a requirement to notify the other party of a force majeure event within a specified timeframe?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 6
+
+    - id: fm_mitigation_duty
+      question: "Is there a duty to mitigate the effects of the force majeure event?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Balance
+      applies_to: []
+      weight: 6
+
+    - id: fm_termination_prolonged
+      question: "Can either party terminate the agreement if the force majeure event continues beyond a specified period?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Exit Rights
+      applies_to: []
+      weight: 7
+
+    - id: fm_payment_obligations
+      question: "Does the clause address whether payment obligations are suspended during a force majeure event?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Financial
+      applies_to: []
+      weight: 5
+
+  DATA_PROTECTION:
+    - id: dp_processing_roles
+      question: "Are data processing roles clearly defined (controller vs. processor)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Compliance
+      applies_to: [SAAS, MSA]
+      weight: 10
+
+    - id: dp_purpose_limitation
+      question: "Is the purpose of data processing clearly limited and defined?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Scope
+      applies_to: []
+      weight: 9
+
+    - id: dp_security_measures
+      question: "Are appropriate technical and organizational security measures specified?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Security
+      applies_to: []
+      weight: 9
+
+    - id: dp_breach_notification
+      question: "Is there a data breach notification procedure with a specified timeframe (e.g., 72 hours)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Incident Response
+      applies_to: []
+      weight: 9
+
+    - id: dp_subprocessor_controls
+      question: "Are there controls on the use of sub-processors (prior consent, flow-down obligations)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Supply Chain
+      applies_to: [SAAS, MSA]
+      weight: 7
+
+    - id: dp_data_subject_rights
+      question: "Does the agreement address data subject rights (access, rectification, deletion requests)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Compliance
+      applies_to: []
+      weight: 7
+
+    - id: dp_cross_border_transfer
+      question: "Are cross-border data transfer restrictions addressed (e.g., standard contractual clauses, adequacy decisions)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Transfer
+      applies_to: []
+      weight: 7
+
+    - id: dp_retention_deletion
+      question: "Is there a data retention period and a requirement to delete data after the purpose is fulfilled or upon termination?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Lifecycle
+      applies_to: []
+      weight: 7
+
+    - id: dp_audit_right
+      question: "Does the data controller have the right to audit the processor's data handling practices?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Oversight
+      applies_to: [SAAS, MSA]
+      weight: 6
+
+    - id: dp_dpia_cooperation
+      question: "Is there a requirement to cooperate on Data Protection Impact Assessments (DPIAs)?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Compliance
+      applies_to: [SAAS]
+      weight: 4
+
+  PAYMENT:
+    - id: pay_amount_specified
+      question: "Are the fees, charges, or compensation amounts clearly specified?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Commercial Terms
+      applies_to: []
+      weight: 10
+
+    - id: pay_invoice_terms
+      question: "Are invoice submission and payment due date terms clearly stated (e.g., Net 30, Net 60)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 9
+
+    - id: pay_late_payment_interest
+      question: "Is there a late payment interest provision?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Remedies
+      applies_to: []
+      weight: 7
+
+    - id: pay_dispute_mechanism
+      question: "Is there a mechanism for disputing invoices without withholding undisputed amounts?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 6
+
+    - id: pay_currency_specified
+      question: "Is the currency for all payments explicitly stated?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Clarity
+      applies_to: []
+      weight: 7
+
+    - id: pay_tax_responsibility
+      question: "Is the responsibility for taxes (VAT, GST, withholding tax) clearly allocated?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Tax
+      applies_to: []
+      weight: 7
+
+    - id: pay_price_escalation
+      question: "Are price escalation or adjustment mechanisms addressed (e.g., annual CPI increase, rate review)?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Commercial Terms
+      applies_to: [MSA, SAAS]
+      weight: 5
+
+    - id: pay_most_favored_nation
+      question: "Is there a most-favored-nation or most-favored-customer pricing clause?"
+      risk_if_no: INFO
+      risk_if_yes: LOW
+      category: Commercial Terms
+      applies_to: []
+      weight: 3
+
+    - id: pay_audit_right
+      question: "Does either party have the right to audit the other's financial records related to the agreement?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Oversight
+      applies_to: []
+      weight: 4
+
+    - id: pay_suspension_nonpayment
+      question: "Can services be suspended for non-payment, with a cure period before suspension?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Remedies
+      applies_to: [MSA, SAAS]
+      weight: 6
+
+  GOVERNING_LAW:
+    - id: gov_law_specified
+      question: "Is the governing law (applicable law) explicitly stated?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Jurisdiction
+      applies_to: []
+      weight: 10
+
+    - id: gov_jurisdiction_clear
+      question: "Is the jurisdiction for dispute resolution (courts or arbitral seat) clearly identified?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Jurisdiction
+      applies_to: []
+      weight: 9
+
+    - id: gov_dispute_mechanism
+      question: "Is a specific dispute resolution mechanism defined (litigation, arbitration, or mediation)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Dispute Resolution
+      applies_to: []
+      weight: 9
+
+    - id: gov_arbitration_rules
+      question: "If arbitration is the chosen mechanism, are the arbitration rules and administering institution specified?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Dispute Resolution
+      applies_to: []
+      weight: 7
+
+    - id: gov_escalation_procedure
+      question: "Is there a tiered dispute resolution process (e.g., negotiation, then mediation, then arbitration/litigation)?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 5
+
+    - id: gov_language_clause
+      question: "Is the language for dispute proceedings or contract interpretation specified?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 3
+
+    - id: gov_waiver_jury_trial
+      question: "Is there a waiver of jury trial (if applicable in the jurisdiction)?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Jurisdiction
+      applies_to: []
+      weight: 4
+
+    - id: gov_prevailing_party_fees
+      question: "Does the agreement address which party bears the costs and attorneys' fees in a dispute?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Financial
+      applies_to: []
+      weight: 4
+
+  SLA:
+    - id: sla_uptime_commitment
+      question: "Is there a specific uptime or availability commitment (e.g., 99.9% uptime)?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Performance
+      applies_to: [SAAS]
+      weight: 9
+
+    - id: sla_response_times
+      question: "Are support response times defined by severity level?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Support
+      applies_to: [SAAS, MSA]
+      weight: 7
+
+    - id: sla_service_credits
+      question: "Are service credits or penalties defined for failure to meet SLA targets?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Remedies
+      applies_to: [SAAS]
+      weight: 7
+
+    - id: sla_maintenance_windows
+      question: "Are scheduled maintenance windows excluded from uptime calculations?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Measurement
+      applies_to: [SAAS]
+      weight: 6
+
+    - id: sla_reporting
+      question: "Is the provider required to provide regular SLA performance reports?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Transparency
+      applies_to: [SAAS, MSA]
+      weight: 5
+
+    - id: sla_escalation_procedure
+      question: "Is there an escalation procedure for unresolved support issues?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Support
+      applies_to: [SAAS, MSA]
+      weight: 5
+
+    - id: sla_termination_chronic_breach
+      question: "Can the customer terminate for chronic or repeated SLA failures?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Exit Rights
+      applies_to: [SAAS]
+      weight: 7
+
+  GENERAL_PROVISIONS:
+    - id: gen_entire_agreement
+      question: "Does the agreement contain an entire agreement (integration) clause?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Completeness
+      applies_to: []
+      weight: 8
+
+    - id: gen_amendment_procedure
+      question: "Is there a procedure for amendments requiring written agreement of both parties?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Change Control
+      applies_to: []
+      weight: 7
+
+    - id: gen_severability
+      question: "Is there a severability clause providing that invalid provisions do not void the entire agreement?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Resilience
+      applies_to: []
+      weight: 6
+
+    - id: gen_waiver
+      question: "Does the agreement state that a waiver of one breach does not waive future breaches?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Enforcement
+      applies_to: []
+      weight: 6
+
+    - id: gen_assignment_restriction
+      question: "Are there restrictions on assignment of the agreement without the other party's consent?"
+      risk_if_no: HIGH
+      risk_if_yes: LOW
+      category: Protection
+      applies_to: []
+      weight: 8
+
+    - id: gen_notices_procedure
+      question: "Is there a formal notices provision specifying addresses and delivery methods?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Process
+      applies_to: []
+      weight: 6
+
+    - id: gen_counterparts
+      question: "Does the agreement allow execution in counterparts and electronic signatures?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Execution
+      applies_to: []
+      weight: 4
+
+    - id: gen_independent_contractor
+      question: "Is the relationship between the parties defined (e.g., independent contractor, not employment or partnership)?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Relationship
+      applies_to: [MSA, SAAS]
+      weight: 6
+
+    - id: gen_no_third_party_beneficiary
+      question: "Is there a clause stating that the agreement does not confer rights on third parties?"
+      risk_if_no: LOW
+      risk_if_yes: LOW
+      category: Scope
+      applies_to: []
+      weight: 5
+
+    - id: gen_order_of_precedence
+      question: "Is there a clause establishing the order of precedence between the main agreement and any schedules, exhibits, or SOWs?"
+      risk_if_no: MEDIUM
+      risk_if_yes: LOW
+      category: Clarity
+      applies_to: [MSA, SAAS]
+      weight: 6
+
+# Required clauses per contract type — used to flag missing clauses.
+# A clause listed here that is absent from the contract = automatic HIGH risk.
+required_clauses:
+  _default:
+    - LIABILITY
+    - TERMINATION
+    - CONFIDENTIALITY
+    - GOVERNING_LAW
+    - GENERAL_PROVISIONS
+  NDA:
+    - CONFIDENTIALITY
+    - TERMINATION
+    - GOVERNING_LAW
+    - GENERAL_PROVISIONS
+  MSA:
+    - LIABILITY
+    - INDEMNIFICATION
+    - TERMINATION
+    - CONFIDENTIALITY
+    - IP_RIGHTS
+    - PAYMENT
+    - WARRANTIES
+    - GOVERNING_LAW
+    - GENERAL_PROVISIONS
+  SAAS:
+    - LIABILITY
+    - INDEMNIFICATION
+    - TERMINATION
+    - CONFIDENTIALITY
+    - IP_RIGHTS
+    - PAYMENT
+    - DATA_PROTECTION
+    - WARRANTIES
+    - SLA
+    - GOVERNING_LAW
+    - GENERAL_PROVISIONS
+  EMPLOYMENT:
+    - TERMINATION
+    - CONFIDENTIALITY
+    - IP_RIGHTS
+    - PAYMENT
+    - GOVERNING_LAW
+    - GENERAL_PROVISIONS
+  SUPPLY:
+    - LIABILITY
+    - TERMINATION
+    - PAYMENT
+    - WARRANTIES
+    - FORCE_MAJEURE
+    - GOVERNING_LAW
+    - GENERAL_PROVISIONS
+  IP_LICENSE:
+    - LIABILITY
+    - INDEMNIFICATION
+    - TERMINATION
+    - IP_RIGHTS
+    - PAYMENT
+    - WARRANTIES
+    - GOVERNING_LAW
+    - GENERAL_PROVISIONS
+  SOFTWARE_LICENSE:
+    - LIABILITY
+    - INDEMNIFICATION
+    - TERMINATION
+    - IP_RIGHTS
+    - PAYMENT
+    - WARRANTIES
+    - GOVERNING_LAW
+    - GENERAL_PROVISIONS

@@ -45,6 +45,7 @@ public class AiService {
     private final DocumentFullTextRetriever fullTextRetriever;
     private final VllmGuidedClient vllmClient;
     private final LegalSystemConfig legalSystemConfig;
+    private final RiskQuestionEngine riskQuestionEngine;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${legalpartner.rag.candidate-count:20}")
@@ -97,7 +98,8 @@ public class AiService {
             ConversationStore conversationStore,
             DocumentFullTextRetriever fullTextRetriever,
             VllmGuidedClient vllmClient,
-            LegalSystemConfig legalSystemConfig) {
+            LegalSystemConfig legalSystemConfig,
+            RiskQuestionEngine riskQuestionEngine) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
@@ -113,6 +115,7 @@ public class AiService {
         this.fullTextRetriever = fullTextRetriever;
         this.vllmClient = vllmClient;
         this.legalSystemConfig = legalSystemConfig;
+        this.riskQuestionEngine = riskQuestionEngine;
     }
 
     public QueryResult query(QueryRequest request, String username) {
@@ -344,111 +347,305 @@ public class AiService {
         return parseRiskLines(prose);
     }
 
-    // ── Batched risk assessment ────────────────────────────────────────────────
+    // ── Structured risk assessment (question-based) ──────────────────────────
 
-    /** Standard clauses we expect every commercial contract to have. */
-    private static final List<String> STANDARD_CLAUSE_NAMES = List.of(
-            "Liability", "Indemnity", "Termination", "Confidentiality",
-            "IP Rights", "Governing Law", "Force Majeure", "Payment", "Warranties"
+    /** Clause type keys (YAML keys) → keywords for keyword-based clause inventory. */
+    private static final java.util.Map<String, String[]> CLAUSE_INVENTORY_KEYWORDS = java.util.Map.ofEntries(
+            java.util.Map.entry("LIABILITY",       new String[]{"liability", "limitation of liability"}),
+            java.util.Map.entry("INDEMNIFICATION", new String[]{"indemnity", "indemnification", "indemnif", "hold harmless"}),
+            java.util.Map.entry("TERMINATION",     new String[]{"termination", "expiry", "term and termination"}),
+            java.util.Map.entry("CONFIDENTIALITY", new String[]{"confidential", "non-disclosure", "nda"}),
+            java.util.Map.entry("IP_RIGHTS",       new String[]{"intellectual property", "ip rights", "copyright", "ownership of"}),
+            java.util.Map.entry("WARRANTIES",      new String[]{"warranties", "warranty", "representations and warranties"}),
+            java.util.Map.entry("FORCE_MAJEURE",   new String[]{"force majeure", "act of god"}),
+            java.util.Map.entry("DATA_PROTECTION", new String[]{"data protection", "data privacy", "personal data", "gdpr", "dpdp"}),
+            java.util.Map.entry("PAYMENT",         new String[]{"payment", "fees and payment", "invoice", "consideration", "compensation"}),
+            java.util.Map.entry("GOVERNING_LAW",   new String[]{"governing law", "jurisdiction", "dispute resolution", "arbitration"}),
+            java.util.Map.entry("SLA",             new String[]{"service level", "sla", "uptime", "availability"}),
+            java.util.Map.entry("GENERAL_PROVISIONS", new String[]{"general provisions", "miscellaneous", "entire agreement", "boilerplate"})
     );
-
-    /** Map clause names → keywords for matching headings in contract text. */
-    private static final java.util.Map<String, String[]> CLAUSE_KEYWORDS = java.util.Map.ofEntries(
-            java.util.Map.entry("Liability",       new String[]{"liability", "limitation of liability"}),
-            java.util.Map.entry("Indemnity",       new String[]{"indemnity", "indemnification", "indemnif"}),
-            java.util.Map.entry("Termination",     new String[]{"termination", "expiry"}),
-            java.util.Map.entry("Confidentiality", new String[]{"confidential", "non-disclosure", "nda"}),
-            java.util.Map.entry("IP Rights",       new String[]{"intellectual property", "ip rights", "copyright", "ownership of"}),
-            java.util.Map.entry("Governing Law",   new String[]{"governing law", "jurisdiction", "dispute resolution", "arbitration"}),
-            java.util.Map.entry("Force Majeure",   new String[]{"force majeure", "act of god"}),
-            java.util.Map.entry("Payment",         new String[]{"payment", "fees", "invoice", "consideration"}),
-            java.util.Map.entry("Warranties",      new String[]{"warranties", "warranty", "representations"})
-    );
-
-    private static final int RISK_BATCH_INPUT_TOKEN_BUDGET = 3500; // ~14000 chars per batch
 
     /**
-     * 3-pass batched risk assessment:
-     *   Pass 1: Inventory clauses present in the document
-     *   Pass 2: Token-budgeted risk analysis on present clauses (in batches)
-     *   Pass 3: Flag missing standard clauses
+     * 5-step structured risk assessment:
+     *   Step 1: Clause inventory (keyword search, no LLM)
+     *   Step 2: For each found clause, ask YES/NO questions (LLM extraction)
+     *   Step 3: Code computes risk from YES/NO answers (deterministic)
+     *   Step 4: Flag missing clauses (no LLM)
+     *   Step 5: Aggregate into overall risk + per-clause breakdown
      */
     private RiskAssessmentResult assessRiskBatched(String fullText) {
-        // ── Pass 1: Inventory ──────────────────────────────────────────────────
+        // ── Step 1: Clause inventory (no LLM) ─────────────────────────────────
         java.util.Map<String, String> presentClauses = inventoryClauses(fullText);
-        log.info("Risk batched: pass 1 inventoried {} clauses: {}",
+        log.info("Risk structured: step 1 inventoried {} clauses: {}",
                 presentClauses.size(), presentClauses.keySet());
 
         if (presentClauses.isEmpty()) {
             return new RiskAssessmentResult("UNKNOWN", List.of());
         }
 
-        // ── Pass 2: Risk batches ───────────────────────────────────────────────
-        List<List<String>> batches = packIntoBatches(presentClauses, RISK_BATCH_INPUT_TOKEN_BUDGET);
-        log.info("Risk batched: pass 2 packed {} clauses into {} batches",
-                presentClauses.size(), batches.size());
+        // Detect contract type for question filtering (best-effort from clauses present)
+        String contractType = detectContractType(presentClauses);
 
-        List<RiskCategory> allRisks = new ArrayList<>();
-        for (int i = 0; i < batches.size(); i++) {
-            List<String> batch = batches.get(i);
-            log.info("Risk batched: analyzing batch {}/{} with {} clauses: {}",
-                    i + 1, batches.size(), batch.size(), batch);
-            try {
-                List<RiskCategory> batchRisks = analyzeRiskBatch(presentClauses, batch);
-                allRisks.addAll(batchRisks);
-            } catch (Exception e) {
-                log.warn("Risk batched: batch {} failed: {}", i + 1, e.getMessage());
+        // ── Step 2+3: For each clause, ask questions and compute risk ──────────
+        List<RiskQuestionEngine.ClauseRiskResult> clauseResults = new ArrayList<>();
+        int totalQuestionsEvaluated = 0;
+
+        for (Map.Entry<String, String> entry : presentClauses.entrySet()) {
+            String clauseType = entry.getKey();
+            String clauseText = entry.getValue();
+
+            List<RiskQuestionEngine.RiskQuestion> questions =
+                    riskQuestionEngine.getQuestionsForClause(clauseType, contractType);
+
+            if (questions.isEmpty()) {
+                // No questions for this clause type — mark as present with LOW risk
+                clauseResults.add(new RiskQuestionEngine.ClauseRiskResult(
+                        clauseType, "LOW", List.of(), true));
+                continue;
             }
+
+            List<RiskQuestionEngine.QuestionResult> questionResults =
+                    evaluateClauseQuestions(clauseType, clauseText, questions);
+            totalQuestionsEvaluated += questionResults.size();
+
+            // Step 3: deterministic risk from answers
+            RiskQuestionEngine.ClauseRiskResult clauseRisk =
+                    riskQuestionEngine.computeClauseRisk(clauseType, questionResults, true);
+            clauseResults.add(clauseRisk);
         }
 
-        // ── Pass 3: Missing clause check ───────────────────────────────────────
-        List<String> missing = STANDARD_CLAUSE_NAMES.stream()
+        // ── Step 4: Flag missing required clauses (no LLM) ────────────────────
+        List<String> requiredClauses = riskQuestionEngine.getRequiredClauses(contractType);
+        List<String> missingClauses = requiredClauses.stream()
                 .filter(c -> !presentClauses.containsKey(c))
                 .collect(Collectors.toList());
-        log.info("Risk batched: pass 3 found {} missing clauses: {}", missing.size(), missing);
 
-        for (String missingClause : missing) {
-            allRisks.add(new RiskCategory(
-                    missingClause,
-                    "HIGH",
-                    "This standard clause is missing from the contract. " +
-                    "Recommend adding a " + missingClause + " clause to allocate risk and protect both parties.",
-                    "Not present"
+        for (String missing : missingClauses) {
+            clauseResults.add(new RiskQuestionEngine.ClauseRiskResult(
+                    missing, "HIGH", List.of(), false));
+        }
+
+        // ── Step 5: Aggregate into full report ────────────────────────────────
+        RiskQuestionEngine.FullRiskReport report =
+                riskQuestionEngine.computeFullReport(clauseResults, missingClauses);
+
+        log.info("Risk assessment: {} clauses found, {} missing, {} questions evaluated, score: {}/100",
+                presentClauses.size(), missingClauses.size(),
+                totalQuestionsEvaluated, report.riskScore());
+
+        // Build backward-compatible RiskCategory list (for existing frontend)
+        List<RiskCategory> categories = new ArrayList<>();
+        for (RiskQuestionEngine.ClauseRiskResult cr : report.clauseResults()) {
+            String justification = buildClauseJustification(cr);
+            String clauseRef = cr.clausePresent() ? "Present" : "Not present";
+            categories.add(new RiskCategory(
+                    RiskQuestionEngine.formatClauseName(cr.clauseType()),
+                    cr.overallRisk(),
+                    justification,
+                    clauseRef
             ));
         }
 
-        // Deduplicate risk categories — LLM sometimes generates multiple entries per clause.
-        // Keep the highest severity entry per unique clause name.
-        java.util.Map<String, RiskCategory> deduped = new java.util.LinkedHashMap<>();
-        java.util.Map<String, Integer> severityRank = java.util.Map.of("HIGH", 3, "MEDIUM", 2, "LOW", 1, "UNKNOWN", 0);
-        for (RiskCategory risk : allRisks) {
-            String key = risk.name().toUpperCase().trim();
-            RiskCategory existing = deduped.get(key);
-            if (existing == null || severityRank.getOrDefault(risk.rating(), 0) > severityRank.getOrDefault(existing.rating(), 0)) {
-                deduped.put(key, risk);
-            }
-        }
-        List<RiskCategory> dedupedRisks = new ArrayList<>(deduped.values());
-        if (dedupedRisks.size() < allRisks.size()) {
-            log.info("Risk assessment: deduped {} → {} categories", allRisks.size(), dedupedRisks.size());
+        // Build new structured clause details
+        List<RiskAssessmentResult.ClauseRiskDetail> clauseDetails = new ArrayList<>();
+        for (RiskQuestionEngine.ClauseRiskResult cr : report.clauseResults()) {
+            List<RiskAssessmentResult.QuestionAnswer> qas = cr.results().stream()
+                    .map(qr -> new RiskAssessmentResult.QuestionAnswer(
+                            qr.question().id(),
+                            qr.question().question(),
+                            qr.question().category(),
+                            qr.answer(),
+                            qr.quotedEvidence(),
+                            qr.question().riskIfNo(),
+                            qr.question().riskIfYes(),
+                            qr.question().weight()
+                    ))
+                    .collect(Collectors.toList());
+            clauseDetails.add(new RiskAssessmentResult.ClauseRiskDetail(
+                    cr.clauseType(), cr.overallRisk(), cr.clausePresent(), qas));
         }
 
-        // Compute overall rating from category ratings
-        String overall = computeOverallRating(dedupedRisks);
-        return new RiskAssessmentResult(overall, dedupedRisks);
+        return new RiskAssessmentResult(
+                report.overallRisk(),
+                categories,
+                report.riskScore(),
+                clauseDetails,
+                report.missingClauses(),
+                report.keyFindings()
+        );
+    }
+
+    /**
+     * Evaluate YES/NO questions for a single clause by sending them to the LLM.
+     * One LLM call per clause — questions are batched together.
+     */
+    private List<RiskQuestionEngine.QuestionResult> evaluateClauseQuestions(
+            String clauseType, String clauseText,
+            List<RiskQuestionEngine.RiskQuestion> questions) {
+
+        // Build the question list for the prompt
+        StringBuilder questionBlock = new StringBuilder();
+        for (int i = 0; i < questions.size(); i++) {
+            RiskQuestionEngine.RiskQuestion q = questions.get(i);
+            questionBlock.append(i + 1).append(". [").append(q.id()).append("] ")
+                    .append(q.question()).append("\n");
+        }
+
+        String systemPrompt = legalSystemConfig.localize(
+                "You are a %LEGAL_RISK_ANALYST%. " +
+                "Answer each question about the contract clause below with YES or NO. " +
+                "If YES, quote the specific text from the clause that supports your answer (max 150 chars). " +
+                "If NO, leave the quote empty. " +
+                "Output ONLY valid JSON — no markdown, no commentary."
+        );
+
+        String userPrompt = "Clause type: " + clauseType + "\n\n" +
+                "Clause text:\n" + truncateForModel(clauseText, 3500) + "\n\n" +
+                "Questions:\n" + questionBlock + "\n" +
+                "Output ONLY valid JSON in this exact format:\n" +
+                "{\"answers\": [\n" +
+                "  {\"id\": \"question_id\", \"answer\": \"YES\", \"quote\": \"exact text from clause...\"},\n" +
+                "  {\"id\": \"question_id\", \"answer\": \"NO\", \"quote\": \"\"}\n" +
+                "]}\n\n" +
+                "Rules:\n" +
+                "- answer must be exactly \"YES\" or \"NO\"\n" +
+                "- quote must be copied from the clause text, not invented\n" +
+                "- if unsure, answer \"NO\" with empty quote";
+
+        try {
+            AiMessage response = jsonChatModel.generate(
+                    UserMessage.from(systemPrompt + "\n\n" + userPrompt)
+            ).content();
+
+            return parseQuestionAnswers(response.text(), questions);
+        } catch (Exception e) {
+            log.warn("Risk question evaluation failed for clause {}: {}", clauseType, e.getMessage());
+            // Mark all questions as unanswered
+            return questions.stream()
+                    .map(q -> new RiskQuestionEngine.QuestionResult(q, false, null, null))
+                    .collect(Collectors.toList());
+        }
+    }
+
+    /**
+     * Parse JSON response from LLM into QuestionResult list.
+     * Handles malformed responses gracefully — marks unanswerable questions.
+     */
+    private List<RiskQuestionEngine.QuestionResult> parseQuestionAnswers(
+            String rawResponse, List<RiskQuestionEngine.RiskQuestion> questions) {
+
+        // Map question id → RiskQuestion for lookup
+        Map<String, RiskQuestionEngine.RiskQuestion> questionMap = new LinkedHashMap<>();
+        for (RiskQuestionEngine.RiskQuestion q : questions) {
+            questionMap.put(q.id(), q);
+        }
+
+        List<RiskQuestionEngine.QuestionResult> results = new ArrayList<>();
+
+        try {
+            // Strip markdown fences if present
+            String cleaned = rawResponse.trim();
+            if (cleaned.startsWith("```")) {
+                int firstNewline = cleaned.indexOf('\n');
+                int lastFence = cleaned.lastIndexOf("```");
+                if (firstNewline >= 0 && lastFence > firstNewline) {
+                    cleaned = cleaned.substring(firstNewline + 1, lastFence).trim();
+                }
+            }
+
+            JsonNode root = objectMapper.readTree(cleaned);
+            JsonNode answers = root.has("answers") ? root.get("answers") : root;
+
+            if (answers.isArray()) {
+                for (JsonNode ans : answers) {
+                    String id = ans.has("id") ? ans.get("id").asText() : null;
+                    String answer = ans.has("answer") ? ans.get("answer").asText("").toUpperCase().trim() : "";
+                    String quote = ans.has("quote") ? ans.get("quote").asText("") : "";
+
+                    if (id != null && questionMap.containsKey(id)) {
+                        // Normalize answer to strict YES/NO
+                        boolean isYes = answer.startsWith("YES");
+                        boolean isNo = answer.startsWith("NO");
+                        String normalizedAnswer = isYes ? "YES" : (isNo ? "NO" : answer);
+
+                        results.add(new RiskQuestionEngine.QuestionResult(
+                                questionMap.get(id),
+                                isYes || isNo,
+                                normalizedAnswer,
+                                quote
+                        ));
+                        questionMap.remove(id);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse risk question JSON: {}", e.getMessage());
+        }
+
+        // Any questions not answered by the LLM → mark as unanswered
+        for (RiskQuestionEngine.RiskQuestion remaining : questionMap.values()) {
+            results.add(new RiskQuestionEngine.QuestionResult(remaining, false, null, null));
+        }
+
+        return results;
+    }
+
+    /** Build a human-readable justification string from clause risk results. */
+    private String buildClauseJustification(RiskQuestionEngine.ClauseRiskResult cr) {
+        if (!cr.clausePresent()) {
+            return "This clause is required but missing from the contract. "
+                    + "Recommend adding a " + RiskQuestionEngine.formatClauseName(cr.clauseType())
+                    + " clause to allocate risk and protect both parties.";
+        }
+        // Count HIGH/MEDIUM/LOW answers
+        long highNo = 0, mediumNo = 0, answered = 0;
+        for (RiskQuestionEngine.QuestionResult qr : cr.results()) {
+            if (!qr.answered()) continue;
+            answered++;
+            String ans = qr.answer() != null ? qr.answer().toUpperCase() : "";
+            if (ans.startsWith("NO") && "HIGH".equals(qr.question().riskIfNo())) highNo++;
+            if (ans.startsWith("NO") && "MEDIUM".equals(qr.question().riskIfNo())) mediumNo++;
+        }
+        if (highNo > 0) {
+            // Find the highest-weight HIGH issue
+            String topIssue = cr.results().stream()
+                    .filter(qr -> qr.answered()
+                            && qr.answer() != null
+                            && qr.answer().toUpperCase().startsWith("NO")
+                            && "HIGH".equals(qr.question().riskIfNo()))
+                    .max(Comparator.comparingInt(qr -> qr.question().weight()))
+                    .map(qr -> qr.question().question())
+                    .orElse("Critical provisions are missing.");
+            return highNo + " critical issue(s) found. Top concern: " + topIssue;
+        }
+        if (mediumNo > 0) {
+            return mediumNo + " moderate issue(s) found. Consider strengthening this clause.";
+        }
+        return "All key provisions appear present and adequate (" + answered + " checks passed).";
+    }
+
+    /** Best-effort contract type detection from which clauses are present. */
+    private String detectContractType(Map<String, String> presentClauses) {
+        boolean hasSla = presentClauses.containsKey("SLA");
+        boolean hasDataProtection = presentClauses.containsKey("DATA_PROTECTION");
+        boolean hasIp = presentClauses.containsKey("IP_RIGHTS");
+
+        if (hasSla && hasDataProtection) return "SAAS";
+        if (hasIp && !hasSla) return "MSA";
+        return null; // unknown — return all questions
     }
 
     /**
      * Pass 1: Find which standard clauses are present in the document.
-     * Returns map of clause name → extracted text for that clause.
+     * Returns map of clause type key → extracted text for that clause.
      */
     private java.util.Map<String, String> inventoryClauses(String fullText) {
         java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
         String lowerText = fullText.toLowerCase();
 
-        // For each standard clause, find earliest keyword match and extract surrounding text
-        for (String clauseName : STANDARD_CLAUSE_NAMES) {
-            String[] keywords = CLAUSE_KEYWORDS.getOrDefault(clauseName, new String[]{clauseName.toLowerCase()});
+        for (Map.Entry<String, String[]> entry : CLAUSE_INVENTORY_KEYWORDS.entrySet()) {
+            String clauseType = entry.getKey();
+            String[] keywords = entry.getValue();
             int matchIdx = -1;
             for (String kw : keywords) {
                 int idx = lowerText.indexOf(kw);
@@ -456,10 +653,9 @@ public class AiService {
             }
 
             if (matchIdx >= 0) {
-                // Extract from match position to next article header (or end)
                 String extracted = extractClauseText(fullText, matchIdx);
-                if (extracted.length() > 100) { // Sanity check — must have substance
-                    result.put(clauseName, extracted);
+                if (extracted.length() > 100) {
+                    result.put(clauseType, extracted);
                 }
             }
         }
@@ -471,7 +667,6 @@ public class AiService {
      * Uses Article/ARTICLE/Section/SECTION heading patterns as boundaries.
      */
     private String extractClauseText(String fullText, int startIdx) {
-        // Find start of the article header (look back for "ARTICLE" or "Section")
         java.util.regex.Pattern headerPattern = java.util.regex.Pattern.compile(
                 "(?im)^(?:ARTICLE|Article|SECTION|Section|Clause|CLAUSE)\\s+\\d+");
         java.util.regex.Matcher m = headerPattern.matcher(fullText);
@@ -479,7 +674,6 @@ public class AiService {
         int sectionStart = startIdx;
         int sectionEnd = fullText.length();
 
-        // Find headers before and after our match position
         java.util.List<Integer> headerPositions = new java.util.ArrayList<>();
         while (m.find()) headerPositions.add(m.start());
 
@@ -493,107 +687,20 @@ public class AiService {
             }
         }
 
-        // Cap at 4000 chars per clause to keep batches reasonable
         int end = Math.min(sectionEnd, sectionStart + 4000);
         return fullText.substring(sectionStart, end).trim();
     }
 
     /**
-     * Pack clauses into batches that fit within token budget.
-     * Greedy algorithm: add clauses until budget exceeded, start new batch.
-     */
-    private List<List<String>> packIntoBatches(java.util.Map<String, String> clauses, int tokenBudget) {
-        List<List<String>> batches = new ArrayList<>();
-        List<String> currentBatch = new ArrayList<>();
-        int currentTokens = 0;
-
-        for (java.util.Map.Entry<String, String> entry : clauses.entrySet()) {
-            int clauseTokens = estimateTokens(entry.getValue()) + 50; // +50 for label overhead
-            if (currentTokens + clauseTokens > tokenBudget && !currentBatch.isEmpty()) {
-                batches.add(currentBatch);
-                currentBatch = new ArrayList<>();
-                currentTokens = 0;
-            }
-            currentBatch.add(entry.getKey());
-            currentTokens += clauseTokens;
-        }
-        if (!currentBatch.isEmpty()) batches.add(currentBatch);
-        return batches;
-    }
-
-    /**
-     * Rough token estimator: 1 token ≈ 4 chars for English legal text.
+     * Rough token estimator: 1 token ~ 4 chars for English legal text.
      */
     private int estimateTokens(String text) {
         return text == null ? 0 : text.length() / 4;
     }
 
     /**
-     * Pass 2: Analyze risks for a batch of clauses. Returns risk categories.
-     */
-    private List<RiskCategory> analyzeRiskBatch(java.util.Map<String, String> allClauses, List<String> batchClauseNames) {
-        StringBuilder context = new StringBuilder();
-        for (String name : batchClauseNames) {
-            context.append("=== ").append(name.toUpperCase()).append(" CLAUSE ===\n");
-            context.append(allClauses.get(name)).append("\n\n");
-        }
-
-        String systemPrompt = legalSystemConfig.localize(
-                "You are a senior legal analyst. Analyze the provided contract clauses and identify risks. " +
-                "For each clause, output exactly one line in this format:\n" +
-                "CATEGORY|RATING|JUSTIFICATION|REFERENCE\n\n" +
-                "RATING must be HIGH, MEDIUM, or LOW. " +
-                "JUSTIFICATION should be a single sentence explaining the specific risk. " +
-                "REFERENCE should cite the article or section. " +
-                "Output ONLY the pipe-delimited lines, no preamble, no JSON, no commentary."
-        );
-
-        String userPrompt = "Analyze the risks in these clauses:\n\n" + context.toString() +
-                "\n\nOutput one CATEGORY|RATING|JUSTIFICATION|REFERENCE line per clause analyzed.";
-
-        try {
-            String response = shortChatModel.generate(
-                    UserMessage.from(systemPrompt + "\n\n" + userPrompt)
-            ).content().text();
-
-            return parseBatchRiskResponse(response);
-        } catch (Exception e) {
-            log.warn("Risk batch analysis failed: {}", e.getMessage());
-            return List.of();
-        }
-    }
-
-    /**
-     * Parse pipe-delimited risk batch response.
-     */
-    private List<RiskCategory> parseBatchRiskResponse(String response) {
-        List<RiskCategory> risks = new ArrayList<>();
-        if (response == null || response.isBlank()) return risks;
-
-        for (String line : response.split("\\r?\\n")) {
-            line = line.trim();
-            if (line.isEmpty() || !line.contains("|")) continue;
-            String[] parts = line.split("\\|", 4);
-            if (parts.length < 3) continue;
-
-            String name = parts[0].trim();
-            String rating = parts[1].trim().toUpperCase();
-            String justification = parts[2].trim();
-            String reference = parts.length > 3 ? parts[3].trim() : "";
-
-            // Validate rating
-            if (!rating.matches("HIGH|MEDIUM|LOW")) continue;
-            // Skip header echoes
-            if (name.equalsIgnoreCase("CATEGORY")) continue;
-
-            risks.add(new RiskCategory(name, rating, justification, reference));
-        }
-        return risks;
-    }
-
-    /**
      * Compute overall rating from individual category ratings.
-     * If any HIGH → HIGH; else if any MEDIUM → MEDIUM; else LOW.
+     * If any HIGH -> HIGH; else if any MEDIUM -> MEDIUM; else LOW.
      */
     private String computeOverallRating(List<RiskCategory> categories) {
         boolean hasHigh = false, hasMedium = false;
