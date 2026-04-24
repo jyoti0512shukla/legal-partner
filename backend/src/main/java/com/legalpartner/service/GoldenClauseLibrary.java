@@ -112,16 +112,6 @@ public class GoldenClauseLibrary {
             }
             Map<String, Object> root = yaml.load(in);
 
-            // Load placeholder defaults
-            @SuppressWarnings("unchecked")
-            Map<String, Object> defaults = (Map<String, Object>) root.get("placeholder_defaults");
-            if (defaults != null) {
-                Map<String, String> pd = new LinkedHashMap<>();
-                defaults.forEach((k, v) -> pd.put(k.toString(), v != null ? v.toString() : ""));
-                this.placeholderDefaults = Collections.unmodifiableMap(pd);
-                log.info("GoldenClauseLibrary: loaded {} placeholder defaults", pd.size());
-            }
-
             @SuppressWarnings("unchecked")
             Map<String, Object> clauses = (Map<String, Object>) root.get("clauses");
             if (clauses == null || clauses.isEmpty()) {

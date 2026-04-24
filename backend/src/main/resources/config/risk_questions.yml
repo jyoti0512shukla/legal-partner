@@ -45,6 +45,7 @@ prompts:
     - quote must be copied verbatim from the clause text
     - answer YES if the concept is addressed, even with different wording
     - answer NO only if you searched the entire text and the concept is truly absent
+    - if you see placeholder text like [Liability Cap Months] or [Notice Days] or [as agreed by the Parties], answer YES — the provision EXISTS but the specific value needs to be filled in. This is normal for draft contracts.
 
 clause_questions:
 
