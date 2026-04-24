@@ -478,23 +478,24 @@ public class GoldenClauseLibrary {
      * Strip any remaining unresolved {{...}} placeholders from the text.
      * This is the safety net — ensures no template syntax leaks into output.
      */
-    /** Placeholder defaults loaded from golden_clauses.yml */
-    private Map<String, String> placeholderDefaults = Map.of();
-
     private String stripUnresolved(String text) {
         if (text == null) return "";
-        // Replace unresolved placeholders with configurable fallback values
-        // from golden_clauses.yml → placeholder_defaults section.
-        // No hardcoding — add new defaults in YAML, restart server.
+        // Render unresolved placeholders as visible fill-in fields in the draft.
+        // The user sees highlighted blanks — like a real contract template.
+        // No guessing, no hardcoding defaults, no fallback map needed.
         if (text.contains("{{")) {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(text);
             StringBuilder sb = new StringBuilder();
             while (m.find()) {
                 String placeholder = m.group(1).trim();
-                String fallback = placeholderDefaults.getOrDefault(placeholder,
-                        placeholderDefaults.getOrDefault("_default", "[as agreed by the Parties]"));
-                log.debug("Golden clause: unresolved {{{}}} → fallback: {}", placeholder, fallback);
-                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(fallback));
+                // Convert placeholder_name to "Placeholder Name" for display
+                String label = placeholder.replace("_", " ");
+                label = label.substring(0, 1).toUpperCase() + label.substring(1);
+                String fillIn = "<span class=\"placeholder\" style=\"background:#FEF3C7;border-bottom:2px dashed #D97706;padding:0 4px;\" "
+                        + "data-field=\"" + placeholder + "\" title=\"Fill in: " + label + "\">"
+                        + "[" + label + "]</span>";
+                log.debug("Golden clause: unresolved {{{}}} → rendered as fill-in field", placeholder);
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(fillIn));
             }
             m.appendTail(sb);
             return sb.toString();
