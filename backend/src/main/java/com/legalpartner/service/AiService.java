@@ -83,6 +83,15 @@ public class AiService {
     @Value("${legalpartner.conversation.semantic-relevance-threshold:0.35}")
     private double semanticRelevanceThreshold;
 
+    @Value("${legalpartner.text.section-cap-chars:4000}")
+    private int sectionCapChars;
+
+    @Value("${legalpartner.text.extraction-cap-chars:3000}")
+    private int extractionCapChars;
+
+    @Value("${legalpartner.text.refine-context-cap-chars:3000}")
+    private int refineContextCapChars;
+
     public AiService(
             EmbeddingModel embeddingModel,
             EmbeddingStore<TextSegment> embeddingStore,
@@ -687,7 +696,7 @@ public class AiService {
             }
         }
 
-        int end = Math.min(sectionEnd, sectionStart + 4000);
+        int end = Math.min(sectionEnd, sectionStart + sectionCapChars);
         return fullText.substring(sectionStart, end).trim();
     }
 
@@ -867,7 +876,7 @@ public class AiService {
             // Get the section text
             String sectionText;
             if ("_preamble".equals(sectionKey)) {
-                sectionText = fullText.substring(0, Math.min(3000, fullText.length()));
+                sectionText = fullText.substring(0, Math.min(extractionCapChars, fullText.length()));
             } else {
                 String[] keywords = sectionFields.get(0).sectionKeywords().toArray(new String[0]);
                 int start = findClauseStart(fullText, keywords);
@@ -876,7 +885,7 @@ public class AiService {
             if (sectionText.isBlank()) continue;
 
             // Build prompt from config
-            String capped = sectionText.length() > 3000 ? sectionText.substring(0, 3000) : sectionText;
+            String capped = sectionText.length() > extractionCapChars ? sectionText.substring(0, extractionCapChars) : sectionText;
             StringBuilder prompt = new StringBuilder();
             prompt.append(extractionPromptTemplate.isBlank()
                     ? "Extract the following from this contract section.\nFor each field, output FIELD_NAME: value (one per line).\nIf not found, output FIELD_NAME: NOT_FOUND\n"
@@ -1172,7 +1181,7 @@ public class AiService {
 
     public RefineClauseResponse refineClause(RefineClauseRequest request, String username) {
         String context = request.getDocumentContext() != null && !request.getDocumentContext().isBlank()
-                ? request.getDocumentContext().substring(0, Math.min(3000, request.getDocumentContext().length()))
+                ? request.getDocumentContext().substring(0, Math.min(refineContextCapChars, request.getDocumentContext().length()))
                 : "(No surrounding context provided)";
         String instruction = request.getInstruction() != null
                 ? request.getInstruction()

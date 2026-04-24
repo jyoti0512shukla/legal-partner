@@ -111,6 +111,17 @@ public class GoldenClauseLibrary {
                 return;
             }
             Map<String, Object> root = yaml.load(in);
+
+            // Load placeholder defaults
+            @SuppressWarnings("unchecked")
+            Map<String, Object> defaults = (Map<String, Object>) root.get("placeholder_defaults");
+            if (defaults != null) {
+                Map<String, String> pd = new LinkedHashMap<>();
+                defaults.forEach((k, v) -> pd.put(k.toString(), v != null ? v.toString() : ""));
+                this.placeholderDefaults = Collections.unmodifiableMap(pd);
+                log.info("GoldenClauseLibrary: loaded {} placeholder defaults", pd.size());
+            }
+
             @SuppressWarnings("unchecked")
             Map<String, Object> clauses = (Map<String, Object>) root.get("clauses");
             if (clauses == null || clauses.isEmpty()) {
@@ -467,22 +478,21 @@ public class GoldenClauseLibrary {
      * Strip any remaining unresolved {{...}} placeholders from the text.
      * This is the safety net — ensures no template syntax leaks into output.
      */
+    /** Placeholder defaults loaded from golden_clauses.yml */
+    private Map<String, String> placeholderDefaults = Map.of();
+
     private String stripUnresolved(String text) {
         if (text == null) return "";
-        // Replace unresolved placeholders with reasonable fallback text
-        // instead of rejecting the entire clause (which caused empty article bodies)
+        // Replace unresolved placeholders with configurable fallback values
+        // from golden_clauses.yml → placeholder_defaults section.
+        // No hardcoding — add new defaults in YAML, restart server.
         if (text.contains("{{")) {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(text);
             StringBuilder sb = new StringBuilder();
             while (m.find()) {
                 String placeholder = m.group(1).trim();
-                String fallback = switch (placeholder) {
-                    case "liability_cap_months" -> "twelve (12)";
-                    case "notice_days" -> "thirty (30)";
-                    case "cure_days" -> "thirty (30)";
-                    case "survival_years" -> "five (5)";
-                    default -> "[as agreed by the Parties]";
-                };
+                String fallback = placeholderDefaults.getOrDefault(placeholder,
+                        placeholderDefaults.getOrDefault("_default", "[as agreed by the Parties]"));
                 log.debug("Golden clause: unresolved {{{}}} → fallback: {}", placeholder, fallback);
                 m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(fallback));
             }

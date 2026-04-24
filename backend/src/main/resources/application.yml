@@ -74,6 +74,8 @@ langchain4j:
 
 legalpartner:
   legal-system: ${LEGALPARTNER_LEGAL_SYSTEM:USA}   # USA | INDIA
+  defaults:
+    jurisdiction: ${LEGALPARTNER_DEFAULT_JURISDICTION:United States (Delaware)}
   storage:
     path: ${LEGALPARTNER_STORAGE_PATH:/data/documents}
   onlyoffice:
@@ -153,6 +155,31 @@ legalpartner:
       top-k: 12
       max-chunks-per-doc: 3
       context-max-chars: 8000
+  # ── LLM parameters (vLLM path) ────────────────────────────────────────────
+  llm:
+    timeout-seconds: 600
+    stop-sequences: "[/INST],[INST],__PROCESSED_REQUEST__,__INSTRUCTION__,__RESPONSE__,__FOLLOW_UP_QUESTIONS__,__FORBIDDEN_ACTIONS,__CONFIRMATION_OF_UNDERSTANDING__,__BEGIN_PREMIUM_INSTRUCTIONS__,\\nCFR § ,\\nFAR § "
+    chat:
+      max-tokens: 4000
+      frequency-penalty: 0.1
+    short:
+      max-tokens: 2000
+      temperature: 0.3
+      frequency-penalty: 0.1
+    json:
+      max-tokens: 2000
+      temperature: 0.1
+      frequency-penalty: 0.3
+  # ── Text truncation caps ─────────────────────────────────────────────────
+  text:
+    section-cap-chars: 4000               # max chars when extracting a single section
+    extraction-cap-chars: 3000            # cap for extraction prompts (preamble, per-section)
+    refine-context-cap-chars: 3000        # cap for clause-refine surrounding context
+    contextual-summary-cap-chars: 4000    # cap for contextual retrieval document summaries
+  # ── Full-text retriever ──────────────────────────────────────────────────
+  fulltext:
+    short-doc-threshold: 40000
+    max-chars: 40000
   rag:
     candidate-count: 20
     top-k: 5
@@ -163,6 +190,10 @@ legalpartner:
     compare-context-chars: 3000
     retrieve-candidates: 200
     ollama-timeout-seconds: 180
+  # ── Workflow context retrieval ───────────────────────────────────────────
+  workflow:
+    candidate-count: 20
+    max-context-chars: 4000
   context:
     model-window-tokens: 8192          # must match num-ctx above
     answer-headroom-tokens: 512        # reserve for model output

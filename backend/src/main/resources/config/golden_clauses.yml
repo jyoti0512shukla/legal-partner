@@ -1,5 +1,16 @@
 # Golden Clause Library — curated, templatized legal clauses for deterministic fallback.
 #
+# Placeholder defaults: when a {{placeholder}} can't be resolved from DealSpec,
+# use these fallback values instead of rejecting the entire clause.
+# Add new defaults here — no code change needed.
+placeholder_defaults:
+  liability_cap_months: "twelve (12)"
+  notice_days: "thirty (30)"
+  cure_days: "thirty (30)"
+  survival_years: "five (5)"
+  notice_period: "thirty (30) days"
+  _default: "[as agreed by the Parties]"
+#
 # Structure: clause_type → entries[] (each with contract_type, jurisdiction, template, etc.)
 #
 # Placeholders use {{field}} syntax. Fields are resolved from DealSpec using dotted paths:

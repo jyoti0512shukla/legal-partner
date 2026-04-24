@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatLanguageModel;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -23,6 +24,9 @@ import org.springframework.stereotype.Service;
 public class ContextualRetrievalService {
 
     private final ChatLanguageModel contextModel;
+
+    @Value("${legalpartner.text.contextual-summary-cap-chars:4000}")
+    private int contextualSummaryCapChars;
 
     public ContextualRetrievalService(
             @Qualifier("shortChatModel") ChatLanguageModel shortChatModel) {
@@ -70,8 +74,8 @@ public class ContextualRetrievalService {
     }
 
     /** Cap the document summary to avoid blowing the prompt budget on long docs. */
-    private static String summaryOf(String doc) {
+    private String summaryOf(String doc) {
         if (doc == null) return "";
-        return doc.length() > 4000 ? doc.substring(0, 4000) + "\n[... truncated]" : doc;
+        return doc.length() > contextualSummaryCapChars ? doc.substring(0, contextualSummaryCapChars) + "\n[... truncated]" : doc;
     }
 }

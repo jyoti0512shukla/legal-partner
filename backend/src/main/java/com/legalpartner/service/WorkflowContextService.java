@@ -12,6 +12,7 @@ import dev.langchain4j.store.embedding.EmbeddingMatch;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -37,8 +38,11 @@ public class WorkflowContextService {
     private final ClauseLibraryService clauseLibraryService;
     private final EncryptionService encryptionService;
 
-    private static final int CANDIDATE_COUNT = 20;
-    private static final int MAX_CONTEXT_CHARS = 4000;
+    @Value("${legalpartner.workflow.candidate-count:20}")
+    private int candidateCount;
+
+    @Value("${legalpartner.workflow.max-context-chars:4000}")
+    private int maxContextChars;
 
     public String getContextForStep(WorkflowStepType type, DocumentMetadata docMeta,
                                     Map<String, Object> priorResults, ObjectMapper mapper) {
@@ -66,7 +70,7 @@ public class WorkflowContextService {
         StringBuilder sb = new StringBuilder();
         sb.append("=== BENCHMARK CONTEXT: How similar contracts in your corpus handle risk ===\n");
         sb.append("(Compare this contract against these — note what is missing or deviating)\n\n");
-        appendMatches(sb, matches, MAX_CONTEXT_CHARS);
+        appendMatches(sb, matches, maxContextChars);
         sb.append("=== END BENCHMARK ===\n\n");
         return sb.toString();
     }
@@ -95,7 +99,7 @@ public class WorkflowContextService {
                 String tag = best.isGolden() ? "[GOLDEN — Firm Approved]" : "[Firm Library]";
                 sb.append(String.format("--- %s Clause Standard %s ---\n", clauseType, tag));
                 sb.append(best.getContent()).append("\n\n");
-                if (sb.length() >= MAX_CONTEXT_CHARS / 2) break;
+                if (sb.length() >= maxContextChars / 2) break;
             }
         }
 
@@ -106,7 +110,7 @@ public class WorkflowContextService {
         List<EmbeddingMatch<TextSegment>> corpusMatches = retrieve(corpusQuery, docMeta);
         if (!corpusMatches.isEmpty()) {
             if (hasLibraryEntries) sb.append("--- Additional corpus precedents ---\n");
-            appendMatches(sb, corpusMatches, MAX_CONTEXT_CHARS - sb.length());
+            appendMatches(sb, corpusMatches, maxContextChars - sb.length());
         }
 
         sb.append("=== END FIRM STANDARDS ===\n\n");
@@ -120,7 +124,7 @@ public class WorkflowContextService {
 
         StringBuilder sb = new StringBuilder();
         sb.append("=== BENCHMARK: Standard clause coverage from similar contracts ===\n\n");
-        appendMatches(sb, matches, MAX_CONTEXT_CHARS);
+        appendMatches(sb, matches, maxContextChars);
         sb.append("=== END BENCHMARK ===\n\n");
         return sb.toString();
     }
@@ -138,11 +142,11 @@ public class WorkflowContextService {
         for (ClauseLibraryEntry e : allGolden) {
             sb.append(String.format("[GOLDEN CLAUSE: %s | %s]\n", e.getTitle(), e.getClauseType()));
             sb.append(e.getContent()).append("\n\n");
-            if (sb.length() >= MAX_CONTEXT_CHARS / 2) break;
+            if (sb.length() >= maxContextChars / 2) break;
         }
 
         List<EmbeddingMatch<TextSegment>> matches = retrieve("contract drafting clause obligations rights duties covenants", docMeta);
-        appendMatches(sb, matches, MAX_CONTEXT_CHARS - sb.length());
+        appendMatches(sb, matches, maxContextChars - sb.length());
         sb.append("=== END PRECEDENT ===\n\n");
         return sb.toString();
     }
@@ -151,7 +155,7 @@ public class WorkflowContextService {
 
     private List<EmbeddingMatch<TextSegment>> retrieve(String query, DocumentMetadata docMeta) {
         Embedding emb = embeddingModel.embed(query).content();
-        List<EmbeddingMatch<TextSegment>> all = embeddingStore.findRelevant(emb, CANDIDATE_COUNT);
+        List<EmbeddingMatch<TextSegment>> all = embeddingStore.findRelevant(emb, candidateCount);
         // Exclude the document being analyzed — we want external benchmarks
         if (docMeta != null) {
             String docId = docMeta.getId().toString();

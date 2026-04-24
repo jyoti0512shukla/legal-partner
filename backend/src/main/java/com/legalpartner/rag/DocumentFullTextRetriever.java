@@ -34,6 +34,7 @@ public class DocumentFullTextRetriever {
 
     private final JdbcTemplate jdbcTemplate;
     private final EncryptionService encryptionService;
+    private final String storagePath;
 
     /**
      * Contracts at or below this character count are sent whole — the model
@@ -51,9 +52,11 @@ public class DocumentFullTextRetriever {
     @Value("${legalpartner.fulltext.max-chars:40000}")
     private int maxChars;
 
-    public DocumentFullTextRetriever(JdbcTemplate jdbcTemplate, EncryptionService encryptionService) {
+    public DocumentFullTextRetriever(JdbcTemplate jdbcTemplate, EncryptionService encryptionService,
+                                     @Value("${legalpartner.storage.path:/data/documents}") String storagePath) {
         this.jdbcTemplate = jdbcTemplate;
         this.encryptionService = encryptionService;
+        this.storagePath = storagePath;
     }
 
     /**
@@ -133,8 +136,8 @@ public class DocumentFullTextRetriever {
     private String readDraftHtmlAsPlainText(UUID documentId) {
         try {
             // Try to read the stored HTML content from the file storage
-            String storagePath = "/data/documents/" + documentId + ".html";
-            byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(storagePath));
+            String htmlPath = storagePath + "/" + documentId + ".html";
+            byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(htmlPath));
             String html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             // Strip HTML tags, decode entities, normalize whitespace
             String plain = html
@@ -177,9 +180,9 @@ public class DocumentFullTextRetriever {
 
         if (rows.isEmpty()) {
             // Fallback for generated drafts — read HTML file directly, no cap
-            String storagePath = "/data/documents/" + documentId + ".html";
+            String htmlPath = storagePath + "/" + documentId + ".html";
             try {
-                byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(storagePath));
+                byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(htmlPath));
                 String html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
                 String plain = html
                         .replaceAll("<style[^>]*>[\\s\\S]*?</style>", "")

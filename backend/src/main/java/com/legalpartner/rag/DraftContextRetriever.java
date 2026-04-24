@@ -58,6 +58,9 @@ public class DraftContextRetriever {
     @Value("${legalpartner.draft.retrieval.context-max-chars:8000}")
     private int contextMaxChars;
 
+    @Value("${legalpartner.defaults.jurisdiction:United States (Delaware)}")
+    private String defaultJurisdiction;
+
     // Per-clause search queries now live in resources/config/clauses.yml
     // (loaded by ClauseTypeRegistry). Use clauseRegistry.get(key).searchQueries().
 
@@ -187,7 +190,7 @@ public class DraftContextRetriever {
         String targetMatterId = (request.getMatterId() != null && !request.getMatterId().isBlank())
                 ? request.getMatterId() : null;
         String targetJurisdiction = (request.getJurisdiction() == null || request.getJurisdiction().isBlank())
-                ? "India" : request.getJurisdiction();
+                ? defaultJurisdiction : request.getJurisdiction();
         String targetIndustry = request.getIndustry();
 
         Set<String> acceptableClauseTypes = getAcceptableClauseTypes(clauseType);

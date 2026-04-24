@@ -6,7 +6,9 @@ import com.legalpartner.config.ClauseTypeRegistry;
 import com.legalpartner.config.ClauseTypeRegistry.ClauseTypeConfig;
 import com.legalpartner.config.ContractTypeRegistry;
 import com.legalpartner.config.DenylistRegistry;
+import com.legalpartner.config.IndustryRegulationRegistry;
 import com.legalpartner.config.LegalSystemConfig;
+import com.legalpartner.config.PartyNameVariantsConfig;
 import com.legalpartner.model.dto.DraftRequest;
 import com.legalpartner.model.dto.DraftResponse;
 import com.legalpartner.model.dto.DraftResponse.ClauseSuggestion;
@@ -67,6 +69,10 @@ public class DraftService {
     private final HtmlToDocxConverter htmlToDocxConverter;
     private final GoldenClauseLibrary goldenClauseLibrary;
     private final DraftNormalizer draftNormalizer;
+    private final IndustryRegulationRegistry industryRegulationRegistry;
+    private final PartyNameVariantsConfig partyNameVariantsConfig;
+    private final String defaultJurisdiction;
+    private final String storagePath;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DraftService(TemplateService templateService,
@@ -90,7 +96,11 @@ public class DraftService {
                         HtmlToDocxConverter htmlToDocxConverter,
                         GoldenClauseLibrary goldenClauseLibrary,
                         DraftNormalizer draftNormalizer,
-                        @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent) {
+                        IndustryRegulationRegistry industryRegulationRegistry,
+                        PartyNameVariantsConfig partyNameVariantsConfig,
+                        @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent,
+                        @Value("${legalpartner.defaults.jurisdiction:United States (Delaware)}") String defaultJurisdiction,
+                        @Value("${legalpartner.storage.path:/data/documents}") String storagePath) {
         this.templateService = templateService;
         this.draftContextRetriever = draftContextRetriever;
         this.chatModel = chatModel;
@@ -110,7 +120,11 @@ public class DraftService {
         this.htmlToDocxConverter = htmlToDocxConverter;
         this.goldenClauseLibrary = goldenClauseLibrary;
         this.draftNormalizer = draftNormalizer;
+        this.industryRegulationRegistry = industryRegulationRegistry;
+        this.partyNameVariantsConfig = partyNameVariantsConfig;
         this.fileStorageService = fileStorageService;
+        this.defaultJurisdiction = defaultJurisdiction;
+        this.storagePath = storagePath;
         this.draftSemaphore = new Semaphore(maxConcurrent);
     }
 
@@ -460,7 +474,7 @@ public class DraftService {
         // Also generate DOCX version for Word/OnlyOffice editing
         try {
             byte[] docxBytes = htmlToDocxConverter.convert(fullHtml);
-            String docxPath = "/data/documents/" + docId + ".docx";
+            String docxPath = storagePath + "/" + docId + ".docx";
             java.nio.file.Files.write(java.nio.file.Path.of(docxPath), docxBytes);
             log.info("DOCX generated for draft {}: {} bytes", docId, docxBytes.length);
         } catch (Exception e) {
@@ -493,7 +507,7 @@ public class DraftService {
             String mainPath = doc.getStoredPath();
             if (mainPath == null) {
                 // Draft HTML not yet stored — derive the path from conventions
-                mainPath = "/data/documents/" + doc.getId() + ".html";
+                mainPath = storagePath + "/" + doc.getId() + ".html";
             }
             String paramsPath = mainPath.replace(".html", "_params.html");
             java.nio.file.Files.write(java.nio.file.Path.of(paramsPath), parametersHtml.getBytes());
@@ -692,8 +706,8 @@ public class DraftService {
     private List<String> planSections(DraftRequest request) {
         String prompt = String.format(PromptTemplates.SECTION_PLANNER_USER,
                 resolveContractTypeName(request),
-                nullToDefault(request.getPartyA(), "Party A"),
-                nullToDefault(request.getPartyB(), "Party B"),
+                nullToDefault(request.getPartyA(), defaultPartyA(request)),
+                nullToDefault(request.getPartyB(), defaultPartyB(request)),
                 nullToDefault(request.getPracticeArea(), "general"),
                 nullToDefault(request.getIndustry(), "GENERAL"),
                 nullToDefault(request.getDealBrief(), "standard contract"));
@@ -822,8 +836,8 @@ public class DraftService {
 
     private TerminologyManifest buildInitialManifest(DraftRequest request, List<String> plannedSectionKeys) {
         return new TerminologyManifest(
-                nullToDefault(request.getPartyA(), "the Service Provider"),
-                nullToDefault(request.getPartyB(), "the Client"),
+                nullToDefault(request.getPartyA(), defaultPartyA(request)),
+                nullToDefault(request.getPartyB(), defaultPartyB(request)),
                 List.of(),
                 buildStyleFingerprint(request),
                 buildArticlePlan(plannedSectionKeys),
@@ -841,7 +855,7 @@ public class DraftService {
     }
 
     private String buildStyleFingerprint(DraftRequest request) {
-        String jurisdiction = nullToDefault(request.getJurisdiction(), "United States (Delaware)").toLowerCase();
+        String jurisdiction = nullToDefault(request.getJurisdiction(), defaultJurisdiction).toLowerCase();
         String register = jurisdiction.contains("india")
                 ? "formal Indian legal English (Indian Contract Act, 1872 conventions)"
                 : "formal legal English appropriate to the governing law";
@@ -973,7 +987,7 @@ public class DraftService {
                                                String userPromptTemplate, int expectedSubclauses,
                                                SseEmitter emitter, TerminologyManifest manifest) {
         String contractType = resolveContractTypeName(request);
-        String jurisdiction = nullToDefault(request.getJurisdiction(), "United States (Delaware)");
+        String jurisdiction = nullToDefault(request.getJurisdiction(), defaultJurisdiction);
         String counterparty = nullToDefault(request.getCounterpartyType(), "general");
         String practiceArea = nullToDefault(request.getPracticeArea(), "general");
         String dealContext = buildDealContext(request);
@@ -1594,32 +1608,8 @@ public class DraftService {
 
         String industry = request.getIndustry();
         if (industry != null && !industry.isBlank()) {
-            // Jurisdiction-aware regulatory references — don't inject Indian laws into US contracts
-            String jur = request.getJurisdiction() != null ? request.getJurisdiction().toLowerCase() : "";
-            boolean isUS = jur.contains("united states") || jur.contains("delaware") || jur.contains("california")
-                    || jur.contains("new york") || jur.contains("texas") || jur.contains("usa");
-            boolean isIndia = jur.contains("india") || jur.contains("mumbai") || jur.contains("delhi");
-
-            String regRef;
-            if (isUS) {
-                regRef = switch (industry.toUpperCase()) {
-                    case "FINTECH"        -> "Reference applicable US federal and state financial regulations where relevant.";
-                    case "PHARMA"        -> "Reference FDA regulations, HIPAA, and applicable state healthcare laws where relevant.";
-                    case "IT_SERVICES"   -> "Reference CCPA/CPRA, applicable state privacy laws, and SOC 2 compliance where relevant.";
-                    case "MANUFACTURING" -> "Reference OSHA, EPA regulations, and applicable state environmental laws where relevant.";
-                    default -> "";
-                };
-            } else if (isIndia) {
-                regRef = switch (industry.toUpperCase()) {
-                    case "FINTECH"        -> "Reference RBI guidelines, FEMA 1999, and Payment & Settlement Systems Act 2007 where relevant.";
-                    case "PHARMA"        -> "Reference Drugs and Cosmetics Act 1940, Clinical Establishment Act 2010, and DPDPA 2023 where relevant.";
-                    case "IT_SERVICES"   -> "Reference IT Act 2000, DPDPA 2023, and SEBI (if listed entity) where relevant.";
-                    case "MANUFACTURING" -> "Reference Factories Act 1948, Environment Protection Act 1986, and GST Act 2017 where relevant.";
-                    default -> "";
-                };
-            } else {
-                regRef = "";
-            }
+            String jur = request.getJurisdiction() != null ? request.getJurisdiction() : "";
+            String regRef = industryRegulationRegistry.getRegulatoryReference(jur, industry);
             if (!regRef.isEmpty()) {
                 sb.append("Industry: ").append(industry).append(". ").append(regRef).append("\n");
             }
@@ -2132,8 +2122,8 @@ public class DraftService {
      * This runs after all QA retries so the output is never left with raw brackets.
      */
     private String postProcessPlaceholders(String html, DraftRequest request) {
-        String partyA = nullToDefault(request.getPartyA(), "the Service Provider");
-        String partyB = nullToDefault(request.getPartyB(), "the Client");
+        String partyA = nullToDefault(request.getPartyA(), defaultPartyA(request));
+        String partyB = nullToDefault(request.getPartyB(), defaultPartyB(request));
         String jurisdiction = nullToDefault(request.getJurisdiction(), "the governing jurisdiction");
         String noticeDays = nullToDefault(request.getNoticeDays(), "30");
         String termYears = nullToDefault(request.getTermYears(), "3");
@@ -2191,37 +2181,17 @@ public class DraftService {
 
         String roleA = config.partyARole(); // e.g. "Licensor"
         String roleB = config.partyBRole(); // e.g. "Licensee"
-        String nameA = nullToDefault(request.getPartyA(), roleA);
-        String nameB = nullToDefault(request.getPartyB(), roleB);
 
-        // Map generic terms → correct role. Only replace when surrounded by word boundaries.
-        // PartyA variants
-        String[][] partyAMap = {
-            {"the Service Provider", roleA}, {"Service Provider", roleA},
-            {"the Vendor", roleA}, {"Vendor", roleA},
-            {"the Company", roleA}, {"Company", roleA},
-            {"the Supplier", roleA}, {"Supplier", roleA},
-            {"the Provider", roleA}, {"Provider", roleA},
-            {"the Employer", roleA}, {"Employer", roleA},
-        };
-        // PartyB variants
-        String[][] partyBMap = {
-            {"the Client", roleB}, {"Client", roleB},
-            {"the Enterprise", roleB}, {"Enterprise", roleB},
-            {"the Buyer", roleB}, {"Buyer", roleB},
-            {"the Customer", roleB}, {"Customer", roleB},
-            {"the Employee", roleB}, {"Employee", roleB},
-        };
-
-        // Only replace variants that DON'T match the actual role
-        for (String[] pair : partyAMap) {
-            if (!pair[0].equalsIgnoreCase(roleA) && !pair[0].equalsIgnoreCase("the " + roleA)) {
-                html = html.replace(pair[0], pair[1]);
+        // Replace generic partyA variants with the correct role
+        for (String variant : partyNameVariantsConfig.partyAVariants()) {
+            if (!variant.equalsIgnoreCase(roleA) && !variant.equalsIgnoreCase("the " + roleA)) {
+                html = html.replace(variant, roleA);
             }
         }
-        for (String[] pair : partyBMap) {
-            if (!pair[0].equalsIgnoreCase(roleB) && !pair[0].equalsIgnoreCase("the " + roleB)) {
-                html = html.replace(pair[0], pair[1]);
+        // Replace generic partyB variants with the correct role
+        for (String variant : partyNameVariantsConfig.partyBVariants()) {
+            if (!variant.equalsIgnoreCase(roleB) && !variant.equalsIgnoreCase("the " + roleB)) {
+                html = html.replace(variant, roleB);
             }
         }
 
@@ -2459,14 +2429,14 @@ public class DraftService {
 
     private Map<String, String> buildPlaceholderMap(DraftRequest r) {
         Map<String, String> m = new HashMap<>();
-        m.put("PARTY_A", nullToDefault(r.getPartyA(), "Party A"));
-        m.put("PARTY_B", nullToDefault(r.getPartyB(), "Party B"));
+        m.put("PARTY_A", nullToDefault(r.getPartyA(), defaultPartyA(r)));
+        m.put("PARTY_B", nullToDefault(r.getPartyB(), defaultPartyB(r)));
         m.put("PARTY_A_ADDRESS", nullToDefault(r.getPartyAAddress(), "its registered office"));
         m.put("PARTY_B_ADDRESS", nullToDefault(r.getPartyBAddress(), "its registered office"));
         m.put("PARTY_A_REP", nullToDefault(r.getPartyARep(), "its authorised signatory"));
         m.put("PARTY_B_REP", nullToDefault(r.getPartyBRep(), "its authorised signatory"));
         m.put("EFFECTIVE_DATE", nullToDefault(r.getEffectiveDate(), java.time.LocalDate.now().toString()));
-        m.put("JURISDICTION", nullToDefault(r.getJurisdiction(), "United States (Delaware)"));
+        m.put("JURISDICTION", nullToDefault(r.getJurisdiction(), defaultJurisdiction));
         m.put("AGREEMENT_REF", nullToDefault(r.getAgreementRef(), generateAgreementRef(r)));
         m.put("TERM_YEARS", nullToDefault(r.getTermYears(), "3"));
         m.put("NOTICE_DAYS", nullToDefault(r.getNoticeDays(), "30"));
@@ -2524,6 +2494,18 @@ public class DraftService {
 
     private static String nullToDefault(String value, String defaultValue) {
         return (value == null || value.isBlank()) ? defaultValue : value;
+    }
+
+    /** Resolve default Party A name from contract_types.yml, falling back to "Party A". */
+    private String defaultPartyA(DraftRequest request) {
+        var config = contractRegistry.get(request.getTemplateId());
+        return config != null ? config.partyARole() : "Party A";
+    }
+
+    /** Resolve default Party B name from contract_types.yml, falling back to "Party B". */
+    private String defaultPartyB(DraftRequest request) {
+        var config = contractRegistry.get(request.getTemplateId());
+        return config != null ? config.partyBRole() : "Party B";
     }
 
     // ── Deterministic template helpers for BLOCK enforcement ────────────

@@ -256,7 +256,7 @@ public class AiController {
         if (!auth.getName().equals(doc.getUploadedBy())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your draft");
         }
-        java.nio.file.Path docxPath = java.nio.file.Path.of("/data/documents/" + id + ".docx");
+        java.nio.file.Path docxPath = fileStorageService.resolve(id + ".docx");
         if (!java.nio.file.Files.exists(docxPath)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "DOCX not available yet — draft may still be generating");
         }

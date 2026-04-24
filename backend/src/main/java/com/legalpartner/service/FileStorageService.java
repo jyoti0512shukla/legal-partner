@@ -38,4 +38,9 @@ public class FileStorageService {
     public boolean exists(String storedPath) {
         return storedPath != null && Files.exists(Paths.get(storedPath));
     }
+
+    /** Returns the absolute path for a document file (e.g. /data/documents/<id>.docx). */
+    public Path resolve(String fileName) {
+        return storageDir.resolve(fileName);
+    }
 }

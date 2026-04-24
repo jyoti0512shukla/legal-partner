@@ -11,6 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -47,6 +48,39 @@ public class ChatModelConfig {
     @Value("${legalpartner.gemini-model:gemini-2.5-flash}")
     private String geminiModel;
 
+    // ── vLLM parameters (configurable via application.yml) ───────────────────
+
+    @Value("${legalpartner.llm.timeout-seconds:600}")
+    private int llmTimeoutSeconds;
+
+    @Value("${legalpartner.llm.chat.max-tokens:4000}")
+    private int chatMaxTokens;
+
+    @Value("${legalpartner.llm.chat.frequency-penalty:0.1}")
+    private double chatFrequencyPenalty;
+
+    @Value("${legalpartner.llm.short.max-tokens:2000}")
+    private int shortMaxTokens;
+
+    @Value("${legalpartner.llm.short.temperature:0.3}")
+    private double shortTemperature;
+
+    @Value("${legalpartner.llm.short.frequency-penalty:0.1}")
+    private double shortFrequencyPenalty;
+
+    @Value("${legalpartner.llm.json.max-tokens:2000}")
+    private int jsonMaxTokens;
+
+    @Value("${legalpartner.llm.json.temperature:0.1}")
+    private double jsonTemperature;
+
+    @Value("${legalpartner.llm.json.frequency-penalty:0.3}")
+    private double jsonFrequencyPenalty;
+
+    /** Comma-separated stop sequences for the draft (chat) model. */
+    @Value("${legalpartner.llm.stop-sequences:[/INST],[INST],__PROCESSED_REQUEST__,__INSTRUCTION__,__RESPONSE__,__FOLLOW_UP_QUESTIONS__,__FORBIDDEN_ACTIONS,__CONFIRMATION_OF_UNDERSTANDING__,__BEGIN_PREMIUM_INSTRUCTIONS__,\\nCFR § ,\\nFAR § }")
+    private String stopSequencesRaw;
+
     @Bean
     @Primary
     ChatLanguageModel chatLanguageModel() {
@@ -68,13 +102,13 @@ public class ChatModelConfig {
                     .baseUrl(url)
                     .apiKey("no-op")
                     .modelName(vllmModel)
-                    .timeout(Duration.ofSeconds(600))
-                    .maxTokens(4000)
-                    .frequencyPenalty(0.1)
+                    .timeout(Duration.ofSeconds(llmTimeoutSeconds))
+                    .maxTokens(chatMaxTokens)
+                    .frequencyPenalty(chatFrequencyPenalty)
                     // Stop the moment v3 emits any of its training-format markers.
                     // These appeared inside generated drafts (e.g. "__PROCESSED_REQUEST__"
                     // followed by pages of federal-contracting boilerplate).
-                    .stop(DRAFT_STOP_SEQUENCES)
+                    .stop(parseStopSequences())
                     .build();
         }
 
@@ -82,20 +116,14 @@ public class ChatModelConfig {
         return null;
     }
 
-    /** vLLM stop sequences: strings whose emission halts sampling immediately. */
-    private static final List<String> DRAFT_STOP_SEQUENCES = List.of(
-            "[/INST]",
-            "[INST]",
-            "__PROCESSED_REQUEST__",
-            "__INSTRUCTION__",
-            "__RESPONSE__",
-            "__FOLLOW_UP_QUESTIONS__",
-            "__FORBIDDEN_ACTIONS",
-            "__CONFIRMATION_OF_UNDERSTANDING__",
-            "__BEGIN_PREMIUM_INSTRUCTIONS__",
-            "\nCFR § ",
-            "\nFAR § "
-    );
+    /** Parse comma-separated stop sequences from config, restoring escaped newlines. */
+    private List<String> parseStopSequences() {
+        if (stopSequencesRaw == null || stopSequencesRaw.isBlank()) return List.of();
+        return Arrays.stream(stopSequencesRaw.split(","))
+                .map(s -> s.replace("\\n", "\n"))
+                .filter(s -> !s.isEmpty())
+                .toList();
+    }
 
     /**
      * Smaller-budget model for everything that's NOT drafting — risk assessment,
@@ -124,10 +152,10 @@ public class ChatModelConfig {
                     .baseUrl(url)
                     .apiKey("no-op")
                     .modelName(vllmModel)
-                    .timeout(Duration.ofSeconds(600))
-                    .maxTokens(2000)
-                    .temperature(0.3)
-                    .frequencyPenalty(0.1)
+                    .timeout(Duration.ofSeconds(llmTimeoutSeconds))
+                    .maxTokens(shortMaxTokens)
+                    .temperature(shortTemperature)
+                    .frequencyPenalty(shortFrequencyPenalty)
                     .build();
         }
         return null;
@@ -152,10 +180,11 @@ public class ChatModelConfig {
                     .baseUrl(url)
                     .apiKey("no-op")
                     .modelName(vllmModel)
-                    .timeout(Duration.ofSeconds(300))
+                    .timeout(Duration.ofSeconds(llmTimeoutSeconds))
                     .responseFormat("json_object")
-                    .maxTokens(2000)
-                    .frequencyPenalty(0.3)
+                    .maxTokens(jsonMaxTokens)
+                    .temperature(jsonTemperature)
+                    .frequencyPenalty(jsonFrequencyPenalty)
                     .build();
         }
 

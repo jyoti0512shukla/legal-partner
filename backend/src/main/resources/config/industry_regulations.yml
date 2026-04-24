@@ -1,0 +1,30 @@
+# Industry → jurisdiction → regulatory reference mapping.
+# Used by DraftService.buildDealContext() to inject jurisdiction-aware
+# regulatory context into clause prompts.
+#
+# Adding a new industry or jurisdiction: one YAML block. No Java changes.
+#
+# Structure:
+#   industry_regulations:
+#     <jurisdiction_key>:        # matched against request.jurisdiction (case-insensitive substring)
+#       jurisdiction_keywords:   # any of these in the jurisdiction string triggers this block
+#       industries:
+#         <INDUSTRY_KEY>: "regulatory reference text"
+
+industry_regulations:
+
+  us:
+    jurisdiction_keywords: ["united states", "delaware", "california", "new york", "texas", "usa"]
+    industries:
+      FINTECH: "Reference applicable US federal and state financial regulations where relevant."
+      PHARMA: "Reference FDA regulations, HIPAA, and applicable state healthcare laws where relevant."
+      IT_SERVICES: "Reference CCPA/CPRA, applicable state privacy laws, and SOC 2 compliance where relevant."
+      MANUFACTURING: "Reference OSHA, EPA regulations, and applicable state environmental laws where relevant."
+
+  india:
+    jurisdiction_keywords: ["india", "mumbai", "delhi"]
+    industries:
+      FINTECH: "Reference RBI guidelines, FEMA 1999, and Payment & Settlement Systems Act 2007 where relevant."
+      PHARMA: "Reference Drugs and Cosmetics Act 1940, Clinical Establishment Act 2010, and DPDPA 2023 where relevant."
+      IT_SERVICES: "Reference IT Act 2000, DPDPA 2023, and SEBI (if listed entity) where relevant."
+      MANUFACTURING: "Reference Factories Act 1948, Environment Protection Act 1986, and GST Act 2017 where relevant."

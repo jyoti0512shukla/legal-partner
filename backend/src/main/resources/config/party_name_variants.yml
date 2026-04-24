@@ -1,0 +1,42 @@
+# Generic party name variants that should be replaced with the contract-type-
+# specific role names during draft enforcement. Loaded by PartyNameVariantsConfig.
+#
+# When the model outputs "the Service Provider" in a Licensor/Licensee contract,
+# enforcePartyRoles() replaces it with "Licensor". These lists define which
+# generic terms are recognized as partyA / partyB stand-ins.
+#
+# Adding a new variant: add to the appropriate list below. No Java changes.
+
+party_name_variants:
+  partyA:
+    - "the Service Provider"
+    - "Service Provider"
+    - "the Vendor"
+    - "Vendor"
+    - "the Company"
+    - "Company"
+    - "the Supplier"
+    - "Supplier"
+    - "the Provider"
+    - "Provider"
+    - "the Employer"
+    - "Employer"
+    - "the Licensor"
+    - "Licensor"
+    - "the Disclosing Party"
+    - "Disclosing Party"
+  partyB:
+    - "the Client"
+    - "Client"
+    - "the Enterprise"
+    - "Enterprise"
+    - "the Buyer"
+    - "Buyer"
+    - "the Customer"
+    - "Customer"
+    - "the Employee"
+    - "Employee"
+    - "the Licensee"
+    - "Licensee"
+    - "the Receiving Party"
+    - "Receiving Party"
