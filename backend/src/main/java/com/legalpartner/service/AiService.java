@@ -493,24 +493,29 @@ public class AiService {
 
         String systemPrompt = legalSystemConfig.localize(
                 "You are a %LEGAL_RISK_ANALYST%. " +
-                "Answer each question about the contract clause below with YES or NO. " +
-                "If YES, quote the specific text from the clause that supports your answer (max 150 chars). " +
-                "If NO, leave the quote empty. " +
+                "For each question, carefully search the entire clause text for relevant provisions. " +
+                "First FIND and QUOTE the relevant text, then determine if the answer is YES or NO. " +
+                "A provision counts as present even if worded differently from the question — look for the CONCEPT, not exact words. " +
                 "Output ONLY valid JSON — no markdown, no commentary."
         );
 
         String userPrompt = "Clause type: " + clauseType + "\n\n" +
                 "Clause text:\n" + truncateForModel(clauseText, 3500) + "\n\n" +
                 "Questions:\n" + questionBlock + "\n" +
+                "IMPORTANT: Read the clause text CAREFULLY before answering. " +
+                "Many provisions use different wording — for example, a \"liability cap\" might be worded as " +
+                "\"aggregate liability shall not exceed\" or \"total liability is limited to\". " +
+                "Answer YES if the CONCEPT is addressed, even if different words are used.\n\n" +
                 "Output ONLY valid JSON in this exact format:\n" +
                 "{\"answers\": [\n" +
-                "  {\"id\": \"question_id\", \"answer\": \"YES\", \"quote\": \"exact text from clause...\"},\n" +
+                "  {\"id\": \"question_id\", \"answer\": \"YES\", \"quote\": \"exact text from clause that addresses this...\"},\n" +
                 "  {\"id\": \"question_id\", \"answer\": \"NO\", \"quote\": \"\"}\n" +
                 "]}\n\n" +
                 "Rules:\n" +
                 "- answer must be exactly \"YES\" or \"NO\"\n" +
-                "- quote must be copied from the clause text, not invented\n" +
-                "- if unsure, answer \"NO\" with empty quote";
+                "- quote must be copied verbatim from the clause text\n" +
+                "- answer YES if the concept is addressed, even with different wording\n" +
+                "- answer NO only if you searched the entire text and the concept is truly absent";
 
         try {
             AiMessage response = jsonChatModel.generate(
