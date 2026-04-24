@@ -840,10 +840,14 @@ public class AiService {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
 
-        // Full document — party names, dates, values can appear anywhere in the contract
+        // Full document — party names, dates, values can appear anywhere in the contract.
+        // Cap at 15K chars to fit within shortChatModel context window (16K tokens).
         String context = fullTextRetriever.retrieveFullText(documentId);
         if (context.isBlank()) {
             return new ExtractionResult(null, null, null, null, null, null, null, null, null);
+        }
+        if (context.length() > 15000) {
+            context = context.substring(0, 15000) + "\n\n[... document truncated for extraction ...]";
         }
 
         AiMessage response = shortChatModel.generate(
