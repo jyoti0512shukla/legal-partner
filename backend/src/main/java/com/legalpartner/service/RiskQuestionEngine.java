@@ -52,6 +52,17 @@ public class RiskQuestionEngine {
     /** Configurable prompts loaded from YAML */
     private String systemPrompt = "";
     private String userPromptTemplate = "";
+    private String extractionPrompt = "";
+
+    /** Extraction field definitions loaded from YAML */
+    private final List<ExtractionField> extractionFields = new ArrayList<>();
+
+    public record ExtractionField(String id, String description, List<String> sectionKeywords, List<String> appliesTo) {
+        public boolean appliesTo(String contractType) {
+            return appliesTo == null || appliesTo.isEmpty() || appliesTo.contains(contractType);
+        }
+        public boolean usesPreamble() { return sectionKeywords == null || sectionKeywords.isEmpty(); }
+    }
 
     // ── Initialization ───────────────────────────────────────────────────────
 
@@ -81,6 +92,27 @@ public class RiskQuestionEngine {
                 userPromptTemplate = prompts.getOrDefault("user_template", "").toString().trim();
                 log.info("RiskQuestionEngine: loaded configurable prompts from YAML");
             }
+
+            // Load extraction fields
+            List<Map<String, Object>> extFields = (List<Map<String, Object>>) root.get("extraction_fields");
+            if (extFields != null) {
+                for (Map<String, Object> ef : extFields) {
+                    extractionFields.add(new ExtractionField(
+                            ef.getOrDefault("id", "").toString(),
+                            ef.getOrDefault("description", "").toString(),
+                            ef.get("section_keywords") instanceof List<?> kws
+                                    ? kws.stream().map(Object::toString).collect(java.util.stream.Collectors.toList())
+                                    : List.of(),
+                            ef.get("applies_to") instanceof List<?> at
+                                    ? at.stream().map(Object::toString).collect(java.util.stream.Collectors.toList())
+                                    : List.of()
+                    ));
+                }
+                log.info("RiskQuestionEngine: loaded {} extraction fields", extractionFields.size());
+            }
+
+            // Load extraction prompt
+            extractionPrompt = root.getOrDefault("extraction_prompt", "").toString().trim();
 
             // Load clause questions
             Map<String, Object> clauseQs = (Map<String, Object>) root.get("clause_questions");
@@ -159,6 +191,16 @@ public class RiskQuestionEngine {
 
     /** Get the configurable user prompt template. Placeholders: {{clauseType}}, {{clauseText}}, {{questions}} */
     public String getUserPromptTemplate() { return userPromptTemplate; }
+
+    /** Get extraction fields applicable to a contract type. */
+    public List<ExtractionField> getExtractionFields(String contractType) {
+        return extractionFields.stream()
+                .filter(f -> f.appliesTo(contractType))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    /** Get the configurable extraction prompt. */
+    public String getExtractionPrompt() { return extractionPrompt; }
 
     // ── Risk computation ─────────────────────────────────────────────────────
 

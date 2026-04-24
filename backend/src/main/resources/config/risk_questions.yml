@@ -961,3 +961,81 @@ required_clauses:
     - WARRANTIES
     - GOVERNING_LAW
     - GENERAL_PROVISIONS
+
+# ── Checklist extraction fields ──────────────────────────────────────────────
+# Define fields to extract, where to find them, and descriptions for the LLM.
+# Fields with empty section_keywords use the preamble (first 3000 chars).
+# Add per-contract-type overrides via applies_to (empty = all contract types).
+# To add a new field: add an entry here — no code change needed.
+
+extraction_fields:
+  # ── Universal fields (all contract types) ──
+  - id: PARTY_A
+    description: "First party name (full legal name)"
+    section_keywords: []
+  - id: PARTY_B
+    description: "Second party name (full legal name)"
+    section_keywords: []
+  - id: EFFECTIVE_DATE
+    description: "Effective date or commencement date"
+    section_keywords: []
+  - id: EXPIRY_DATE
+    description: "Expiry or end date, term duration, or renewal terms"
+    section_keywords: ["term", "duration", "expir", "renewal"]
+  - id: GOVERNING_LAW
+    description: "Governing law jurisdiction (state/country)"
+    section_keywords: ["governing law", "jurisdiction", "dispute resolution", "arbitration"]
+  - id: NOTICE_PERIOD_DAYS
+    description: "Notice period for termination (in days)"
+    section_keywords: ["termination", "notice period", "notice"]
+  - id: ARBITRATION_VENUE
+    description: "Arbitration or court venue/seat"
+    section_keywords: ["governing law", "jurisdiction", "dispute resolution", "arbitration"]
+
+  # ── Commercial contract fields ──
+  - id: CONTRACT_VALUE
+    description: "Total contract value, license fee, subscription fee, or compensation amount"
+    section_keywords: ["payment", "fees", "consideration", "compensation", "license fee", "subscription"]
+    applies_to: ["SOFTWARE_LICENSE", "SAAS", "MSA", "SUPPLY", "IP_LICENSE"]
+  - id: LIABILITY_CAP
+    description: "Liability cap or limitation amount"
+    section_keywords: ["liability", "limitation of liability", "cap"]
+    applies_to: ["SOFTWARE_LICENSE", "SAAS", "MSA", "SUPPLY", "IP_LICENSE"]
+
+  # ── Employment-specific ──
+  - id: SALARY
+    description: "Annual salary, compensation, or base pay amount"
+    section_keywords: ["compensation", "salary", "remuneration", "pay"]
+    applies_to: ["EMPLOYMENT"]
+  - id: PROBATION_PERIOD
+    description: "Probation or trial period duration"
+    section_keywords: ["probation", "trial period"]
+    applies_to: ["EMPLOYMENT"]
+  - id: NON_COMPETE
+    description: "Non-compete restriction duration and scope"
+    section_keywords: ["non-compete", "restrictive covenant", "competition"]
+    applies_to: ["EMPLOYMENT"]
+
+  # ── NDA-specific ──
+  - id: CONFIDENTIALITY_TERM
+    description: "Duration of confidentiality obligations (e.g., 2 years, 5 years, indefinite)"
+    section_keywords: ["confidential", "non-disclosure", "survival"]
+    applies_to: ["NDA"]
+
+  # ── SaaS-specific ──
+  - id: UPTIME_SLA
+    description: "Uptime or availability SLA percentage (e.g., 99.9%)"
+    section_keywords: ["sla", "uptime", "availability", "service level"]
+    applies_to: ["SAAS"]
+
+  # ── Supply-specific ──
+  - id: DELIVERY_TERMS
+    description: "Delivery terms, Incoterms, or shipping terms"
+    section_keywords: ["delivery", "shipping", "incoterm"]
+    applies_to: ["SUPPLY"]
+
+# ── Extraction prompt (configurable — edit and restart, no code change) ──
+extraction_prompt: |
+  Extract the following from this contract section.
+  For each field, output FIELD_NAME: value (one per line).
+  If not found, output FIELD_NAME: NOT_FOUND

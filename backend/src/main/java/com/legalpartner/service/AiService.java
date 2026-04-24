@@ -840,62 +840,91 @@ public class AiService {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
 
-        // Read full document (uncapped) — we'll extract per-section
         String fullText = fullTextRetriever.retrieveFullTextUncapped(documentId);
         if (fullText.isBlank()) {
             return new ExtractionResult(null, null, null, null, null, null, null, null, null);
         }
 
-        // Structured extraction: find each section, ask specific questions per section.
-        // Each LLM call is small (~2K chars) — no context overflow.
-        Map<String, String> fields = new LinkedHashMap<>();
+        // Config-driven extraction: fields + section keywords from risk_questions.yml
+        // Detects contract type to filter applicable fields
+        String contractType = detectContractType(fullText);
+        List<RiskQuestionEngine.ExtractionField> fields = riskQuestionEngine.getExtractionFields(contractType);
+        String extractionPromptTemplate = riskQuestionEngine.getExtractionPrompt();
 
-        // Parties + dates from the preamble (first 3000 chars)
-        String preamble = fullText.substring(0, Math.min(3000, fullText.length()));
-        extractFieldsFromSection(preamble, "preamble",
-                List.of("PARTY_A", "PARTY_B", "EFFECTIVE_DATE", "EXPIRY_DATE"), fields);
-
-        // Payment/value from payment section
-        String paymentSection = extractClauseText(fullText,
-                findClauseStart(fullText, new String[]{"payment", "fees", "consideration", "compensation"}));
-        if (!paymentSection.isBlank()) {
-            extractFieldsFromSection(paymentSection, "payment",
-                    List.of("CONTRACT_VALUE"), fields);
+        // Group fields by section: preamble fields vs section-specific fields
+        Map<String, List<RiskQuestionEngine.ExtractionField>> bySection = new LinkedHashMap<>();
+        for (RiskQuestionEngine.ExtractionField f : fields) {
+            String sectionKey = f.usesPreamble() ? "_preamble" : String.join("|", f.sectionKeywords());
+            bySection.computeIfAbsent(sectionKey, k -> new ArrayList<>()).add(f);
         }
 
-        // Liability from liability section
-        String liabilitySection = extractClauseText(fullText,
-                findClauseStart(fullText, new String[]{"liability", "limitation of liability"}));
-        if (!liabilitySection.isBlank()) {
-            extractFieldsFromSection(liabilitySection, "liability",
-                    List.of("LIABILITY_CAP"), fields);
+        Map<String, String> results = new LinkedHashMap<>();
+
+        for (Map.Entry<String, List<RiskQuestionEngine.ExtractionField>> entry : bySection.entrySet()) {
+            String sectionKey = entry.getKey();
+            List<RiskQuestionEngine.ExtractionField> sectionFields = entry.getValue();
+
+            // Get the section text
+            String sectionText;
+            if ("_preamble".equals(sectionKey)) {
+                sectionText = fullText.substring(0, Math.min(3000, fullText.length()));
+            } else {
+                String[] keywords = sectionFields.get(0).sectionKeywords().toArray(new String[0]);
+                int start = findClauseStart(fullText, keywords);
+                sectionText = start >= 0 ? extractClauseText(fullText, start) : "";
+            }
+            if (sectionText.isBlank()) continue;
+
+            // Build prompt from config
+            String capped = sectionText.length() > 3000 ? sectionText.substring(0, 3000) : sectionText;
+            StringBuilder prompt = new StringBuilder();
+            prompt.append(extractionPromptTemplate.isBlank()
+                    ? "Extract the following from this contract section.\nFor each field, output FIELD_NAME: value (one per line).\nIf not found, output FIELD_NAME: NOT_FOUND\n"
+                    : extractionPromptTemplate);
+            prompt.append("\nSection:\n").append(capped).append("\n\nExtract:\n");
+            for (RiskQuestionEngine.ExtractionField f : sectionFields) {
+                prompt.append(f.id()).append(": ").append(f.description()).append("\n");
+            }
+
+            try {
+                AiMessage response = shortChatModel.generate(UserMessage.from(prompt.toString())).content();
+                for (String line : response.text().trim().split("\\r?\\n")) {
+                    java.util.regex.Matcher m = EXTRACTION_LINE.matcher(line.trim());
+                    if (m.matches()) {
+                        String key = m.group(1).toUpperCase();
+                        String val = m.group(2).trim();
+                        if (!"NOT_FOUND".equalsIgnoreCase(val) && !val.isBlank()) {
+                            results.putIfAbsent(key, val);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Extraction from section [{}] failed: {}", sectionKey, e.getMessage());
+            }
         }
 
-        // Governing law from governing law section
-        String govSection = extractClauseText(fullText,
-                findClauseStart(fullText, new String[]{"governing law", "jurisdiction", "dispute resolution", "arbitration"}));
-        if (!govSection.isBlank()) {
-            extractFieldsFromSection(govSection, "governing law",
-                    List.of("GOVERNING_LAW", "ARBITRATION_VENUE"), fields);
-        }
-
-        // Notice period from termination or general provisions
-        String termSection = extractClauseText(fullText,
-                findClauseStart(fullText, new String[]{"termination", "notice period", "notice"}));
-        if (!termSection.isBlank()) {
-            extractFieldsFromSection(termSection, "termination",
-                    List.of("NOTICE_PERIOD_DAYS"), fields);
-        }
-
-        log.info("Structured extraction: {} fields extracted from {} sections",
-                fields.values().stream().filter(v -> v != null && !v.isBlank()).count(), 5);
+        log.info("Structured extraction (type={}): {} fields extracted from {} sections",
+                contractType, results.values().stream().filter(v -> !v.isBlank()).count(), bySection.size());
 
         return new ExtractionResult(
-                fields.get("PARTY_A"), fields.get("PARTY_B"),
-                fields.get("EFFECTIVE_DATE"), fields.get("EXPIRY_DATE"),
-                fields.get("CONTRACT_VALUE"), fields.get("LIABILITY_CAP"),
-                fields.get("GOVERNING_LAW"), fields.get("NOTICE_PERIOD_DAYS"),
-                fields.get("ARBITRATION_VENUE"));
+                results.get("PARTY_A"), results.get("PARTY_B"),
+                results.get("EFFECTIVE_DATE"), results.get("EXPIRY_DATE"),
+                results.get("CONTRACT_VALUE"), results.get("LIABILITY_CAP"),
+                results.get("GOVERNING_LAW"), results.get("NOTICE_PERIOD_DAYS"),
+                results.get("ARBITRATION_VENUE"));
+    }
+
+    /** Detect contract type from document text using keyword heuristics. */
+    private String detectContractType(String text) {
+        String lower = text.toLowerCase();
+        if (lower.contains("non-disclosure") || lower.contains("nda") || lower.contains("confidentiality agreement")) return "NDA";
+        if (lower.contains("subscription") && lower.contains("saas")) return "SAAS";
+        if (lower.contains("software license") || lower.contains("license agreement")) return "SOFTWARE_LICENSE";
+        if (lower.contains("employment agreement") || lower.contains("offer letter")) return "EMPLOYMENT";
+        if (lower.contains("supply agreement") || lower.contains("purchase order")) return "SUPPLY";
+        if (lower.contains("master service") || lower.contains("msa")) return "MSA";
+        if (lower.contains("intellectual property") && lower.contains("license")) return "IP_LICENSE";
+        return "_default";
     }
 
     /** Find the start position of a clause by keyword search. Returns -1 if not found. */
@@ -909,57 +938,9 @@ public class AiService {
         return matchIdx;
     }
 
-    /** Extract specific fields from a section of text using a focused LLM call. */
-    private void extractFieldsFromSection(String sectionText, String sectionName,
-                                           List<String> fieldNames, Map<String, String> results) {
-        String capped = sectionText.length() > 3000 ? sectionText.substring(0, 3000) : sectionText;
-
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("Extract the following from this contract section. ");
-        prompt.append("For each field, output FIELD_NAME: value (one per line). ");
-        prompt.append("If not found, output FIELD_NAME: NOT_FOUND\n\n");
-        prompt.append("Section (").append(sectionName).append("):\n").append(capped).append("\n\n");
-        prompt.append("Extract:\n");
-        for (String field : fieldNames) {
-            String desc = switch (field) {
-                case "PARTY_A" -> "First party name (full legal name)";
-                case "PARTY_B" -> "Second party name (full legal name)";
-                case "EFFECTIVE_DATE" -> "Effective date or commencement date";
-                case "EXPIRY_DATE" -> "Expiry or end date (or term duration)";
-                case "CONTRACT_VALUE" -> "Total contract value, fees, or compensation amount";
-                case "LIABILITY_CAP" -> "Liability cap or limitation amount";
-                case "GOVERNING_LAW" -> "Governing law jurisdiction";
-                case "NOTICE_PERIOD_DAYS" -> "Notice period for termination (in days)";
-                case "ARBITRATION_VENUE" -> "Arbitration or court venue/seat";
-                default -> field;
-            };
-            prompt.append(field).append(": ").append(desc).append("\n");
-        }
-
-        try {
-            AiMessage response = shortChatModel.generate(
-                    UserMessage.from(prompt.toString())
-            ).content();
-            String raw = response.text().trim();
-
-            // Parse FIELD: value lines
-            for (String line : raw.split("\\r?\\n")) {
-                java.util.regex.Matcher m = EXTRACTION_LINE.matcher(line.trim());
-                if (m.matches()) {
-                    String key = m.group(1).toUpperCase();
-                    String val = m.group(2).trim();
-                    if (!"NOT_FOUND".equalsIgnoreCase(val) && !val.isBlank() && fieldNames.contains(key)) {
-                        results.putIfAbsent(key, val);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Extraction from {} section failed: {}", sectionName, e.getMessage());
-        }
-    }
-
+    // Matches any FIELD_NAME: value line — dynamic, not restricted to specific field names
     private static final java.util.regex.Pattern EXTRACTION_LINE =
-            java.util.regex.Pattern.compile("^(PARTY_A|PARTY_B|EFFECTIVE_DATE|EXPIRY_DATE|CONTRACT_VALUE|LIABILITY_CAP|GOVERNING_LAW|NOTICE_PERIOD_DAYS|ARBITRATION_VENUE)\\s*:\\s*(.+)$",
+            java.util.regex.Pattern.compile("^([A-Z][A-Z0-9_]+)\\s*:\\s*(.+)$",
                     java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private ExtractionResult parseExtractionLines(String raw) {
