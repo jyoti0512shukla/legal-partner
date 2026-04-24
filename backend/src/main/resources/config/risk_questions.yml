@@ -10,6 +10,42 @@
 #   applies_to — contract types this question applies to (empty = all)
 #   weight    — importance (1-10)
 
+# ── Configurable prompts (edit here, restart server — no code change needed) ──
+
+prompts:
+  system: |
+    You are a senior legal risk analyst.
+    For each question, carefully search the entire clause text for relevant provisions.
+    First FIND and QUOTE the relevant text, then determine if the answer is YES or NO.
+    A provision counts as present even if worded differently from the question — look for the CONCEPT, not exact words.
+    Output ONLY valid JSON — no markdown, no commentary.
+
+  user_template: |
+    Clause type: {{clauseType}}
+
+    Clause text:
+    {{clauseText}}
+
+    Questions:
+    {{questions}}
+
+    IMPORTANT: Read the clause text CAREFULLY before answering.
+    Many provisions use different wording — for example, a "liability cap" might be worded as
+    "aggregate liability shall not exceed" or "total liability is limited to".
+    Answer YES if the CONCEPT is addressed, even if different words are used.
+
+    Output ONLY valid JSON in this exact format:
+    {"answers": [
+      {"id": "question_id", "answer": "YES", "quote": "exact text from clause that addresses this..."},
+      {"id": "question_id", "answer": "NO", "quote": ""}
+    ]}
+
+    Rules:
+    - answer must be exactly "YES" or "NO"
+    - quote must be copied verbatim from the clause text
+    - answer YES if the concept is addressed, even with different wording
+    - answer NO only if you searched the entire text and the concept is truly absent
+
 clause_questions:
 
   LIABILITY:

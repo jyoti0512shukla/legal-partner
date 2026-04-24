@@ -49,6 +49,10 @@ public class RiskQuestionEngine {
     /** contractType → list of required clause types */
     private final Map<String, List<String>> requiredClauses = new LinkedHashMap<>();
 
+    /** Configurable prompts loaded from YAML */
+    private String systemPrompt = "";
+    private String userPromptTemplate = "";
+
     // ── Initialization ───────────────────────────────────────────────────────
 
     @PostConstruct
@@ -69,6 +73,14 @@ public class RiskQuestionEngine {
                 return;
             }
             Map<String, Object> root = yaml.load(is);
+
+            // Load configurable prompts
+            Map<String, Object> prompts = (Map<String, Object>) root.get("prompts");
+            if (prompts != null) {
+                systemPrompt = prompts.getOrDefault("system", "").toString().trim();
+                userPromptTemplate = prompts.getOrDefault("user_template", "").toString().trim();
+                log.info("RiskQuestionEngine: loaded configurable prompts from YAML");
+            }
 
             // Load clause questions
             Map<String, Object> clauseQs = (Map<String, Object>) root.get("clause_questions");
@@ -141,6 +153,12 @@ public class RiskQuestionEngine {
         return requiredClauses.getOrDefault("_default",
                 List.of("LIABILITY", "TERMINATION", "CONFIDENTIALITY", "GOVERNING_LAW"));
     }
+
+    /** Get the configurable system prompt for risk assessment. */
+    public String getSystemPrompt() { return systemPrompt; }
+
+    /** Get the configurable user prompt template. Placeholders: {{clauseType}}, {{clauseText}}, {{questions}} */
+    public String getUserPromptTemplate() { return userPromptTemplate; }
 
     // ── Risk computation ─────────────────────────────────────────────────────
 

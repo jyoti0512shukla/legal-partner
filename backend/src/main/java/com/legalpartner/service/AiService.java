@@ -491,31 +491,26 @@ public class AiService {
                     .append(q.question()).append("\n");
         }
 
-        String systemPrompt = legalSystemConfig.localize(
-                "You are a %LEGAL_RISK_ANALYST%. " +
-                "For each question, carefully search the entire clause text for relevant provisions. " +
-                "First FIND and QUOTE the relevant text, then determine if the answer is YES or NO. " +
-                "A provision counts as present even if worded differently from the question — look for the CONCEPT, not exact words. " +
-                "Output ONLY valid JSON — no markdown, no commentary."
-        );
+        // Use configurable prompts from risk_questions.yml — edit YAML and restart, no code change
+        String systemPrompt = riskQuestionEngine.getSystemPrompt();
+        if (systemPrompt.isBlank()) {
+            systemPrompt = "You are a senior legal risk analyst. Answer each question with YES or NO based on the clause text.";
+        }
+        systemPrompt = legalSystemConfig.localize(systemPrompt);
 
-        String userPrompt = "Clause type: " + clauseType + "\n\n" +
-                "Clause text:\n" + truncateForModel(clauseText, 3500) + "\n\n" +
-                "Questions:\n" + questionBlock + "\n" +
-                "IMPORTANT: Read the clause text CAREFULLY before answering. " +
-                "Many provisions use different wording — for example, a \"liability cap\" might be worded as " +
-                "\"aggregate liability shall not exceed\" or \"total liability is limited to\". " +
-                "Answer YES if the CONCEPT is addressed, even if different words are used.\n\n" +
-                "Output ONLY valid JSON in this exact format:\n" +
-                "{\"answers\": [\n" +
-                "  {\"id\": \"question_id\", \"answer\": \"YES\", \"quote\": \"exact text from clause that addresses this...\"},\n" +
-                "  {\"id\": \"question_id\", \"answer\": \"NO\", \"quote\": \"\"}\n" +
-                "]}\n\n" +
-                "Rules:\n" +
-                "- answer must be exactly \"YES\" or \"NO\"\n" +
-                "- quote must be copied verbatim from the clause text\n" +
-                "- answer YES if the concept is addressed, even with different wording\n" +
-                "- answer NO only if you searched the entire text and the concept is truly absent";
+        String userTemplate = riskQuestionEngine.getUserPromptTemplate();
+        String userPrompt;
+        if (!userTemplate.isBlank()) {
+            userPrompt = userTemplate
+                    .replace("{{clauseType}}", clauseType)
+                    .replace("{{clauseText}}", truncateForModel(clauseText, 3500))
+                    .replace("{{questions}}", questionBlock.toString());
+        } else {
+            // Fallback if YAML prompt is empty
+            userPrompt = "Clause type: " + clauseType + "\n\nClause text:\n" +
+                    truncateForModel(clauseText, 3500) + "\n\nQuestions:\n" + questionBlock +
+                    "\n\nOutput JSON: {\"answers\": [{\"id\": \"...\", \"answer\": \"YES/NO\", \"quote\": \"...\"}]}";
+        }
 
         try {
             AiMessage response = jsonChatModel.generate(
