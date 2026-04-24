@@ -469,11 +469,25 @@ public class GoldenClauseLibrary {
      */
     private String stripUnresolved(String text) {
         if (text == null) return "";
-        // If critical placeholders remain unresolved, reject the entire clause
-        // rather than outputting "laws of , without..." garbage
+        // Replace unresolved placeholders with reasonable fallback text
+        // instead of rejecting the entire clause (which caused empty article bodies)
         if (text.contains("{{")) {
-            log.warn("Golden clause has unresolved placeholders — rejecting to prevent garbage output");
-            return "";
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(text);
+            StringBuilder sb = new StringBuilder();
+            while (m.find()) {
+                String placeholder = m.group(1).trim();
+                String fallback = switch (placeholder) {
+                    case "liability_cap_months" -> "twelve (12)";
+                    case "notice_days" -> "thirty (30)";
+                    case "cure_days" -> "thirty (30)";
+                    case "survival_years" -> "five (5)";
+                    default -> "[as agreed by the Parties]";
+                };
+                log.debug("Golden clause: unresolved {{{}}} → fallback: {}", placeholder, fallback);
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(fallback));
+            }
+            m.appendTail(sb);
+            return sb.toString();
         }
         return text;
     }
