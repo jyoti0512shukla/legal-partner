@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import api from '../../api/client';
 import {
   LayoutDashboard, Briefcase, FileText, Shield, Settings, LogOut,
   FileEdit, Wand2, Library, Users, Sparkles, Workflow, Brain,
@@ -28,6 +30,12 @@ const NAV = [
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
+  const [orgName, setOrgName] = useState('');
+  useEffect(() => {
+    api.get('/ai/legal-system').then(r => {
+      if (r.data?.organizationName) setOrgName(r.data.organizationName);
+    }).catch(() => {});
+  }, []);
 
   const initials = user?.displayName
     ? user.displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
@@ -36,10 +44,10 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand-logo">L</div>
+        <div className="brand-logo">C</div>
         <div>
-          <div className="brand-name">Legal Partner</div>
-          <div className="brand-tag">AI drafts. Rules verify.</div>
+          <div className="brand-name">ContractIQ</div>
+          <div className="brand-tag">{orgName || 'AI-Powered Contract Intelligence'}</div>
         </div>
       </div>
 

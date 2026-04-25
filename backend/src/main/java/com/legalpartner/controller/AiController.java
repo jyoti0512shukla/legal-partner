@@ -1,6 +1,7 @@
 package com.legalpartner.controller;
 
 import com.legalpartner.config.LegalSystemConfig;
+import org.springframework.beans.factory.annotation.Value;
 import com.legalpartner.model.dto.*;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.model.entity.Matter;
@@ -52,14 +53,20 @@ public class AiController {
         return templateService.listTemplates();
     }
 
+    @Value("${legalpartner.organization.name:}")
+    private String organizationName;
+
     @GetMapping("/legal-system")
     public java.util.Map<String, String> legalSystem() {
-        return java.util.Map.of(
-            "system", legalSystemConfig.getLegalSystem(),
-            "country", legalSystemConfig.country(),
-            "contractAct", legalSystemConfig.contractAct(),
-            "arbitrationAct", legalSystemConfig.arbitrationAct()
-        );
+        var map = new java.util.LinkedHashMap<String, String>();
+        map.put("system", legalSystemConfig.getLegalSystem());
+        map.put("country", legalSystemConfig.country());
+        map.put("contractAct", legalSystemConfig.contractAct());
+        map.put("arbitrationAct", legalSystemConfig.arbitrationAct());
+        if (organizationName != null && !organizationName.isBlank()) {
+            map.put("organizationName", organizationName);
+        }
+        return map;
     }
 
     @PostMapping("/draft")

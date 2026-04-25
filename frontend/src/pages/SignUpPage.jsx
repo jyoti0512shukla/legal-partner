@@ -35,7 +35,7 @@ export default function SignUpPage() {
             <Scale className="w-7 h-7 text-gold" />
           </div>
           <h1 className="text-2xl font-bold text-text-primary">Create Account</h1>
-          <p className="text-text-muted text-sm mt-1">Sign up for Legal Partner</p>
+          <p className="text-text-muted text-sm mt-1">Sign up for ContractIQ</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
