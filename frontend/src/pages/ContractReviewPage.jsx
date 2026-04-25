@@ -1,75 +1,84 @@
 import { useState, useEffect } from 'react';
-import { ShieldAlert, ClipboardList, FileText, CheckCircle2, AlertTriangle, XCircle, ChevronDown, ChevronUp, Clock, ChevronRight, Loader2, RefreshCw } from 'lucide-react';
+import {
+  ShieldAlert, ClipboardList, FileText, CheckCircle2, AlertTriangle, XCircle,
+  ChevronDown, ChevronUp, ChevronRight, Clock, Loader2, RefreshCw, MessageSquare,
+  GitCompare, Download, X, Send, Link, User, Sparkles, Search,
+} from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
-/* ─── shared helpers ─────────────────────────────────────────────── */
-
-const RISK_COLOR = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
+/* ── Shared helpers ──────────────────────────────────────────────── */
 
 function RiskBadge({ level }) {
-  return <span className={`badge-${level?.toLowerCase() || 'medium'}`}>{level}</span>;
+  const kind = level?.toLowerCase() === 'high' ? 'high' : level?.toLowerCase() === 'medium' ? 'med' : 'low';
+  return <span className={`badge ${kind}`}>{level}</span>;
 }
 
-function RiskGauge({ rating }) {
-  const angles = { LOW: -60, MEDIUM: 0, HIGH: 60 };
-  const angle = angles[rating] || 0;
+function Gauge({ score }) {
+  const c = 2 * Math.PI * 70;
+  const pct = (score || 0) / 100;
+  const dash = c * pct;
+  const color = score >= 80 ? 'var(--success-500)' : score >= 60 ? 'var(--warn-500)' : 'var(--danger-500)';
+  const label = score >= 80 ? 'Low risk' : score >= 60 ? 'Medium risk' : 'High risk';
   return (
-    <div className="w-32 h-20 mx-auto relative">
-      <svg viewBox="0 0 100 60" className="w-full h-full">
-        <defs>
-          <linearGradient id="gauge-bg" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#10B981" />
-            <stop offset="50%" stopColor="#F59E0B" />
-            <stop offset="100%" stopColor="#EF4444" />
-          </linearGradient>
-        </defs>
-        <path d="M 10 55 A 45 45 0 0 1 90 55" fill="none" stroke="url(#gauge-bg)" strokeWidth="8" strokeLinecap="round" />
-        <line
-          x1="50" y1="55"
-          x2={50 + 30 * Math.cos(((angle - 90) * Math.PI) / 180)}
-          y2={55 + 30 * Math.sin(((angle - 90) * Math.PI) / 180)}
-          stroke="#F9FAFB" strokeWidth="2" strokeLinecap="round"
-          style={{ transition: 'all 0.8s ease-out' }}
-        />
-        <circle cx="50" cy="55" r="3" fill="#F9FAFB" />
+    <div className="gauge">
+      <svg width="180" height="180">
+        <circle cx="90" cy="90" r="70" fill="none" stroke="var(--bg-3)" strokeWidth="10" />
+        <circle cx="90" cy="90" r="70" fill="none" stroke={color} strokeWidth="10"
+                strokeLinecap="round" strokeDasharray={`${dash} ${c}`} style={{ transition: 'stroke-dasharray .6s' }} />
       </svg>
+      <div className="v">
+        <div className="score">{score || '--'}</div>
+        <div className="total">/ 100</div>
+        <div className="label-text" style={{ color }}>{label}</div>
+      </div>
     </div>
   );
 }
 
-/* ─── Drilldown panel ────────────────────────────────────────────── */
+function CountBlock({ n, label, color }) {
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ fontFamily: 'var(--font-doc)', fontSize: 22, fontWeight: 600, color }}>{n}</div>
+      <div className="tiny muted" style={{ textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+    </div>
+  );
+}
+
+/* ── Drilldown panel ────────────────────────────────────────────── */
 
 function DrilldownPanel({ data }) {
   return (
-    <div className="space-y-3 mt-3">
-      <div>
-        <p className="text-[10px] font-semibold text-danger uppercase tracking-wide mb-1">What's at risk</p>
-        <p className="text-xs text-text-secondary leading-relaxed">{data.detailedRisk}</p>
-      </div>
+    <div className="col" style={{ gap: 10, marginTop: 10 }}>
+      {data.detailedRisk && (
+        <div>
+          <div className="tiny" style={{ fontWeight: 600, color: 'var(--danger-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>What's at risk</div>
+          <div className="small" style={{ color: 'var(--text-2)' }}>{data.detailedRisk}</div>
+        </div>
+      )}
       {data.businessImpact && (
         <div>
-          <p className="text-[10px] font-semibold text-warning uppercase tracking-wide mb-1">Business impact</p>
-          <p className="text-xs text-text-secondary leading-relaxed">{data.businessImpact}</p>
+          <div className="tiny" style={{ fontWeight: 600, color: 'var(--warn-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Business impact</div>
+          <div className="small" style={{ color: 'var(--text-2)' }}>{data.businessImpact}</div>
         </div>
       )}
       {data.howToFix && (
         <div>
-          <p className="text-[10px] font-semibold text-success uppercase tracking-wide mb-1">How to fix</p>
-          <p className="text-xs text-text-secondary leading-relaxed">{data.howToFix}</p>
+          <div className="tiny" style={{ fontWeight: 600, color: 'var(--success-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>How to fix</div>
+          <div className="small" style={{ color: 'var(--text-2)' }}>{data.howToFix}</div>
         </div>
       )}
       {data.suggestedLanguage && (
         <div>
-          <p className="text-[10px] font-semibold text-primary uppercase tracking-wide mb-1">Suggested language</p>
-          <p className="text-xs font-mono leading-relaxed bg-surface-el rounded-lg p-2.5 border border-border text-text-secondary whitespace-pre-wrap">{data.suggestedLanguage}</p>
+          <div className="tiny" style={{ fontWeight: 600, color: 'var(--brand-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Suggested language</div>
+          <div className="mono small" style={{ padding: 10, background: 'var(--bg-2)', borderRadius: 'var(--r-md)', border: '1px solid var(--line-1)', color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>{data.suggestedLanguage}</div>
         </div>
       )}
     </div>
   );
 }
 
-/* ─── Tab 1: Risk Assessment ─────────────────────────────────────── */
+/* ── Tab 1: Risk Assessment ─────────────────────────────────────── */
 
 function RiskTab({ docId, result, setResult, loading, setLoading, error, setError, cached }) {
   const [drilldowns, setDrilldowns] = useState({});
@@ -92,7 +101,6 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
   const toggleExpand = (cat) => {
     const isNowOpen = !expanded[cat.name];
     setExpanded(prev => ({ ...prev, [cat.name]: isNowOpen }));
-    // Fire drilldown on first open if not already loaded
     if (isNowOpen && !drilldowns[cat.name] && (cat.rating === 'HIGH' || cat.rating === 'MEDIUM')) {
       fireDrilldown(cat);
     }
@@ -103,7 +111,6 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
     try {
       const res = await api.post(`/ai/risk-assessment/${docId}`);
       setResult(res.data);
-      // Auto-expand and drilldown HIGH risk items
       const initialExpanded = {};
       (res.data.categories || []).forEach(c => { if (c.rating === 'HIGH') initialExpanded[c.name] = true; });
       setExpanded(initialExpanded);
@@ -115,18 +122,22 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
 
   if (!docId) return <EmptyPrompt icon={ShieldAlert} text="Select a document above to assess its risk." />;
 
+  const highCount = result?.categories?.filter(c => c.rating === 'HIGH').length || 0;
+  const medCount = result?.categories?.filter(c => c.rating === 'MEDIUM').length || 0;
+  const lowCount = result?.categories?.filter(c => c.rating === 'LOW').length || 0;
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
         {cached && !loading && (
-          <p className="text-xs text-text-muted flex items-center gap-1">
-            <Clock className="w-3 h-3" /> Cached result — click to re-analyse
-          </p>
+          <span className="tiny muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Clock size={12} /> Cached result -- click to re-analyse
+          </span>
         )}
-        <div className="ml-auto">
-          <button onClick={run} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
-            {loading ? <Spinner /> : <ShieldAlert className="w-4 h-4" />}
-            {loading ? 'Analysing…' : cached ? 'Re-analyse' : 'Run Risk Assessment'}
+        <div style={{ marginLeft: 'auto' }}>
+          <button onClick={run} disabled={loading} className="btn primary">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <ShieldAlert size={14} />}
+            {loading ? 'Analysing...' : cached ? 'Re-analyse' : 'Run Risk Assessment'}
           </button>
         </div>
       </div>
@@ -136,117 +147,112 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
 
       {result && (
         <>
-          <div className="card text-center py-8 mb-6">
-            <h3 className="text-text-muted text-sm mb-3">Overall Risk</h3>
-            <RiskGauge rating={result.overallRisk} />
-            <p className={`text-2xl font-bold mt-4 text-${RISK_COLOR[result.overallRisk] || 'text-muted'}`}>
-              {result.overallRisk}
-            </p>
-            <div className="flex items-center justify-center gap-4 text-text-muted text-sm mt-1">
-              <span>{result.categories?.filter(c => c.rating === 'HIGH').length || 0} High</span>
-              <span>{result.categories?.filter(c => c.rating === 'MEDIUM').length || 0} Medium</span>
-              <span>{result.categories?.filter(c => c.rating === 'LOW').length || 0} Low</span>
-              {result.riskScore != null && (
-                <span className="text-xs bg-surface-el px-2 py-0.5 rounded">Score: {Math.round(result.riskScore)}/100</span>
-              )}
+          {/* Top row: gauge + key findings + missing clauses */}
+          <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr 1fr', gap: 14, marginBottom: 16 }}>
+            <div className="card" style={{ padding: 20, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <Gauge score={result.riskScore != null ? Math.round(result.riskScore) : (result.overallRisk === 'HIGH' ? 35 : result.overallRisk === 'MEDIUM' ? 65 : 85)} />
+              <div style={{ display: 'flex', gap: 14, marginTop: 18 }}>
+                <CountBlock n={highCount} label="High" color="var(--danger-400)" />
+                <CountBlock n={medCount} label="Medium" color="var(--warn-400)" />
+                <CountBlock n={lowCount} label="Low" color="var(--success-400)" />
+              </div>
+            </div>
+
+            <div className="card" style={{ background: 'var(--warn-bg)', borderColor: 'rgba(216,154,58,0.3)' }}>
+              <div className="card-header" style={{ borderColor: 'rgba(216,154,58,0.2)' }}>
+                <AlertTriangle size={15} style={{ color: 'var(--warn-400)' }} />
+                <h3 style={{ color: 'var(--warn-400)' }}>Key Findings</h3>
+              </div>
+              <div style={{ padding: 14 }}>
+                {result.keyFindings?.length > 0 ? (
+                  <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.7, fontSize: 13 }}>
+                    {result.keyFindings.map((f, i) => <li key={i}>{f}</li>)}
+                  </ul>
+                ) : (
+                  <div className="small muted">No key findings identified.</div>
+                )}
+              </div>
+            </div>
+
+            <div className="card" style={{ background: 'var(--danger-bg)', borderColor: 'rgba(217,83,78,0.3)' }}>
+              <div className="card-header" style={{ borderColor: 'rgba(217,83,78,0.2)' }}>
+                <X size={15} style={{ color: 'var(--danger-400)' }} />
+                <h3 style={{ color: 'var(--danger-400)' }}>Missing Clauses</h3>
+                <span className="sub">{result.missingClauses?.length || 0} not found</span>
+              </div>
+              <div style={{ padding: 14, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {result.missingClauses?.length > 0 ? (
+                  result.missingClauses.map(m => <span key={m} className="tag danger">{m}</span>)
+                ) : (
+                  <div className="small muted">All expected clauses found.</div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Key Findings — top issues at a glance */}
-          {result.keyFindings?.length > 0 && (
-            <div className="card mb-4 !p-3 border-l-4 border-amber-400 bg-amber-50/50">
-              <h4 className="text-xs font-semibold text-amber-800 mb-2">Key Findings</h4>
-              <ul className="space-y-1">
-                {result.keyFindings.map((f, i) => (
-                  <li key={i} className="text-xs text-amber-900 flex items-start gap-1.5">
-                    <ShieldAlert className="w-3 h-3 mt-0.5 shrink-0 text-amber-600" />
-                    <span>{f}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Missing Clauses */}
-          {result.missingClauses?.length > 0 && (
-            <div className="card mb-4 !p-3 border-l-4 border-red-400 bg-red-50/50">
-              <h4 className="text-xs font-semibold text-red-800 mb-2">Missing Clauses</h4>
-              <div className="flex flex-wrap gap-2">
-                {result.missingClauses.map((c, i) => (
-                  <span key={i} className="text-xs bg-red-100 text-red-800 px-2 py-0.5 rounded-full">{c}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
+          {/* Per-clause grid */}
+          <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Clause-by-clause analysis</h3>
+          </div>
+          <div className="grid-2">
             {result.categories?.map((cat, i) => {
               const dd = drilldowns[cat.name];
               const canDrilldown = cat.rating === 'HIGH' || cat.rating === 'MEDIUM';
               const isOpen = !!expanded[cat.name];
-              const sectionRef = cat.clauseReference && !/^see contract$/i.test(cat.clauseReference.trim())
-                ? cat.clauseReference : null;
-              return (
-                <div key={i} className={`card border-t-4 border-${RISK_COLOR[cat.rating] || 'border'} !p-0 overflow-hidden`}>
-                  <button
-                    onClick={() => canDrilldown && toggleExpand(cat)}
-                    className={`w-full flex items-start gap-3 px-4 py-3 text-left ${canDrilldown ? 'cursor-pointer hover:bg-white/5' : 'cursor-default'}`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <h4 className="font-semibold text-text-primary">{cat.name}</h4>
-                        <RiskBadge level={cat.rating} />
-                      </div>
-                      {cat.justification && (
-                        <p className="text-sm text-text-secondary">{cat.justification}</p>
-                      )}
-                      {sectionRef && (
-                        <p className="font-mono text-xs text-primary mt-1">{sectionRef}</p>
-                      )}
-                    </div>
-                    {canDrilldown && (
-                      <div className="shrink-0 mt-0.5">
-                        {isOpen
-                          ? <ChevronUp className="w-4 h-4 text-text-muted" />
-                          : <ChevronDown className="w-4 h-4 text-text-muted" />}
-                      </div>
-                    )}
-                  </button>
+              const kind = cat.rating?.toLowerCase() === 'high' ? 'high' : cat.rating?.toLowerCase() === 'medium' ? 'med' : 'low';
+              const clauseResult = result.clauseResults?.find(cr => cr.clauseType === cat.name);
 
-                  {/* Structured per-question results (new engine) */}
-                  {isOpen && result.clauseResults?.find(cr => cr.clauseType === cat.name)?.questions?.length > 0 && (
-                    <div className="border-t border-border/60 px-4 py-3">
-                      <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide mb-2">Detailed Assessment</p>
-                      <div className="space-y-2">
-                        {result.clauseResults.find(cr => cr.clauseType === cat.name).questions.map((q, qi) => (
-                          <div key={qi} className={`text-xs rounded p-2 ${q.answer === 'NO' ? 'bg-red-50 border border-red-200' : q.answer === 'YES' ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}`}>
-                            <div className="flex items-start gap-2">
-                              <span className={`shrink-0 font-bold ${q.answer === 'NO' ? 'text-red-600' : q.answer === 'YES' ? 'text-green-600' : 'text-gray-400'}`}>
-                                {q.answer === 'YES' ? '✓' : q.answer === 'NO' ? '✗' : '?'}
-                              </span>
-                              <div className="flex-1">
-                                <p className="text-gray-800">{q.question || q.id}</p>
-                                {q.quote && (
-                                  <p className="mt-1 text-[10px] text-gray-500 italic border-l-2 border-gray-300 pl-2">"{q.quote}"</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+              return (
+                <div key={i} className="card">
+                  <div style={{ padding: 14, cursor: canDrilldown ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 10 }} onClick={() => canDrilldown && toggleExpand(cat)}>
+                    {canDrilldown && (
+                      <ChevronRight size={14} style={{ color: 'var(--text-3)', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+                    )}
+                    <div style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{cat.name}</div>
+                    <span className={`badge ${kind}`}>{cat.rating}</span>
+                  </div>
+                  {cat.justification && (
+                    <div style={{ padding: '0 14px 12px', fontSize: 12, color: 'var(--text-2)' }}>{cat.justification}</div>
+                  )}
+                  {cat.clauseReference && !/^see contract$/i.test(cat.clauseReference.trim()) && (
+                    <div style={{ padding: '0 14px 12px' }}>
+                      <span className="mono tiny" style={{ color: 'var(--brand-400)' }}>{cat.clauseReference}</span>
                     </div>
                   )}
 
-                  {/* Legacy drilldown (fallback for old-format results) */}
-                  {canDrilldown && isOpen && !result.clauseResults?.find(cr => cr.clauseType === cat.name)?.questions?.length && (
-                    <div className="border-t border-border/60 px-4 pb-4">
+                  {/* Structured per-question results */}
+                  {isOpen && clauseResult?.questions?.length > 0 && (
+                    <div style={{ borderTop: '1px solid var(--line-1)', padding: 14, display: 'flex', flexDirection: 'column', gap: 10, background: 'var(--bg-0)' }}>
+                      {clauseResult.questions.map((q, qi) => (
+                        <div key={qi} style={{ display: 'flex', gap: 10 }}>
+                          <div style={{ marginTop: 2 }}>
+                            {q.answer === 'YES' && <span style={{ display: 'inline-grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', background: 'var(--success-bg)', color: 'var(--success-400)', fontSize: 11, fontWeight: 700 }}>&#x2713;</span>}
+                            {q.answer === 'NO' && <span style={{ display: 'inline-grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', background: 'var(--danger-bg)', color: 'var(--danger-400)', fontSize: 11, fontWeight: 700 }}>&#x2717;</span>}
+                            {q.answer !== 'YES' && q.answer !== 'NO' && <span style={{ display: 'inline-grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', background: 'var(--bg-3)', color: 'var(--text-3)', fontSize: 11, fontWeight: 700 }}>?</span>}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div className="small" style={{ fontWeight: 500 }}>{q.question || q.id}</div>
+                            {q.quote && (
+                              <div style={{
+                                marginTop: 6, fontFamily: 'var(--font-doc)', fontSize: 12.5, fontStyle: 'italic',
+                                color: 'var(--text-2)', paddingLeft: 10, borderLeft: '2px solid var(--line-2)',
+                              }}>"{q.quote}"</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Legacy drilldown */}
+                  {canDrilldown && isOpen && !clauseResult?.questions?.length && (
+                    <div style={{ borderTop: '1px solid var(--line-1)', padding: 14, background: 'var(--bg-0)' }}>
                       {!dd || dd.loading ? (
-                        <div className="flex items-center gap-2 text-xs text-text-muted py-3">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Analysing…
+                        <div className="row tiny muted" style={{ gap: 6, padding: '8px 0' }}>
+                          <Loader2 size={12} className="animate-spin" /> Analysing...
                         </div>
                       ) : dd.error ? (
-                        <p className="text-xs text-danger pt-3">{dd.error}</p>
+                        <div className="tiny" style={{ color: 'var(--danger-400)' }}>{dd.error}</div>
                       ) : (
                         <DrilldownPanel data={dd.data} />
                       )}
@@ -266,54 +272,74 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
   );
 }
 
-/* ─── Tab 2: Clause Checklist ────────────────────────────────────── */
+/* ── Tab 2: Summary ────────────────────────────────────────────── */
 
-const STATUS_ICON = {
-  PRESENT: <CheckCircle2 className="w-4 h-4 text-success shrink-0" />,
-  WEAK: <AlertTriangle className="w-4 h-4 text-warning shrink-0" />,
-  MISSING: <XCircle className="w-4 h-4 text-danger shrink-0" />,
-};
+function SummaryTab({ docId, result, setResult, loading, setLoading, error, setError }) {
+  const run = async (regenerate = false) => {
+    setLoading(true); setError('');
+    try {
+      const res = await api.post(`/ai/summarize/${docId}${regenerate ? '?regenerate=true' : ''}`);
+      setResult(res.data);
+    } catch (e) {
+      setError(e.response?.data?.message || e.message || 'Summary failed');
+    } finally { setLoading(false); }
+  };
 
-const STATUS_ORDER = { MISSING: 0, WEAK: 1, PRESENT: 2 };
+  useEffect(() => {
+    if (!docId) { setResult(null); return; }
+    setResult(null); setError('');
+    api.post(`/ai/summarize/${docId}`)
+      .then(r => { if (r.data?.cached) setResult(r.data); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docId]);
 
-function ClauseRow({ clause }) {
-  const [open, setOpen] = useState(clause.status !== 'PRESENT');
-  const borderColor = clause.status === 'MISSING' ? 'border-danger' : clause.status === 'WEAK' ? 'border-warning' : 'border-success';
+  if (!docId) return <EmptyPrompt icon={FileText} text="Select a document above to summarise it." />;
+
+  const cached = result?.cached;
 
   return (
-    <div className={`card border-l-4 ${borderColor} !p-0 overflow-hidden`}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-3 w-full px-4 py-3 text-left"
-      >
-        {STATUS_ICON[clause.status] || STATUS_ICON.PRESENT}
-        <span className="flex-1 text-sm font-medium text-text-primary">{clause.clauseName}</span>
-        <RiskBadge level={clause.riskLevel} />
-        <span className="text-xs text-text-muted ml-2">{clause.sectionRef || ''}</span>
-        {open ? <ChevronUp className="w-4 h-4 text-text-muted ml-1 shrink-0" /> : <ChevronDown className="w-4 h-4 text-text-muted ml-1 shrink-0" />}
-      </button>
+    <div>
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
+        {cached && !loading && (
+          <span className="tiny muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Clock size={12} /> Generated {result.generatedAt ? new Date(result.generatedAt).toLocaleString() : ''}
+          </span>
+        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {result && (
+            <button onClick={() => run(true)} disabled={loading} className="btn">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Regenerate
+            </button>
+          )}
+          {!result && (
+            <button onClick={() => run(false)} disabled={loading} className="btn primary">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+              {loading ? 'Summarising...' : 'Generate Summary'}
+            </button>
+          )}
+        </div>
+      </div>
 
-      {open && (
-        <div className="px-4 pb-4 space-y-2 border-t border-border/50">
-          {clause.assessment && (
-            <p className="text-sm text-text-secondary mt-3">{clause.assessment}</p>
-          )}
-          {clause.foundText && (
-            <p className="text-xs font-mono bg-surface-el rounded p-2 text-text-secondary leading-relaxed">
-              "{clause.foundText}"
-            </p>
-          )}
-          {clause.recommendation && (
-            <p className="text-xs text-warning flex items-start gap-1.5 mt-1">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              {clause.recommendation}
-            </p>
-          )}
+      {error && <ErrorCard msg={error} />}
+      {loading && !result && <LoadingSkeleton rows={8} />}
+
+      {result?.summary && (
+        <div className="card" style={{ padding: 28, maxWidth: 900 }}>
+          <div
+            style={{ fontFamily: 'var(--font-doc)', fontSize: 15, lineHeight: 1.75 }}
+            dangerouslySetInnerHTML={{ __html: markdownToHtml(result.summary) }}
+          />
         </div>
       )}
     </div>
   );
 }
+
+/* ── Tab 3: Clause Checklist ────────────────────────────────────── */
+
+const STATUS_ORDER = { MISSING: 0, WEAK: 1, PRESENT: 2 };
 
 function ChecklistTab({ docId, result, setResult, loading, setLoading, error, setError, cached }) {
   const run = async () => {
@@ -334,16 +360,16 @@ function ChecklistTab({ docId, result, setResult, loading, setLoading, error, se
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
         {cached && !loading && (
-          <p className="text-xs text-text-muted flex items-center gap-1">
-            <Clock className="w-3 h-3" /> Cached result — click to re-run
-          </p>
+          <span className="tiny muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Clock size={12} /> Cached result -- click to re-run
+          </span>
         )}
-        <div className="ml-auto">
-          <button onClick={run} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
-            {loading ? <Spinner /> : <ClipboardList className="w-4 h-4" />}
-            {loading ? 'Reviewing…' : cached ? 'Re-run Checklist' : 'Run Clause Checklist'}
+        <div style={{ marginLeft: 'auto' }}>
+          <button onClick={run} disabled={loading} className="btn primary">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
+            {loading ? 'Reviewing...' : cached ? 'Re-run Checklist' : 'Run Clause Checklist'}
           </button>
         </div>
       </div>
@@ -354,60 +380,67 @@ function ChecklistTab({ docId, result, setResult, loading, setLoading, error, se
       {result && (
         <>
           {/* Summary bar */}
-          <div className="card mb-5 flex items-center gap-6 flex-wrap">
-            <div className="flex-1">
-              <div className="flex items-center justify-between text-xs text-text-muted mb-1.5">
+          <div className="card" style={{ padding: 16, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div className="row tiny muted" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
                 <span>Clause Coverage</span>
                 <span>{result.clausesPresent ?? result.presentCount} / {((result.clausesPresent ?? result.presentCount) || 0) + ((result.clausesMissing ?? result.missingCount) || 0) + ((result.clausesWeak ?? result.weakCount) || 0)} present</span>
               </div>
-              <div className="h-2 bg-surface-el rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full transition-all duration-700"
-                  style={{
-                    width: `${((result.clausesPresent ?? result.presentCount) || 0) /
-                      Math.max(1, ((result.clausesPresent ?? result.presentCount) || 0) + ((result.clausesMissing ?? result.missingCount) || 0) + ((result.clausesWeak ?? result.weakCount) || 0)) * 100}%`
-                  }}
-                />
+              <div className="progress-track" style={{ height: 6 }}>
+                <div className="progress-fill" style={{
+                  width: `${((result.clausesPresent ?? result.presentCount) || 0) / Math.max(1, ((result.clausesPresent ?? result.presentCount) || 0) + ((result.clausesMissing ?? result.missingCount) || 0) + ((result.clausesWeak ?? result.weakCount) || 0)) * 100}%`,
+                  height: 6,
+                }} />
               </div>
             </div>
-            <div className="flex gap-4 text-xs shrink-0">
-              <span className="text-success font-medium">{result.clausesPresent ?? result.presentCount} Present</span>
-              <span className="text-warning font-medium">{result.clausesWeak ?? result.weakCount} Weak</span>
-              <span className="text-danger font-medium">{result.clausesMissing ?? result.missingCount} Missing</span>
+            <div className="row" style={{ gap: 16, fontSize: 12 }}>
+              <span style={{ color: 'var(--success-400)', fontWeight: 500 }}>{result.clausesPresent ?? result.presentCount} Present</span>
+              <span style={{ color: 'var(--warn-400)', fontWeight: 500 }}>{result.clausesWeak ?? result.weakCount} Weak</span>
+              <span style={{ color: 'var(--danger-400)', fontWeight: 500 }}>{result.clausesMissing ?? result.missingCount} Missing</span>
             </div>
-            <div className="shrink-0">
-              <span className="text-xs text-text-muted mr-1">Overall:</span>
-              <RiskBadge level={result.overallRisk} />
-            </div>
+            <RiskBadge level={result.overallRisk} />
           </div>
 
           {/* Critical missing */}
           {(result.criticalMissingClauses ?? result.criticalMissing)?.length > 0 && (
-            <div className="card border border-danger/30 bg-danger/5 mb-4">
-              <p className="text-xs font-semibold text-danger mb-2 flex items-center gap-1.5">
-                <XCircle className="w-3.5 h-3.5" /> Critical clauses missing
-              </p>
-              <div className="flex flex-wrap gap-2">
+            <div className="card" style={{ borderColor: 'rgba(217,83,78,0.3)', background: 'var(--danger-bg)', padding: 14, marginBottom: 14 }}>
+              <div className="row tiny" style={{ fontWeight: 600, color: 'var(--danger-400)', marginBottom: 8 }}>
+                <XCircle size={12} /> Critical clauses missing
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {(result.criticalMissingClauses ?? result.criticalMissing).map(c => (
-                  <span key={c} className="text-xs bg-danger/10 text-danger border border-danger/20 px-2 py-0.5 rounded-full">{c}</span>
+                  <span key={c} className="tag danger">{c}</span>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Per-clause rows — MISSING first */}
-          <div className="space-y-2">
-            {sorted.map((clause, i) => <ClauseRow key={i} clause={clause} />)}
+          {/* Checklist table */}
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: '30%' }}>Clause</th>
+                  <th>Assessment</th>
+                  <th style={{ width: 120 }}>Status</th>
+                  <th style={{ width: 100 }}>Risk</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((clause, i) => (
+                  <ClauseRow key={i} clause={clause} />
+                ))}
+              </tbody>
+            </table>
           </div>
 
-          {/* Top recommendations */}
+          {/* Recommendations */}
           {result.recommendations?.length > 0 && (
-            <div className="card mt-5">
-              <p className="text-sm font-semibold mb-3">Top Recommendations</p>
-              <ol className="space-y-2">
+            <div className="card" style={{ padding: 16, marginTop: 14 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Top Recommendations</div>
+              <ol style={{ margin: 0, paddingLeft: 20 }}>
                 {result.recommendations.map((r, i) => (
-                  <li key={i} className="text-sm text-text-secondary flex gap-2">
-                    <span className="text-primary font-medium shrink-0">{i + 1}.</span>
+                  <li key={i} style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 6, lineHeight: 1.5 }}>
                     {r}
                   </li>
                 ))}
@@ -424,108 +457,65 @@ function ChecklistTab({ docId, result, setResult, loading, setLoading, error, se
   );
 }
 
-/* ─── Shared micro-components ────────────────────────────────────── */
+function ClauseRow({ clause }) {
+  const [open, setOpen] = useState(clause.status !== 'PRESENT');
+
+  return (
+    <>
+      <tr onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer' }}>
+        <td style={{ fontWeight: 500 }}>{clause.clauseName}</td>
+        <td style={{ color: 'var(--text-2)', fontSize: 12 }}>{clause.assessment ? clause.assessment.slice(0, 120) + (clause.assessment.length > 120 ? '...' : '') : '--'}</td>
+        <td>
+          {clause.status === 'PRESENT' && <span className="badge low"><CheckCircle2 size={10} /> Found</span>}
+          {clause.status === 'WEAK' && <span className="badge med"><AlertTriangle size={10} /> Weak</span>}
+          {clause.status === 'MISSING' && <span className="badge high"><XCircle size={10} /> Missing</span>}
+        </td>
+        <td><RiskBadge level={clause.riskLevel} /></td>
+      </tr>
+      {open && (clause.foundText || clause.recommendation) && (
+        <tr>
+          <td colSpan={4} style={{ background: 'var(--bg-0)', padding: '12px 14px' }}>
+            {clause.foundText && (
+              <div style={{ fontFamily: 'var(--font-doc)', fontSize: 12.5, fontStyle: 'italic', color: 'var(--text-2)', paddingLeft: 10, borderLeft: '2px solid var(--line-2)', marginBottom: 8 }}>
+                "{clause.foundText}"
+              </div>
+            )}
+            {clause.recommendation && (
+              <div className="small" style={{ display: 'flex', gap: 6, color: 'var(--warn-400)' }}>
+                <AlertTriangle size={12} style={{ marginTop: 2, flexShrink: 0 }} /> {clause.recommendation}
+              </div>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/* ── Shared micro-components ────────────────────────────────────── */
 
 function EmptyPrompt({ icon: Icon, text }) {
   return (
-    <div className="card text-center py-12">
-      <Icon className="w-12 h-12 text-text-muted mx-auto mb-4" />
-      <p className="text-text-muted text-sm">{text}</p>
+    <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <Icon size={40} style={{ color: 'var(--text-4)', margin: '0 auto 12px', display: 'block' }} />
+      <div className="small muted">{text}</div>
     </div>
   );
 }
 
 function ErrorCard({ msg }) {
   return (
-    <div className="card border-l-4 border-danger bg-danger/5 mb-4">
-      <p className="text-danger text-sm">{msg}</p>
+    <div className="card" style={{ borderLeftWidth: 3, borderLeftColor: 'var(--danger-500)', padding: 14, marginBottom: 14 }}>
+      <div className="small" style={{ color: 'var(--danger-400)' }}>{msg}</div>
     </div>
   );
 }
 
 function Spinner() {
-  return <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />;
+  return <Loader2 size={14} className="animate-spin" />;
 }
 
-/* ─── Main page ──────────────────────────────────────────────────── */
-
-const TABS = [
-  { id: 'summary', label: 'Summary', icon: FileText },
-  { id: 'risk', label: 'Risk Assessment', icon: ShieldAlert },
-  { id: 'checklist', label: 'Clause Checklist', icon: ClipboardList },
-];
-
-/* ─── Tab 3: Summary ────────────────────────────────────────────── */
-
-function SummaryTab({ docId, result, setResult, loading, setLoading, error, setError }) {
-  const run = async (regenerate = false) => {
-    setLoading(true); setError('');
-    try {
-      const res = await api.post(`/ai/summarize/${docId}${regenerate ? '?regenerate=true' : ''}`);
-      setResult(res.data);
-    } catch (e) {
-      setError(e.response?.data?.message || e.message || 'Summary failed');
-    } finally { setLoading(false); }
-  };
-
-  // Auto-load cached summary when the doc changes (if one exists; otherwise empty)
-  useEffect(() => {
-    if (!docId) { setResult(null); return; }
-    setResult(null); setError('');
-    api.post(`/ai/summarize/${docId}`)
-      .then(r => { if (r.data?.cached) setResult(r.data); })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId]);
-
-  if (!docId) return <EmptyPrompt icon={FileText} text="Select a document above to summarise it." />;
-
-  const cached = result?.cached;
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        {cached && !loading && (
-          <p className="text-xs text-text-muted flex items-center gap-1">
-            <Clock className="w-3 h-3" /> Generated {result.generatedAt ? new Date(result.generatedAt).toLocaleString() : ''}
-          </p>
-        )}
-        <div className="ml-auto flex gap-2">
-          {result && (
-            <button onClick={() => run(true)} disabled={loading} className="btn-secondary flex items-center gap-2 text-sm">
-              {loading ? <Spinner /> : <RefreshCw className="w-4 h-4" />}
-              Regenerate
-            </button>
-          )}
-          {!result && (
-            <button onClick={() => run(false)} disabled={loading} className="btn-primary flex items-center gap-2 text-sm">
-              {loading ? <Spinner /> : <FileText className="w-4 h-4" />}
-              {loading ? 'Summarising…' : 'Generate Summary'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {error && <ErrorCard msg={error} />}
-      {loading && !result && <LoadingSkeleton rows={8} />}
-
-      {result?.summary && (
-        <div className="card">
-          <div
-            className="prose prose-invert prose-sm max-w-none text-text-primary leading-relaxed
-                       [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-primary
-                       [&_ul]:list-disc [&_ul]:ml-5 [&_ul]:mb-3
-                       [&_li]:mb-1
-                       [&_p]:mb-3"
-            dangerouslySetInnerHTML={{ __html: markdownToHtml(result.summary) }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Minimal markdown → HTML — handles ## headers, - lists, blank-line paragraphs.
+// Minimal markdown to HTML
 function markdownToHtml(md) {
   if (!md) return '';
   const escape = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -537,19 +527,27 @@ function markdownToHtml(md) {
     const line = raw.trim();
     if (!line) { closeList(); continue; }
     const h2 = line.match(/^##\s+(.+)$/);
-    if (h2) { closeList(); out.push(`<h2>${escape(h2[1])}</h2>`); continue; }
+    if (h2) { closeList(); out.push(`<h2 style="font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;margin:22px 0 8px;">${escape(h2[1])}</h2>`); continue; }
     const li = line.match(/^[-*]\s+(.+)$/);
     if (li) {
-      if (!inList) { out.push('<ul>'); inList = true; }
-      out.push(`<li>${escape(li[1])}</li>`);
+      if (!inList) { out.push('<ul style="padding-left:20px;margin-bottom:12px;">'); inList = true; }
+      out.push(`<li style="margin-bottom:4px;">${escape(li[1])}</li>`);
       continue;
     }
     closeList();
-    out.push(`<p>${escape(line)}</p>`);
+    out.push(`<p style="margin-bottom:10px;">${escape(line)}</p>`);
   }
   closeList();
   return out.join('\n');
 }
+
+/* ── Main page ──────────────────────────────────────────────────── */
+
+const TABS = [
+  { id: 'summary', label: 'Summary', icon: FileText },
+  { id: 'risk', label: 'Risk Assessment', icon: ShieldAlert },
+  { id: 'checklist', label: 'Checklist', icon: ClipboardList },
+];
 
 export default function ContractReviewPage() {
   const [docs, setDocs] = useState([]);
@@ -561,13 +559,13 @@ export default function ContractReviewPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState('');
 
-  // Risk tab state — lifted to parent so it survives tab switches
+  // Risk tab state
   const [riskResult, setRiskResult] = useState(null);
   const [riskLoading, setRiskLoading] = useState(false);
   const [riskError, setRiskError] = useState('');
   const [riskCached, setRiskCached] = useState(false);
 
-  // Checklist tab state — lifted to parent
+  // Checklist tab state
   const [checklistResult, setChecklistResult] = useState(null);
   const [checklistLoading, setChecklistLoading] = useState(false);
   const [checklistError, setChecklistError] = useState('');
@@ -577,7 +575,6 @@ export default function ContractReviewPage() {
     api.get('/documents?size=100').then(r => setDocs(r.data.content || [])).catch(() => {});
   }, []);
 
-  // Clear results when document changes
   useEffect(() => {
     setRiskResult(null); setRiskError(''); setRiskCached(false);
     setChecklistResult(null); setChecklistError(''); setChecklistCached(false);
@@ -587,45 +584,68 @@ export default function ContractReviewPage() {
   const handleRiskResult = (result) => { setRiskResult(result); setRiskCached(false); };
   const handleChecklistResult = (result) => { setChecklistResult(result); setChecklistCached(false); };
 
-  return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Contract Review</h1>
+  const selectedDoc = docs.find(d => d.id === docId);
 
-      {/* Shared document selector */}
-      <div className="card mb-6">
-        <label className="text-xs text-text-muted mb-1 block">Select Document</label>
-        <select value={docId} onChange={e => setDocId(e.target.value)} className="input-field w-full text-sm">
-          <option value="">Choose a contract…</option>
-          {docs.map(d => (
-            <option key={d.id} value={d.id}>
-              {d.fileName}{d.clientName ? ` — ${d.clientName}` : ''}
-            </option>
-          ))}
-        </select>
+  return (
+    <div className="page">
+      {/* Document header */}
+      <div className="page-header" style={{ alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <div style={{
+            width: 44, height: 54, background: '#fafaf7', border: '1px solid var(--line-2)',
+            borderRadius: 4, display: 'grid', placeItems: 'center',
+            color: '#1a2330', fontFamily: 'var(--font-doc)', fontSize: 10, fontWeight: 700,
+          }}>
+            {selectedDoc?.fileName?.endsWith('.pdf') ? 'PDF' : selectedDoc ? 'DOCX' : 'DOC'}
+          </div>
+          <div>
+            <h1 className="page-title" style={{ fontSize: 20 }}>Contract Review</h1>
+            <div className="row small muted" style={{ gap: 10 }}>
+              {selectedDoc ? (
+                <>
+                  <span>{selectedDoc.fileName}</span>
+                  {selectedDoc.clientName && <><span>&middot;</span><span>{selectedDoc.clientName}</span></>}
+                </>
+              ) : (
+                <span>Select a document to begin analysis</span>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <select
+            value={docId}
+            onChange={e => setDocId(e.target.value)}
+            className="select"
+            style={{ maxWidth: 320, minWidth: 200 }}
+          >
+            <option value="">Choose a contract...</option>
+            {docs.map(d => (
+              <option key={d.id} value={d.id}>
+                {d.fileName}{d.clientName ? ` -- ${d.clientName}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 mb-6 border-b border-border">
+      <div className="tabs">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
+            className={`tab ${tab === id ? 'active' : ''}`}
             onClick={() => setTab(id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              tab === id
-                ? 'border-primary text-primary'
-                : 'border-transparent text-text-muted hover:text-text-primary'
-            }`}
           >
-            <Icon className="w-4 h-4" />
+            <Icon size={14} />
             {label}
-            {id === 'summary' && summaryResult && <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1" />}
-            {id === 'risk' && riskResult && <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1" />}
-            {id === 'checklist' && checklistResult && <span className="w-1.5 h-1.5 rounded-full bg-primary ml-1" />}
+            {id === 'risk' && riskResult && <span className="count">{(riskResult.categories?.length || 0)}</span>}
+            {id === 'checklist' && checklistResult && <span className="count">{(checklistResult.clauses?.length || 0)}</span>}
           </button>
         ))}
       </div>
 
-      {/* Tab content — all always mounted to preserve state */}
+      {/* Tab content */}
       <div style={{ display: tab === 'summary' ? 'block' : 'none' }}>
         <SummaryTab
           docId={docId}

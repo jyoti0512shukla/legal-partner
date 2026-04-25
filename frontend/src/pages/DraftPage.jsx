@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { FileEdit, Loader, Download, Lightbulb, Sparkles, CloudUpload, Check, X, FileText, Save, FolderOpen, Pencil, AlertTriangle, Briefcase, Clock } from 'lucide-react';
+import {
+  FileEdit, Loader2, Download, Lightbulb, Sparkles, CloudUpload, Check, X,
+  FileText, Save, FolderOpen, Pencil, AlertTriangle, Briefcase, Clock,
+  ChevronRight, ChevronLeft, ArrowRight, Lock, Plus, RefreshCw, Wand2,
+} from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
@@ -11,8 +15,6 @@ function stripHtml(html) {
   return div.innerText || div.textContent || '';
 }
 
-// Extract only the <body> content so the template's <style> block
-// doesn't leak out and break the app layout when rendered inline.
 function extractBodyContent(html) {
   if (!html) return '';
   const m = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
@@ -36,6 +38,48 @@ const CLAUSE_SPECS_LABELS = {
   GENERAL_PROVISIONS: 'General Provisions',
 };
 
+/* ── Step indicator ──────────────────────────────────────────────── */
+function StepHeader({ step, setStep, genDone }) {
+  const steps = [
+    { n: 1, label: 'Input' },
+    { n: 2, label: 'Preview' },
+    { n: 3, label: 'Draft' },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '1px solid var(--line-1)', paddingBottom: 14 }}>
+      {steps.map((s, i) => {
+        const active = step === s.n;
+        const complete = step > s.n || (s.n === 3 && genDone);
+        return (
+          <div key={s.n} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: i < steps.length - 1 ? 1 : undefined }}>
+            <div
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                cursor: s.n <= step ? 'pointer' : 'default',
+                opacity: s.n > step ? 0.5 : 1,
+              }}
+              onClick={() => s.n <= step && setStep(s.n)}
+            >
+              <div style={{
+                width: 22, height: 22, borderRadius: '50%',
+                border: `1.5px solid ${active || complete ? 'var(--brand-500)' : 'var(--line-3)'}`,
+                background: complete ? 'var(--brand-500)' : active ? 'var(--brand-50)' : 'transparent',
+                color: complete ? '#fff' : active ? 'var(--brand-300)' : 'var(--text-3)',
+                display: 'grid', placeItems: 'center',
+                fontSize: 11, fontWeight: 600,
+              }}>
+                {complete ? <Check size={11} /> : s.n}
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 500, color: active ? 'var(--text-1)' : 'var(--text-3)' }}>{s.label}</span>
+            </div>
+            {i < steps.length - 1 && <div style={{ flex: 1, height: 1, background: 'var(--line-2)', margin: '0 10px' }} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function DraftPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -43,30 +87,32 @@ export default function DraftPage() {
 
   const [templates, setTemplates] = useState([]);
   const [docs, setDocs] = useState([]);
-  const [matters, setMatters] = useState([]); // matters user has access to
-  const [refMode, setRefMode] = useState('manual'); // 'manual' | 'system'
+  const [matters, setMatters] = useState([]);
+  const [refMode, setRefMode] = useState('manual');
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState('');
-  const [generatingStatus, setGeneratingStatus] = useState(null); // {label, index, total}
+  const [generatingStatus, setGeneratingStatus] = useState(null);
   const [refining, setRefining] = useState(false);
-  const [refiningAt, setRefiningAt] = useState(null); // {x, y} — position of in-progress floating bar
+  const [refiningAt, setRefiningAt] = useState(null);
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
   const [selectionInfo, setSelectionInfo] = useState(null);
   const [pendingRefinement, setPendingRefinement] = useState(null);
-  const [qaWarnings, setQaWarnings] = useState({}); // clauseKey → string[]
+  const [qaWarnings, setQaWarnings] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [submittingAsync, setSubmittingAsync] = useState(false);
   const [submitToast, setSubmitToast] = useState('');
-  const [validationResult, setValidationResult] = useState(null); // full validation response with preview
-  const [previewClauses, setPreviewClauses] = useState([]); // [{key, title, enabled}]
-  // When set, the right panel shows an existing async draft (polled from the server)
-  // instead of whatever `draft` held from a fresh live stream.
+  const [validationResult, setValidationResult] = useState(null);
+  const [previewClauses, setPreviewClauses] = useState([]);
   const [activeAsyncId, setActiveAsyncId] = useState(null);
+  const [showParams, setShowParams] = useState(false);
   const stripRef = useRef(null);
   const previewRef = useRef(null);
   const floatRef = useRef(null);
+
+  // Derive step from state
+  const step = validationResult ? 2 : (draft || loading) ? 3 : 1;
 
   const [form, setForm] = useState({
     templateId: '',
@@ -95,14 +141,12 @@ export default function DraftPage() {
   useEffect(() => {
     api.get('/ai/templates').then(r => setTemplates(r.data || [])).catch(() => setTemplates([]));
     api.get('/documents?size=100&sort=uploadDate,desc').then(r => setDocs(r.data.content || [])).catch(() => setDocs([]));
-    // Load matters the user has access to (backend already filters by membership)
     api.get('/matters').then(r => {
       const list = r.data?.content || r.data || [];
       setMatters(Array.isArray(list) ? list : []);
     }).catch(() => setMatters([]));
   }, []);
 
-  // If matterId came from URL, hydrate the form fields once matters are loaded
   useEffect(() => {
     if (!matterIdFromUrl || matters.length === 0) return;
     const matter = matters.find(m => m.id === matterIdFromUrl);
@@ -122,18 +166,13 @@ export default function DraftPage() {
     if (text && previewRef.current?.contains(sel.anchorNode)) {
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
-      setSelectionInfo({
-        text,
-        x: rect.left + rect.width / 2,
-        y: rect.bottom + 8,
-      });
+      setSelectionInfo({ text, x: rect.left + rect.width / 2, y: rect.bottom + 8 });
       setPendingRefinement(null);
     } else {
       setSelectionInfo(null);
     }
   }, []);
 
-  // Dismiss floaters when clicking outside preview
   useEffect(() => {
     const onMouseDown = (e) => {
       if (!previewRef.current?.contains(e.target) && !floatRef.current?.contains(e.target)) {
@@ -144,10 +183,6 @@ export default function DraftPage() {
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, []);
 
-  // Submit an async draft — returns immediately with an id; the strip polls progress.
-  // Every "Generate" click runs async. The draft appears in the Recent Drafts
-  // strip; the preview pane stays on whatever the user was looking at. User
-  // clicks the strip entry to watch it (or see the finished result).
   // Step 1: Validate and show preview
   const handleGenerateAsync = async () => {
     if (!form.templateId) return;
@@ -159,14 +194,13 @@ export default function DraftPage() {
       setValidationResult(v.data);
       setPreviewClauses(v.data.plannedClauses?.map(c => ({ ...c })) || []);
     } catch (e) {
-      // Validation unavailable — skip preview, generate directly
       confirmGenerate();
     } finally {
       setSubmittingAsync(false);
     }
   };
 
-  // Step 2: User confirms preview → actually generate
+  // Step 2: User confirms preview -> actually generate
   const confirmGenerate = async () => {
     setSubmittingAsync(true);
     setError('');
@@ -175,7 +209,7 @@ export default function DraftPage() {
     try {
       await api.post('/ai/draft/async', payload);
       if (stripRef.current?.refresh) await stripRef.current.refresh();
-      setSubmitToast('Draft started — watch it in “Your recent drafts” above.');
+      setSubmitToast('Draft started -- watch it in "Your recent drafts" above.');
       setTimeout(() => setSubmitToast(''), 6000);
       setValidationResult(null);
       setPreviewClauses([]);
@@ -190,9 +224,7 @@ export default function DraftPage() {
     setPreviewClauses(prev => prev.map(c => c.key === key ? { ...c, enabled: !c.enabled } : c));
   };
 
-  // Poll a single async draft when the user selects one from the strip (or just
-  // submitted one). Renders identically to the live-stream path — it just updates
-  // `draft.draftHtml` + `generatingStatus` as each clause lands server-side.
+  // Poll async draft
   useEffect(() => {
     if (!activeAsyncId) return;
     let cancelled = false;
@@ -202,18 +234,13 @@ export default function DraftPage() {
         const r = await api.get(`/ai/draft/async/${activeAsyncId}`);
         if (cancelled) return;
         const d = r.data;
-        // Always update the preview with whatever is persisted server-side.
         setDraft({ id: d.id, fileName: d.fileName, draftHtml: d.draftHtml || '', suggestions: [], draftParametersHtml: d.draftParametersHtml || '', durationSeconds: d.durationSeconds });
 
         if (d.status === 'PENDING') {
-          setGeneratingStatus({ label: 'Queued — waiting for capacity', index: 0, total: d.totalClauses || 0 });
+          setGeneratingStatus({ label: 'Queued -- waiting for capacity', index: 0, total: d.totalClauses || 0 });
           setLoading(true);
         } else if (d.status === 'PROCESSING') {
-          setGeneratingStatus({
-            label: d.currentClauseLabel || 'Generating',
-            index: d.completedClauses || 0,
-            total: d.totalClauses || 9,
-          });
+          setGeneratingStatus({ label: d.currentClauseLabel || 'Generating', index: d.completedClauses || 0, total: d.totalClauses || 9 });
           setLoading(true);
         } else if (d.status === 'INDEXED') {
           setGeneratingStatus(d.durationSeconds
@@ -228,12 +255,11 @@ export default function DraftPage() {
           return 'done';
         }
       } catch (e) {
-        // swallow transient polling errors; try again on next tick
+        // swallow transient polling errors
       }
       return null;
     };
 
-    // Fire once, then set up a 3s interval until status is terminal.
     let intervalId = null;
     (async () => {
       const first = await poll();
@@ -260,7 +286,6 @@ export default function DraftPage() {
     setSelectionInfo(null);
     setPendingRefinement(null);
     setQaWarnings({});
-    // Stop any async-draft polling — we're taking over with a live stream.
     setActiveAsyncId(null);
     try {
       const response = await fetch('/api/v1/ai/draft/stream', {
@@ -289,14 +314,14 @@ export default function DraftPage() {
           let event;
           try { event = JSON.parse(json); } catch { continue; }
           if (event.type === 'planning') {
-            setGeneratingStatus({ label: 'Planning sections…', index: 0, total: 0 });
+            setGeneratingStatus({ label: 'Planning sections...', index: 0, total: 0 });
           } else if (event.type === 'start') {
-            setGeneratingStatus({ label: 'Preparing…', index: 0, total: event.totalClauses });
+            setGeneratingStatus({ label: 'Preparing...', index: 0, total: event.totalClauses });
             setDraft({ draftHtml: event.partialHtml, suggestions: [] });
           } else if (event.type === 'clause_start') {
             setGeneratingStatus({ label: event.label, index: event.index, total: event.totalClauses });
           } else if (event.type === 'clause_retry') {
-            setGeneratingStatus(prev => ({ ...prev, label: prev?.label, retrying: `QA issues found — fixing: ${event.fixing}` }));
+            setGeneratingStatus(prev => ({ ...prev, label: prev?.label, retrying: `QA issues found -- fixing: ${event.fixing}` }));
           } else if (event.type === 'clause_done') {
             setGeneratingStatus({ label: event.label, index: event.index, total: event.totalClauses, done: true });
             setDraft(prev => ({ ...(prev || {}), draftHtml: event.partialHtml }));
@@ -336,7 +361,6 @@ export default function DraftPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      // Fallback: if DOCX not available, print as PDF
       const win = window.open('', '_blank');
       const title = draft.fileName?.replace('.html', '') || 'Draft-Contract';
       win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
@@ -350,7 +374,6 @@ export default function DraftPage() {
     }
   };
 
-
   const handleImproveSelection = async () => {
     if (!selectionInfo) return;
     const { text, x, y } = selectionInfo;
@@ -358,14 +381,8 @@ export default function DraftPage() {
     setRefiningAt({ x, y });
     setRefining(true);
     setError('');
-
-    // Highlight the selected text in the draft while the LLM works
     const markedHtml = `<mark data-ai="refining">${text}</mark>`;
-    setDraft(prev => ({
-      ...prev,
-      draftHtml: prev.draftHtml.replace(text, markedHtml),
-    }));
-
+    setDraft(prev => ({ ...prev, draftHtml: prev.draftHtml.replace(text, markedHtml) }));
     try {
       const docContext = stripHtml(draft.draftHtml).slice(0, 4000);
       const res = await api.post('/ai/refine-clause', {
@@ -378,11 +395,7 @@ export default function DraftPage() {
         setPendingRefinement({ originalText: text, markedHtml, improvedText: improved, reasoning: res.data?.reasoning, x, y });
       }
     } catch (e) {
-      // Remove the highlight if the call failed
-      setDraft(prev => ({
-        ...prev,
-        draftHtml: prev.draftHtml.replace(markedHtml, text),
-      }));
+      setDraft(prev => ({ ...prev, draftHtml: prev.draftHtml.replace(markedHtml, text) }));
       setError(e.response?.data?.message || e.message || 'Refine failed');
     } finally {
       setRefining(false);
@@ -397,27 +410,17 @@ export default function DraftPage() {
     setDraft(prev => ({
       ...prev,
       draftHtml: prev.draftHtml.replace(markedHtml, acceptedMark),
-      suggestions: [
-        ...(prev.suggestions || []),
-        { clauseRef: 'Refined selection', suggestion: improvedText, reasoning },
-      ],
+      suggestions: [...(prev.suggestions || []), { clauseRef: 'Refined selection', suggestion: improvedText, reasoning }],
     }));
-    // Strip the accepted highlight after 3 seconds
     setTimeout(() => {
-      setDraft(prev => ({
-        ...prev,
-        draftHtml: prev.draftHtml.replace(acceptedMark, improvedText),
-      }));
+      setDraft(prev => ({ ...prev, draftHtml: prev.draftHtml.replace(acceptedMark, improvedText) }));
     }, 3000);
     setPendingRefinement(null);
   };
 
   const handleRejectRefinement = () => {
     if (pendingRefinement) {
-      setDraft(prev => ({
-        ...prev,
-        draftHtml: prev.draftHtml.replace(pendingRefinement.markedHtml, pendingRefinement.originalText),
-      }));
+      setDraft(prev => ({ ...prev, draftHtml: prev.draftHtml.replace(pendingRefinement.markedHtml, pendingRefinement.originalText) }));
     }
     setPendingRefinement(null);
   };
@@ -449,573 +452,599 @@ export default function DraftPage() {
     }
   };
 
-  return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
-        <FileEdit className="w-7 h-7" />
-        AI-Assisted Drafting
-      </h1>
+  const genDone = draft && !loading && !generatingStatus;
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left form panel */}
-        <div className="lg:col-span-1">
-          <div className="card sticky top-4">
-            <h3 className="font-semibold mb-4">Create Draft</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">Contract Type</label>
-                <select
-                  value={form.templateId}
-                  onChange={e => setForm({ ...form, templateId: e.target.value, contractTypeName: '' })}
-                  className="input-field w-full text-sm"
-                >
-                  <option value="">Select contract type…</option>
-                  {templates.map(t => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', height: '100%' }}>
+      {/* ── LEFT RAIL ────────────────────────────────────────────── */}
+      <div style={{ borderRight: '1px solid var(--line-1)', background: 'var(--bg-1)', padding: '20px 18px', overflow: 'auto' }}>
+        <StepHeader
+          step={step}
+          setStep={(n) => {
+            if (n === 1) { setValidationResult(null); setPreviewClauses([]); }
+          }}
+          genDone={genDone}
+        />
+
+        {/* Step 1: Input form */}
+        {step === 1 && (
+          <div className="col" style={{ gap: 14 }}>
+            <div className="field">
+              <label>Contract type</label>
+              <select
+                className="select"
+                value={form.templateId}
+                onChange={e => setForm({ ...form, templateId: e.target.value, contractTypeName: '' })}
+              >
+                <option value="">Select contract type...</option>
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              {form.templateId && templates.find(t => t.id === form.templateId)?.description && (
+                <div className="hint">{templates.find(t => t.id === form.templateId).description}</div>
+              )}
+              {form.templateId === 'custom' && (
+                <input
+                  className="input"
+                  value={form.contractTypeName}
+                  onChange={e => setForm({ ...form, contractTypeName: e.target.value })}
+                  placeholder="e.g. Joint Venture Agreement, Franchise Agreement..."
+                  style={{ marginTop: 6 }}
+                />
+              )}
+            </div>
+
+            <div className="grid-2">
+              <div className="field">
+                <label>Party A</label>
+                <input className="input" value={form.partyA} onChange={e => setForm({ ...form, partyA: e.target.value })} placeholder="Company name" />
+              </div>
+              <div className="field">
+                <label>Party B</label>
+                <input className="input" value={form.partyB} onChange={e => setForm({ ...form, partyB: e.target.value })} placeholder="Company name" />
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="field">
+                <label>Party A Address</label>
+                <input className="input" value={form.partyAAddress} onChange={e => setForm({ ...form, partyAAddress: e.target.value })} placeholder="Registered office" />
+              </div>
+              <div className="field">
+                <label>Party B Address</label>
+                <input className="input" value={form.partyBAddress} onChange={e => setForm({ ...form, partyBAddress: e.target.value })} placeholder="Registered office" />
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="field">
+                <label>Party A Rep</label>
+                <input className="input" value={form.partyARep} onChange={e => setForm({ ...form, partyARep: e.target.value })} placeholder="e.g. Mr. X, Director" />
+              </div>
+              <div className="field">
+                <label>Party B Rep</label>
+                <input className="input" value={form.partyBRep} onChange={e => setForm({ ...form, partyBRep: e.target.value })} placeholder="e.g. Ms. Y, MD" />
+              </div>
+            </div>
+
+            <div className="grid-2">
+              <div className="field">
+                <label>Effective Date</label>
+                <input type="date" className="input" value={form.effectiveDate} onChange={e => setForm({ ...form, effectiveDate: e.target.value })} />
+              </div>
+              <div className="field">
+                <label>Jurisdiction</label>
+                <select className="select" value={form.jurisdiction} onChange={e => setForm({ ...form, jurisdiction: e.target.value })}>
+                  {JURISDICTIONS.map(j => <option key={j} value={j}>{j}</option>)}
                 </select>
-                {form.templateId && templates.find(t => t.id === form.templateId)?.description && (
-                  <p className="text-xs text-text-muted mt-1">
-                    {templates.find(t => t.id === form.templateId).description}
-                  </p>
-                )}
-                {form.templateId === 'custom' && (
-                  <input
-                    value={form.contractTypeName}
-                    onChange={e => setForm({ ...form, contractTypeName: e.target.value })}
-                    placeholder="e.g. Joint Venture Agreement, Franchise Agreement…"
-                    className="input-field w-full text-sm mt-2"
-                  />
-                )}
               </div>
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">Party A</label>
-                <input value={form.partyA} onChange={e => setForm({ ...form, partyA: e.target.value })} placeholder="Company name" className="input-field w-full text-sm" />
+            </div>
+
+            <div className="grid-2">
+              <div className="field">
+                <label>Term (years)</label>
+                <input className="input" value={form.termYears} onChange={e => setForm({ ...form, termYears: e.target.value })} placeholder="3" />
               </div>
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">Party B</label>
-                <input value={form.partyB} onChange={e => setForm({ ...form, partyB: e.target.value })} placeholder="Company name" className="input-field w-full text-sm" />
+              <div className="field">
+                <label>Notice (days)</label>
+                <input className="input" value={form.noticeDays} onChange={e => setForm({ ...form, noticeDays: e.target.value })} placeholder="30" />
               </div>
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">Party A Address</label>
-                <input value={form.partyAAddress} onChange={e => setForm({ ...form, partyAAddress: e.target.value })} placeholder="Registered office address" className="input-field w-full text-sm" />
-              </div>
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">Party B Address</label>
-                <input value={form.partyBAddress} onChange={e => setForm({ ...form, partyBAddress: e.target.value })} placeholder="Registered office address" className="input-field w-full text-sm" />
-              </div>
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">Party A Representative</label>
-                <input value={form.partyARep} onChange={e => setForm({ ...form, partyARep: e.target.value })} placeholder="e.g. Mr. X, Director" className="input-field w-full text-sm" />
-              </div>
-              <div>
-                <label className="text-xs text-text-muted mb-1 block">Party B Representative</label>
-                <input value={form.partyBRep} onChange={e => setForm({ ...form, partyBRep: e.target.value })} placeholder="e.g. Ms. Y, Managing Director" className="input-field w-full text-sm" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-text-muted mb-1 block">Effective Date</label>
-                  <input type="date" value={form.effectiveDate} onChange={e => setForm({ ...form, effectiveDate: e.target.value })} className="input-field w-full text-sm" />
+            </div>
+
+            <div className="field">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <label>Agreement Ref (optional)</label>
+                <div className="row" style={{ gap: 4 }}>
+                  <button type="button" onClick={() => setRefMode('system')}
+                    className={`btn sm ${refMode === 'system' ? 'primary' : ''}`} style={{ height: 22, fontSize: 10, padding: '0 8px' }}>
+                    <FolderOpen size={10} /> System
+                  </button>
+                  <button type="button" onClick={() => setRefMode('manual')}
+                    className={`btn sm ${refMode === 'manual' ? 'primary' : ''}`} style={{ height: 22, fontSize: 10, padding: '0 8px' }}>
+                    <Pencil size={10} /> Manual
+                  </button>
                 </div>
-                <div>
-                  <label className="text-xs text-text-muted mb-1 block">Jurisdiction</label>
-                  <select value={form.jurisdiction} onChange={e => setForm({ ...form, jurisdiction: e.target.value })} className="input-field w-full text-sm">
-                    {JURISDICTIONS.map(j => <option key={j} value={j}>{j}</option>)}
+              </div>
+              {refMode === 'manual' ? (
+                <input className="input" value={form.agreementRef} onChange={e => setForm({ ...form, agreementRef: e.target.value })} placeholder="e.g. NDA-2025-001" />
+              ) : (
+                <div className="row" style={{ gap: 6 }}>
+                  <select className="select" value={form.agreementRef} onChange={e => setForm({ ...form, agreementRef: e.target.value })} style={{ flex: 1 }}>
+                    <option value="">Select a document...</option>
+                    {docs.map(d => <option key={d.id} value={d.fileName}>{d.fileName}</option>)}
+                  </select>
+                  <button type="button" onClick={() => navigate('/documents')} className="btn sm">+ Upload</button>
+                </div>
+              )}
+            </div>
+
+            {/* Deal context section */}
+            <div style={{ borderTop: '1px solid var(--line-1)', paddingTop: 14, marginTop: 4 }}>
+              <div className="nav-section" style={{ padding: '0 0 8px' }}>Negotiation Context</div>
+              <div className="col" style={{ gap: 12 }}>
+                <div className="field">
+                  <label>Deal Brief <span style={{ color: 'var(--text-4)' }}>(optional)</span></label>
+                  <textarea
+                    className="textarea"
+                    value={form.dealBrief}
+                    onChange={e => setForm({ ...form, dealBrief: e.target.value })}
+                    placeholder="Describe the deal in 2-4 sentences..."
+                    rows={4}
+                  />
+                  <div className="hint row" style={{ justifyContent: 'space-between' }}>
+                    <span>Describe parties, fees, term, key positions.</span>
+                    <span className="mono">{form.dealBrief.length} chars</span>
+                  </div>
+                </div>
+                <div className="grid-2">
+                  <div className="field">
+                    <label>We represent</label>
+                    <select className="select" value={form.clientPosition} onChange={e => setForm({ ...form, clientPosition: e.target.value })}>
+                      <option value="NEUTRAL">Neutral</option>
+                      <option value="PARTY_A">Party A</option>
+                      <option value="PARTY_B">Party B</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Draft stance</label>
+                    <select className="select" value={form.draftStance} onChange={e => setForm({ ...form, draftStance: e.target.value })}>
+                      <option value="FIRST_DRAFT">First draft</option>
+                      <option value="BALANCED">Balanced</option>
+                      <option value="FINAL_OFFER">Final offer</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="field">
+                  <label>Industry</label>
+                  <select className="select" value={form.industry} onChange={e => setForm({ ...form, industry: e.target.value })}>
+                    <option value="GENERAL">General / Not specified</option>
+                    <option value="IT_SERVICES">IT Services</option>
+                    <option value="FINTECH">Fintech</option>
+                    <option value="PHARMA">Pharma / Healthcare</option>
+                    <option value="MANUFACTURING">Manufacturing</option>
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-text-muted mb-1 block">Term (years)</label>
-                  <input type="text" value={form.termYears} onChange={e => setForm({ ...form, termYears: e.target.value })} placeholder="3" className="input-field w-full text-sm" />
-                </div>
-                <div>
-                  <label className="text-xs text-text-muted mb-1 block">Notice (days)</label>
-                  <input type="text" value={form.noticeDays} onChange={e => setForm({ ...form, noticeDays: e.target.value })} placeholder="30" className="input-field w-full text-sm" />
-                </div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs text-text-muted">Agreement Ref (optional)</label>
-                  <div className="flex gap-1">
-                    <button type="button" onClick={() => setRefMode('system')}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${refMode === 'system' ? 'bg-primary text-white' : 'text-text-muted hover:text-text-primary'}`}>
-                      <FolderOpen className="w-3 h-3" /> From system
-                    </button>
-                    <button type="button" onClick={() => setRefMode('manual')}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors ${refMode === 'manual' ? 'bg-primary text-white' : 'text-text-muted hover:text-text-primary'}`}>
-                      <Pencil className="w-3 h-3" /> Manual
-                    </button>
-                  </div>
-                </div>
-                {refMode === 'manual' ? (
-                  <input value={form.agreementRef} onChange={e => setForm({ ...form, agreementRef: e.target.value })}
-                    placeholder="e.g. NDA-2025-001" className="input-field w-full text-sm" />
-                ) : (
-                  <div className="flex gap-2">
-                    <select value={form.agreementRef} onChange={e => setForm({ ...form, agreementRef: e.target.value })}
-                      className="input-field w-full text-sm">
-                      <option value="">Select a document...</option>
-                      {docs.map(d => <option key={d.id} value={d.fileName}>{d.fileName}</option>)}
-                    </select>
-                    <button type="button" onClick={() => navigate('/documents')}
-                      className="btn-secondary text-xs px-2 shrink-0" title="Upload a new document">
-                      + Upload
-                    </button>
-                  </div>
-                )}
-              </div>
-              {/* ── Deal Context ─────────────────────────── */}
-              <div className="border-t border-border pt-4 mt-2">
-                <p className="text-xs font-semibold text-text-muted uppercase tracking-wide mb-3">Negotiation Context</p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs text-text-muted mb-1 block">Deal Brief <span className="text-text-muted/60">(optional)</span></label>
-                    <textarea
-                      value={form.dealBrief}
-                      onChange={e => setForm({ ...form, dealBrief: e.target.value })}
-                      placeholder="Describe the deal in 2-4 sentences. E.g. 'SaaS vendor providing cloud payroll software to a mid-size Fintech. Vendor is a startup; client has high leverage. Key risk: data residency and liability cap.'"
-                      rows={3}
-                      className="input-field w-full text-sm resize-none"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs text-text-muted mb-1 block">We represent</label>
-                      <select value={form.clientPosition} onChange={e => setForm({ ...form, clientPosition: e.target.value })} className="input-field w-full text-sm">
-                        <option value="NEUTRAL">Neutral</option>
-                        <option value="PARTY_A">Party A</option>
-                        <option value="PARTY_B">Party B</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs text-text-muted mb-1 block">Draft stance</label>
-                      <select value={form.draftStance} onChange={e => setForm({ ...form, draftStance: e.target.value })} className="input-field w-full text-sm">
-                        <option value="FIRST_DRAFT">First draft</option>
-                        <option value="BALANCED">Balanced</option>
-                        <option value="FINAL_OFFER">Final offer</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-text-muted mb-1 block">Industry</label>
-                    <select value={form.industry} onChange={e => setForm({ ...form, industry: e.target.value })} className="input-field w-full text-sm">
-                      <option value="GENERAL">General / Not specified</option>
-                      <option value="IT_SERVICES">IT Services</option>
-                      <option value="FINTECH">Fintech</option>
-                      <option value="PHARMA">Pharma / Healthcare</option>
-                      <option value="MANUFACTURING">Manufacturing</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
+            </div>
 
-              <div className="flex flex-col gap-2">
-                <button onClick={handleGenerateAsync} disabled={submittingAsync || !form.templateId} className="btn-primary w-full flex items-center justify-center gap-2 py-3"
-                        title="Runs the draft on the server. You can keep working, close the tab, or come back later — click the entry in the strip above to watch or open it.">
-                  {submittingAsync ? <Loader className="w-5 h-5 animate-spin" /> : <FileEdit className="w-5 h-5" />}
-                  {submittingAsync ? 'Starting…' : 'Generate Draft'}
-                </button>
-                {submitToast && (
-                  <p className="text-xs text-success flex items-center gap-1.5 py-1">
-                    <Clock className="w-3 h-3" /> {submitToast}
-                  </p>
-                )}
-                {validationResult && (
-                  <div className="mt-3 p-4 border border-blue-200 bg-blue-50 rounded-lg text-sm">
-                    <p className="font-semibold text-blue-900 mb-3">
-                      {validationResult.contractDisplayName || 'Contract'} — Review before generating
-                    </p>
-
-                    {/* Extracted deal terms */}
-                    {validationResult.extracted && (
-                      <div className="mb-3 p-2 bg-white rounded border border-blue-100">
-                        <p className="text-xs font-semibold text-gray-600 mb-1">Extracted from your brief:</p>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-700">
-                          {validationResult.extracted.partyA && <div><strong>{validationResult.partyRoles?.[0] || 'Party A'}:</strong> {validationResult.extracted.partyA}</div>}
-                          {validationResult.extracted.partyB && <div><strong>{validationResult.partyRoles?.[1] || 'Party B'}:</strong> {validationResult.extracted.partyB}</div>}
-                          {validationResult.extracted.jurisdiction && <div><strong>Jurisdiction:</strong> {validationResult.extracted.jurisdiction}</div>}
-                          {validationResult.extracted.licenseType && <div><strong>License:</strong> {validationResult.extracted.licenseType}</div>}
-                          {validationResult.extracted.licenseFee && <div><strong>Fee:</strong> ${Number(validationResult.extracted.licenseFee).toLocaleString()}</div>}
-                          {validationResult.extracted.users && <div><strong>Users:</strong> {validationResult.extracted.users}</div>}
-                          {validationResult.extracted.slaResponseHours && <div><strong>SLA:</strong> {validationResult.extracted.slaResponseHours}h response</div>}
-                          {validationResult.extracted.escrow && <div><strong>Escrow:</strong> Yes</div>}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Missing fields */}
-                    {validationResult.missingRequired?.length > 0 && (
-                      <div className="mb-2 p-2 bg-red-50 rounded border border-red-200">
-                        <p className="text-xs font-semibold text-red-700 mb-1">Missing (required):</p>
-                        <ul className="list-disc list-inside text-red-600 text-xs space-y-0.5">
-                          {validationResult.missingRequired.map(f => <li key={f.field}>{f.label}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                    {validationResult.missingRecommended?.length > 0 && (
-                      <div className="mb-2 p-2 bg-amber-50 rounded border border-amber-200">
-                        <p className="text-xs font-semibold text-amber-700 mb-1">Recommended (will use [TO BE AGREED] if skipped):</p>
-                        <ul className="list-disc list-inside text-amber-600 text-xs space-y-0.5">
-                          {validationResult.missingRecommended.map(f => <li key={f.field}>{f.label}</li>)}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Clause selection */}
-                    {previewClauses.length > 0 && (
-                      <div className="mb-3">
-                        <p className="text-xs font-semibold text-gray-600 mb-1">Clauses to generate:</p>
-                        <div className="space-y-1">
-                          {previewClauses.map(c => (
-                            <label key={c.key} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-blue-100 rounded px-1.5 py-0.5">
-                              <input type="checkbox" checked={c.enabled} onChange={() => toggleClause(c.key)}
-                                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                              <span className={c.enabled ? 'text-gray-800' : 'text-gray-400 line-through'}>{c.title}</span>
-                            </label>
-                          ))}
-                        </div>
-                        {/* Add clause dropdown */}
-                        {validationResult.availableClauses?.length > 0 && (
-                          <select
-                            className="mt-2 text-xs border border-dashed border-blue-300 rounded px-2 py-1 text-blue-600 bg-white cursor-pointer"
-                            value=""
-                            onChange={e => {
-                              const key = e.target.value;
-                              if (!key) return;
-                              const clause = validationResult.availableClauses.find(c => c.key === key);
-                              if (clause) {
-                                setPreviewClauses(prev => [...prev, { key: clause.key, title: clause.title, enabled: true }]);
-                              }
-                            }}
-                          >
-                            <option value="">+ Add clause...</option>
-                            {validationResult.availableClauses
-                              .filter(c => !previewClauses.some(p => p.key === c.key))
-                              .map(c => <option key={c.key} value={c.key}>{c.title}</option>)}
-                          </select>
-                        )}
-                      </div>
-                    )}
-
-                    <div className="flex gap-2">
-                      <button onClick={confirmGenerate} disabled={submittingAsync}
-                              className="btn-primary text-xs py-1.5 px-4 flex items-center gap-1">
-                        {submittingAsync ? <Loader className="w-3 h-3 animate-spin" /> : null}
-                        Confirm & Generate
-                      </button>
-                      <button onClick={() => { setValidationResult(null); setPreviewClauses([]); }}
-                              className="btn-secondary text-xs py-1.5 px-3">
-                        Edit Details
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+            <button className="btn primary lg" onClick={handleGenerateAsync} disabled={submittingAsync || !form.templateId} style={{ width: '100%', justifyContent: 'center' }}>
+              {submittingAsync ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {submittingAsync ? 'Analysing...' : 'Analyse brief'}
+            </button>
+            <div className="small muted" style={{ textAlign: 'center' }}>
+              <Lock size={11} style={{ verticalAlign: 'text-top', marginRight: 4 }} />
+              Not used for training
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Right preview panel */}
-        <div className="lg:col-span-2 space-y-6">
-          <DraftsRecentStrip
-            activeId={activeAsyncId}
-            onSelect={(id) => {
-              setActiveAsyncId(id);
-              setError('');
-              setDraft(null);
-              setGeneratingStatus({ label: 'Loading…', index: 0, total: 0 });
-              setLoading(true);
-            }}
-            onReady={(api) => { stripRef.current = api; }}
-          />
-
-          {error && (
-            <div className="card border-l-4 border-danger bg-danger/5">
-              <p className="text-danger text-sm">{error}</p>
-            </div>
-          )}
-
-          {draft && (
-            <>
-              <div className="card space-y-3">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <span className="text-text-secondary text-sm">Select text in the preview to improve it inline</span>
+        {/* Step 2: Preview / validation */}
+        {step === 2 && validationResult && (
+          <div className="col" style={{ gap: 16 }}>
+            {/* Extracted deal terms */}
+            {validationResult.extracted && (
+              <div className="card">
+                <div className="card-header">
+                  <h3>Extracted deal terms</h3>
+                  <span className="sub">Auto-parsed from brief</span>
                 </div>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <Briefcase className="w-4 h-4 text-text-muted" />
-                  <label className="text-sm text-text-secondary">Save to Matter:</label>
-                  <select
-                    value={form.matterId || ''}
-                    onChange={(e) => setForm(f => ({ ...f, matterId: e.target.value }))}
-                    className="input-field text-sm flex-1 min-w-[200px] max-w-xs"
-                  >
-                    <option value="">— No matter (standalone) —</option>
-                    {matters.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name} {m.matterRef ? `(${m.matterRef})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  {matters.length === 0 && (
-                    <span className="text-xs text-text-muted">No matters available</span>
+                <div style={{ padding: 14 }}>
+                  {validationResult.extracted.partyA && <KV k={validationResult.partyRoles?.[0] || 'Party A'} v={validationResult.extracted.partyA} />}
+                  {validationResult.extracted.partyB && <KV k={validationResult.partyRoles?.[1] || 'Party B'} v={validationResult.extracted.partyB} />}
+                  {validationResult.extracted.jurisdiction && <KV k="Jurisdiction" v={validationResult.extracted.jurisdiction} />}
+                  {validationResult.extracted.licenseFee && <KV k="Fee" v={`$${Number(validationResult.extracted.licenseFee).toLocaleString()}`} />}
+                  {validationResult.extracted.licenseType && <KV k="License" v={validationResult.extracted.licenseType} />}
+                  {validationResult.extracted.users && <KV k="Users" v={validationResult.extracted.users} />}
+                  {validationResult.extracted.slaResponseHours && <KV k="SLA" v={`${validationResult.extracted.slaResponseHours}h response`} />}
+                </div>
+              </div>
+            )}
+
+            {/* Planned clauses */}
+            {previewClauses.length > 0 && (
+              <div className="card">
+                <div className="card-header">
+                  <h3>Planned clauses</h3>
+                  <span className="sub">{previewClauses.filter(c => c.enabled).length} selected</span>
+                </div>
+                <div style={{ padding: 8 }}>
+                  {previewClauses.map(c => (
+                    <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 8px', borderRadius: 4, cursor: 'pointer' }} onClick={() => toggleClause(c.key)}>
+                      <div className={`checkbox ${c.enabled ? 'checked' : ''}`} />
+                      <span className="small" style={{ flex: 1, textDecoration: c.enabled ? 'none' : 'line-through', color: c.enabled ? 'var(--text-1)' : 'var(--text-4)' }}>{c.title}</span>
+                    </div>
+                  ))}
+                  {validationResult.availableClauses?.filter(c => !previewClauses.some(p => p.key === c.key)).length > 0 && (
+                    <select
+                      className="select"
+                      style={{ marginTop: 8, fontSize: 12, color: 'var(--brand-400)', borderStyle: 'dashed' }}
+                      value=""
+                      onChange={e => {
+                        const key = e.target.value;
+                        if (!key) return;
+                        const clause = validationResult.availableClauses.find(c => c.key === key);
+                        if (clause) setPreviewClauses(prev => [...prev, { key: clause.key, title: clause.title, enabled: true }]);
+                      }}
+                    >
+                      <option value="">+ Add clause...</option>
+                      {validationResult.availableClauses.filter(c => !previewClauses.some(p => p.key === c.key)).map(c => (
+                        <option key={c.key} value={c.key}>{c.title}</option>
+                      ))}
+                    </select>
                   )}
                 </div>
-                <div className="flex gap-2 flex-wrap">
-                  <button
-                    onClick={handleSaveDraft}
-                    disabled={saving}
-                    className="btn-primary flex items-center gap-2 text-sm"
-                  >
-                    {saving ? <Loader className="w-4 h-4 animate-spin" /> : saveSuccess ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                    {saving ? 'Saving...' : saveSuccess ? 'Saved!' : (form.matterId ? 'Save to Matter' : 'Save')}
-                  </button>
-                  <button onClick={() => setShowSaveToCloud(true)} className="btn-secondary flex items-center gap-2 text-sm">
-                    <CloudUpload className="w-4 h-4" />
-                    Save to Cloud
-                  </button>
-                  <button onClick={handleDownloadDocx} className="btn-secondary flex items-center gap-2 text-sm">
-                    <Download className="w-4 h-4" />
-                    Download Word
-                  </button>
+              </div>
+            )}
+
+            {/* Missing required */}
+            {validationResult.missingRequired?.length > 0 && (
+              <div className="card" style={{ borderColor: 'rgba(217,83,78,0.3)', background: 'var(--danger-bg)' }}>
+                <div style={{ padding: 14 }}>
+                  <div className="row" style={{ color: 'var(--danger-400)', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    <AlertTriangle size={14} /> {validationResult.missingRequired.length} missing required field{validationResult.missingRequired.length > 1 ? 's' : ''}
+                  </div>
+                  <ul className="small" style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {validationResult.missingRequired.map(f => <li key={f.field}>{f.label}</li>)}
+                  </ul>
                 </div>
               </div>
+            )}
 
-              {showSaveToCloud && (
-                <SaveToCloudModal
-                  content={draft.draftHtml}
-                  defaultFileName={`draft-${form.templateId}-${form.effectiveDate || 'draft'}.html`}
-                  onClose={() => setShowSaveToCloud(false)}
-                  onSaved={() => setShowSaveToCloud(false)}
-                />
-              )}
+            {/* Missing recommended */}
+            {validationResult.missingRecommended?.length > 0 && (
+              <div className="card" style={{ borderColor: 'rgba(216,154,58,0.3)', background: 'var(--warn-bg)' }}>
+                <div style={{ padding: 14 }}>
+                  <div className="row" style={{ color: 'var(--warn-400)', fontWeight: 600, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    <AlertTriangle size={14} /> {validationResult.missingRecommended.length} recommended
+                  </div>
+                  <ul className="small" style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {validationResult.missingRecommended.map(f => <li key={f.field}>{f.label} (will use placeholder if skipped)</li>)}
+                  </ul>
+                </div>
+              </div>
+            )}
 
-              {Object.keys(qaWarnings).length > 0 && (
-                <div className="card border-l-4 border-warning bg-warning/5">
-                  <h4 className="font-semibold mb-3 flex items-center gap-2 text-warning">
-                    <AlertTriangle className="w-4 h-4" />
-                    QA Warnings — Review Required
-                  </h4>
-                  <p className="text-xs text-text-muted mb-3">
-                    The AI flagged potential issues in the clauses below. Review and fix before using this draft.
-                  </p>
-                  <div className="space-y-2">
-                    {Object.entries(qaWarnings).map(([clauseKey, warnings]) => (
-                      <div key={clauseKey} className="p-3 rounded-lg bg-warning/10 border border-warning/20">
-                        <p className="text-xs font-semibold text-warning mb-1">
-                          {CLAUSE_SPECS_LABELS[clauseKey] || clauseKey}
-                        </p>
-                        <ul className="space-y-0.5">
-                          {warnings.map((w, i) => (
-                            <li key={i} className="text-xs text-text-secondary flex items-start gap-1.5">
-                              <span className="text-warning mt-0.5">•</span> {w}
-                            </li>
-                          ))}
-                        </ul>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn" onClick={() => { setValidationResult(null); setPreviewClauses([]); }}>
+                <ChevronLeft size={14} /> Edit details
+              </button>
+              <button className="btn primary grow" onClick={confirmGenerate} disabled={submittingAsync} style={{ justifyContent: 'center' }}>
+                {submittingAsync ? <Loader2 size={14} className="animate-spin" /> : null}
+                Confirm & generate <ArrowRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Generation sidebar */}
+        {step === 3 && (
+          <div className="col" style={{ gap: 14 }}>
+            <div className="card">
+              <div className="card-header">
+                <h3>{loading ? 'Generating...' : genDone ? 'Draft ready' : 'Ready to generate'}</h3>
+                {genDone && generatingStatus?.label && (
+                  <span className="badge low" style={{ marginLeft: 'auto' }}><Check size={10} /> {generatingStatus.label}</span>
+                )}
+              </div>
+              <div style={{ padding: 14 }}>
+                {loading && generatingStatus && (
+                  <>
+                    <div className="row small" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span>{generatingStatus.label}</span>
+                      <span className="mono muted">{generatingStatus.index}/{generatingStatus.total}</span>
+                    </div>
+                    <div className="progress-track">
+                      <div className="progress-fill" style={{ width: `${generatingStatus.total > 0 ? (generatingStatus.index / generatingStatus.total) * 100 : 0}%` }} />
+                    </div>
+                    {generatingStatus.retrying && (
+                      <div className="tiny" style={{ color: 'var(--warn-400)', marginTop: 6 }}>
+                        <AlertTriangle size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                        {generatingStatus.retrying}
+                      </div>
+                    )}
+                  </>
+                )}
+                {genDone && (
+                  <>
+                    <div className="small" style={{ marginBottom: 10 }}>
+                      Draft complete.{draft?.durationSeconds ? ` Generated in ${Math.round(draft.durationSeconds / 60)}m ${draft.durationSeconds % 60}s.` : ''}
+                    </div>
+                    {/* Matter selector */}
+                    <div className="field" style={{ marginBottom: 10 }}>
+                      <label>Save to Matter</label>
+                      <select
+                        className="select"
+                        value={form.matterId || ''}
+                        onChange={(e) => setForm(f => ({ ...f, matterId: e.target.value }))}
+                      >
+                        <option value="">-- No matter (standalone) --</option>
+                        {matters.map(m => (
+                          <option key={m.id} value={m.id}>{m.name} {m.matterRef ? `(${m.matterRef})` : ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col" style={{ gap: 6 }}>
+                      <button className="btn" onClick={handleDownloadDocx}>
+                        <Download size={14} /> Download Word
+                      </button>
+                      <button className="btn" onClick={handleSaveDraft} disabled={saving}>
+                        {saving ? <Loader2 size={14} className="animate-spin" /> : saveSuccess ? <Check size={14} /> : <Save size={14} />}
+                        {saving ? 'Saving...' : saveSuccess ? 'Saved!' : (form.matterId ? 'Save to Matter' : 'Save')}
+                      </button>
+                      <button className="btn" onClick={() => setShowSaveToCloud(true)}>
+                        <CloudUpload size={14} /> Save to Cloud
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {submitToast && (
+              <div className="card" style={{ padding: 12, borderLeftColor: 'var(--success-500)', borderLeftWidth: 3 }}>
+                <div className="small" style={{ color: 'var(--success-400)' }}>
+                  <Clock size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+                  {submitToast}
+                </div>
+              </div>
+            )}
+
+            {genDone && (
+              <button className="btn ghost" onClick={() => { setDraft(null); setGeneratingStatus(null); setValidationResult(null); setPreviewClauses([]); setActiveAsyncId(null); setError(''); }}>
+                <RefreshCw size={14} /> Start another draft
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── RIGHT PANE ───────────────────────────────────────────── */}
+      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, background: 'var(--bg-0)' }}>
+        <DraftsRecentStrip
+          activeId={activeAsyncId}
+          onSelect={(id) => {
+            setActiveAsyncId(id);
+            setError('');
+            setDraft(null);
+            setValidationResult(null);
+            setPreviewClauses([]);
+            setGeneratingStatus({ label: 'Loading...', index: 0, total: 0 });
+            setLoading(true);
+          }}
+          onReady={(stripApi) => { stripRef.current = stripApi; }}
+        />
+
+        <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
+          {error && (
+            <div className="card" style={{ borderLeftColor: 'var(--danger-500)', borderLeftWidth: 3, padding: 14, marginBottom: 14 }}>
+              <div className="small" style={{ color: 'var(--danger-400)' }}>{error}</div>
+            </div>
+          )}
+
+          {/* QA Warnings */}
+          {Object.keys(qaWarnings).length > 0 && (
+            <div className="card" style={{ borderLeftColor: 'var(--warn-500)', borderLeftWidth: 3, padding: 14, marginBottom: 14 }}>
+              <div className="row" style={{ color: 'var(--warn-400)', fontWeight: 600, fontSize: 12, marginBottom: 8 }}>
+                <AlertTriangle size={14} /> QA Warnings -- Review Required
+              </div>
+              <div className="col" style={{ gap: 6 }}>
+                {Object.entries(qaWarnings).map(([clauseKey, warnings]) => (
+                  <div key={clauseKey} style={{ padding: 10, borderRadius: 'var(--r-md)', background: 'var(--warn-bg)', border: '1px solid rgba(216,154,58,0.2)' }}>
+                    <div className="tiny" style={{ fontWeight: 600, color: 'var(--warn-400)', marginBottom: 4 }}>{CLAUSE_SPECS_LABELS[clauseKey] || clauseKey}</div>
+                    {warnings.map((w, i) => (
+                      <div key={i} className="tiny" style={{ color: 'var(--text-2)', display: 'flex', gap: 6, marginTop: 2 }}>
+                        <span style={{ color: 'var(--warn-400)' }}>&bull;</span> {w}
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ))}
+              </div>
+            </div>
+          )}
 
-              {draft.suggestions?.length > 0 && (
-                <div className="card">
-                  <h4 className="font-semibold mb-3 flex items-center gap-2">
-                    <Lightbulb className="w-4 h-4 text-warning" />
-                    AI Suggestions
-                  </h4>
-                  <div className="space-y-3">
-                    {draft.suggestions.map((s, i) => (
-                      <div key={i} className="p-3 rounded-lg bg-surface-el/50 border border-border">
-                        <p className="text-xs text-text-muted font-medium">{s.clauseRef}</p>
-                        <p className="text-sm mt-1">{s.suggestion}</p>
-                        {s.reasoning && <p className="text-xs text-text-muted mt-2">{s.reasoning}</p>}
-                      </div>
-                    ))}
+          {/* Suggestions */}
+          {draft?.suggestions?.length > 0 && (
+            <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+              <div className="row" style={{ marginBottom: 10 }}>
+                <Lightbulb size={14} style={{ color: 'var(--warn-400)' }} />
+                <span style={{ fontWeight: 600, fontSize: 13 }}>AI Suggestions</span>
+              </div>
+              <div className="col" style={{ gap: 8 }}>
+                {draft.suggestions.map((s, i) => (
+                  <div key={i} style={{ padding: 10, background: 'var(--bg-2)', borderRadius: 'var(--r-md)', border: '1px solid var(--line-1)' }}>
+                    <div className="tiny muted">{s.clauseRef}</div>
+                    <div className="small" style={{ marginTop: 4 }}>{s.suggestion}</div>
+                    {s.reasoning && <div className="tiny muted" style={{ marginTop: 6 }}>{s.reasoning}</div>}
                   </div>
-                </div>
-              )}
+                ))}
+              </div>
+            </div>
+          )}
 
-              <div className="card overflow-hidden">
-                <div
-                  ref={previewRef}
-                  onMouseUp={handlePreviewMouseUp}
-                  className="bg-white/5 rounded-lg p-6 overflow-auto max-h-[600px] text-sm text-text-primary select-text [&_h1]:text-xl [&_h1]:font-bold [&_h1]:text-center [&_h1]:mb-4 [&_h2]:text-base [&_h2]:font-semibold [&_h2]:uppercase [&_h2]:mt-6 [&_h2]:mb-2 [&_h2]:border-b [&_h2]:border-border [&_h2]:pb-1 [&_p]:mb-2 [&_p]:leading-relaxed [&_.clause-sub]:pl-5 [&_.clause-sub]:mb-2 [&_ul]:list-disc [&_ul]:ml-6 [&_ul]:mb-3"
-                  dangerouslySetInnerHTML={{ __html: extractBodyContent(draft.draftHtml) }}
-                />
+          {/* Draft document preview */}
+          {draft?.draftHtml && (
+            <div style={{ maxWidth: 820, margin: '0 auto' }}>
+              {/* Action bar */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '12px 14px', background: 'var(--bg-1)', border: '1px solid var(--line-1)',
+                borderRadius: 8, marginBottom: 14,
+              }}>
+                <FileText size={16} style={{ color: 'var(--text-3)' }} />
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{draft.fileName || 'Draft Contract'}</div>
+                  <div className="tiny muted">{form.jurisdiction} &middot; {new Date().toLocaleDateString()}</div>
+                </div>
+                {genDone && (
+                  <div className="row" style={{ marginLeft: 'auto', gap: 6 }}>
+                    <button className="btn sm" onClick={handleDownloadDocx}><Download size={12} /> Word</button>
+                    <button className="btn sm" onClick={handleSaveDraft}><Save size={12} /> Save</button>
+                  </div>
+                )}
+                {loading && generatingStatus && (
+                  <div className="row" style={{ marginLeft: 'auto', gap: 10 }}>
+                    <div className="small muted">{generatingStatus.label} ({generatingStatus.index}/{generatingStatus.total})</div>
+                    <div style={{ width: 140 }}>
+                      <div className="progress-track">
+                        <div className="progress-fill" style={{ width: `${generatingStatus.total > 0 ? (generatingStatus.index / generatingStatus.total) * 100 : 0}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
+              {/* Rendered HTML doc */}
+              <div
+                ref={previewRef}
+                onMouseUp={handlePreviewMouseUp}
+                className="doc"
+                style={{ cursor: 'text', userSelect: 'text' }}
+                dangerouslySetInnerHTML={{ __html: extractBodyContent(draft.draftHtml) }}
+              />
+
+              {/* Parameters */}
               {draft.draftParametersHtml && (
-                <details className="card border border-border/50 mt-4">
-                  <summary className="cursor-pointer px-4 py-3 font-semibold text-sm text-text-muted select-none hover:text-text-primary transition-colors">
-                    Draft Generation Parameters (click to expand)
+                <details className="collapsible" style={{ marginTop: 14 }} open={showParams} onToggle={e => setShowParams(e.target.open)}>
+                  <summary>
+                    <ChevronRight size={14} className="chev" />
+                    <span>Draft generation parameters</span>
+                    <span className="tiny muted" style={{ marginLeft: 'auto' }}>Metadata -- not part of the document</span>
                   </summary>
-                  <div
-                    className="px-4 pb-4 text-sm text-text-secondary [&_p]:mb-1 [&_strong]:text-text-muted [&_span]:text-text-primary"
-                    dangerouslySetInnerHTML={{ __html: draft.draftParametersHtml }}
-                  />
+                  <div className="body" dangerouslySetInnerHTML={{ __html: draft.draftParametersHtml }} />
                 </details>
               )}
-            </>
+            </div>
           )}
 
-          {loading && generatingStatus && (
-            <div className="card border border-primary/30 px-5 py-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-text-primary flex items-center gap-2">
-                  <Loader className="w-4 h-4 animate-spin text-primary" />
-                  {generatingStatus.done
-                    ? `✓ ${generatingStatus.label}`
-                    : `Generating ${generatingStatus.label}…`}
-                </span>
-                <span className="text-xs text-text-muted tabular-nums">
-                  {generatingStatus.index}/{generatingStatus.total}
-                </span>
-              </div>
-              {generatingStatus.retrying && (
-                <p className="text-xs text-warning mb-2 flex items-center gap-1">
-                  <span>⚠ QA retry —</span>
-                  <span className="truncate">{generatingStatus.retrying}</span>
-                </p>
-              )}
-              <div className="w-full bg-surface-el rounded-full h-1.5">
-                <div
-                  className="bg-primary h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${(generatingStatus.index / generatingStatus.total) * 100}%` }}
-                />
+          {/* Loading placeholder */}
+          {loading && !draft?.draftHtml && (
+            <div style={{
+              maxWidth: 820, margin: '0 auto', padding: 60,
+              background: '#fafaf7', borderRadius: 8, minHeight: '60%',
+              display: 'grid', placeItems: 'center', opacity: 0.6,
+            }}>
+              <div style={{ textAlign: 'center', color: 'var(--text-3)' }}>
+                <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto 12px' }} />
+                <div className="small">Generating your draft...</div>
               </div>
             </div>
           )}
 
-          {loading && !generatingStatus && (
-            <div className="card text-center py-8">
-              <Loader className="w-8 h-8 text-primary mx-auto mb-3 animate-spin" />
-              <p className="text-text-muted text-sm">Preparing draft…</p>
-            </div>
-          )}
-
-          {!draft && !loading && (
-            <div className="card border-2 border-dashed border-border text-center py-16">
-              <FileEdit className="w-12 h-12 text-text-muted mx-auto mb-4" />
-              <p className="text-text-muted">Select a template and fill in the details, then click Generate Draft.</p>
-              <p className="text-xs text-text-muted mt-2">The AI will fill placeholders and suggest a liability clause based on your corpus.</p>
+          {/* Empty state */}
+          {!draft && !loading && !validationResult && (
+            <div style={{
+              maxWidth: 820, margin: '0 auto', padding: 60,
+              background: '#fafaf7', borderRadius: 8, minHeight: '60%',
+              display: 'grid', placeItems: 'center', opacity: 0.5,
+              position: 'relative',
+            }}>
+              <div style={{ textAlign: 'center', color: 'var(--text-3)' }}>
+                <FileText size={40} style={{ opacity: 0.4, margin: '0 auto 10px' }} />
+                <div className="small">Fill in the brief and generate to see the draft.</div>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Mark animations for refining/accepted highlights */}
-      <style>{`
-        @keyframes ai-refining-pulse {
-          0%, 100% { background: rgba(99,102,241,0.15); }
-          50% { background: rgba(99,102,241,0.38); }
-        }
-        mark[data-ai="refining"] {
-          background: rgba(99,102,241,0.2);
-          border-radius: 3px;
-          padding: 0 3px;
-          animation: ai-refining-pulse 1.4s ease-in-out infinite;
-          color: inherit;
-        }
-        mark[data-ai="accepted"] {
-          background: rgba(34,197,94,0.28);
-          border-radius: 3px;
-          padding: 0 3px;
-          color: inherit;
-        }
-        @keyframes indeterminate {
-          0%   { transform: translateX(-100%); }
-          100% { transform: translateX(250%); }
-        }
-      `}</style>
+      {/* ── Floating UI elements ─────────────────────────────────── */}
+      {showSaveToCloud && (
+        <SaveToCloudModal
+          content={draft?.draftHtml}
+          defaultFileName={`draft-${form.templateId}-${form.effectiveDate || 'draft'}.html`}
+          onClose={() => setShowSaveToCloud(false)}
+          onSaved={() => setShowSaveToCloud(false)}
+        />
+      )}
 
-      {/* Floating improve button — appears at selection */}
+      {/* Floating improve button */}
       {selectionInfo && !refining && (
-        <div
-          ref={floatRef}
-          className="fixed z-50 -translate-x-1/2"
-          style={{ left: selectionInfo.x, top: selectionInfo.y }}
-        >
-          <button
-            onClick={handleImproveSelection}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs font-medium shadow-lg hover:bg-primary/90 transition-colors"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Improve with AI
+        <div ref={floatRef} className="fixed z-50 -translate-x-1/2" style={{ left: selectionInfo.x, top: selectionInfo.y }}>
+          <button onClick={handleImproveSelection} className="btn primary sm" style={{ borderRadius: 999 }}>
+            <Sparkles size={12} /> Improve with AI
           </button>
         </div>
       )}
 
-      {/* Floating progress bar — shown at the same position while the LLM is working */}
+      {/* Refining progress */}
       {refiningAt && (
-        <div
-          className="fixed z-50 -translate-x-1/2"
-          style={{ left: refiningAt.x, top: refiningAt.y }}
-        >
-          <div className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-xl bg-surface border border-primary/30 shadow-xl">
-            <span className="text-[10px] text-text-muted font-medium flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-primary" />
-              Improving…
+        <div className="fixed z-50 -translate-x-1/2" style={{ left: refiningAt.x, top: refiningAt.y }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '8px 12px', background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-lg)', boxShadow: 'var(--shadow-3)' }}>
+            <span className="tiny muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Sparkles size={12} style={{ color: 'var(--brand-400)' }} /> Improving...
             </span>
-            <div className="w-28 h-1 bg-surface-el rounded-full overflow-hidden relative">
-              <div
-                className="absolute top-0 left-0 h-full w-2/5 bg-primary rounded-full"
-                style={{ animation: 'indeterminate 1.2s ease-in-out infinite' }}
-              />
+            <div style={{ width: 100, height: 3, background: 'var(--bg-3)', borderRadius: 999, overflow: 'hidden', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: '40%', background: 'var(--brand-500)', borderRadius: 999, animation: 'indeterminate 1.2s ease-in-out infinite' }} />
             </div>
           </div>
         </div>
       )}
 
-      {/* AI refinement panel — fixed right-side drawer, always fully visible */}
+      {/* AI refinement panel */}
       {pendingRefinement && (
-        <div className="fixed bottom-6 right-6 z-50 w-[400px] max-w-[calc(100vw-24px)] flex flex-col bg-surface border border-border rounded-xl shadow-2xl"
-             style={{ maxHeight: 'calc(100vh - 48px)' }}>
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-            <p className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-primary" />
-              AI Suggestion — compare and decide
-            </p>
-            <button onClick={handleRejectRefinement} className="text-text-muted hover:text-text-primary">
-              <X className="w-4 h-4" />
-            </button>
+        <div className="fixed bottom-6 right-6 z-50 w-[400px] max-w-[calc(100vw-24px)] card" style={{ maxHeight: 'calc(100vh - 48px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', borderBottom: '1px solid var(--line-1)' }}>
+            <span className="tiny" style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Sparkles size={12} style={{ color: 'var(--brand-400)' }} /> AI Suggestion -- compare and decide
+            </span>
+            <button onClick={handleRejectRefinement} className="icon-btn" style={{ width: 24, height: 24 }}><X size={14} /></button>
           </div>
-
-          {/* Scrollable content */}
-          <div className="overflow-y-auto px-4 py-3 space-y-3 flex-1">
-            <div>
-              <p className="text-[10px] text-danger font-semibold uppercase tracking-wide mb-1.5">Original</p>
-              <p className="text-xs p-2.5 rounded-lg bg-danger/10 border border-danger/20 text-text-secondary line-through leading-relaxed whitespace-pre-wrap">
+          <div style={{ overflowY: 'auto', padding: 14, flex: 1 }}>
+            <div style={{ marginBottom: 12 }}>
+              <div className="tiny" style={{ fontWeight: 600, color: 'var(--danger-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Original</div>
+              <div className="small" style={{ padding: 10, borderRadius: 'var(--r-md)', background: 'var(--danger-bg)', border: '1px solid rgba(217,83,78,0.2)', textDecoration: 'line-through', color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>
                 {pendingRefinement.originalText}
-              </p>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] text-success font-semibold uppercase tracking-wide mb-1.5">Improved</p>
-              <p className="text-xs p-2.5 rounded-lg bg-success/10 border border-success/20 leading-relaxed whitespace-pre-wrap">
+            <div style={{ marginBottom: 12 }}>
+              <div className="tiny" style={{ fontWeight: 600, color: 'var(--success-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Improved</div>
+              <div className="small" style={{ padding: 10, borderRadius: 'var(--r-md)', background: 'var(--success-bg)', border: '1px solid rgba(63,169,107,0.2)', color: 'var(--text-1)', whiteSpace: 'pre-wrap' }}>
                 {pendingRefinement.improvedText}
-              </p>
+              </div>
             </div>
             {pendingRefinement.reasoning && (
-              <p className="text-[10px] text-text-muted italic leading-relaxed">{pendingRefinement.reasoning}</p>
+              <div className="tiny muted" style={{ fontStyle: 'italic' }}>{pendingRefinement.reasoning}</div>
             )}
           </div>
-
-          {/* Always-visible action buttons */}
-          <div className="flex gap-2 px-4 py-3 border-t border-border shrink-0">
-            <button onClick={handleAcceptRefinement}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-success/20 hover:bg-success/30 text-success text-xs font-semibold transition-colors border border-success/30">
-              <Check className="w-3.5 h-3.5" />
-              Accept Change
+          <div style={{ display: 'flex', gap: 8, padding: '12px 14px', borderTop: '1px solid var(--line-1)' }}>
+            <button onClick={handleAcceptRefinement} className="btn" style={{ flex: 1, justifyContent: 'center', background: 'var(--success-bg)', borderColor: 'rgba(63,169,107,0.3)', color: 'var(--success-400)' }}>
+              <Check size={12} /> Accept
             </button>
-            <button onClick={handleRejectRefinement}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-surface-el hover:bg-danger/10 text-text-muted hover:text-danger text-xs font-semibold transition-colors border border-border">
-              <X className="w-3.5 h-3.5" />
-              Discard
+            <button onClick={handleRejectRefinement} className="btn" style={{ flex: 1, justifyContent: 'center' }}>
+              <X size={12} /> Discard
             </button>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* Extracted term row */
+function KV({ k, v, missing }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gap: 8, padding: '6px 0', borderBottom: '1px dashed var(--line-1)', alignItems: 'center' }}>
+      <div className="small muted">{k}</div>
+      <div className="small" style={{ fontWeight: 500, color: missing ? 'var(--danger-400)' : undefined }}>{missing ? 'Not specified' : v}</div>
     </div>
   );
 }

@@ -1,68 +1,89 @@
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { LayoutDashboard, Briefcase, Workflow, Shield, Settings, LogOut, Scale, FileText, Brain, FileEdit, GitCompare, ClipboardList, Key } from 'lucide-react';
+import {
+  LayoutDashboard, Briefcase, FileText, Shield, Settings, LogOut,
+  FileEdit, Wand2, Library, Users, Sparkles, Workflow, Brain,
+  GitCompare, ClipboardList, Key,
+} from 'lucide-react';
+
+const NAV = [
+  { section: 'Workspace', items: [
+    { to: '/',           label: 'Dashboard',       icon: LayoutDashboard, end: true },
+    { to: '/draft',      label: 'Draft',           icon: Wand2,   badge: 'AI' },
+    { to: '/review',     label: 'Contract Review', icon: Shield },
+    { to: '/matters',    label: 'Matters',         icon: Briefcase, end: true },
+    { to: '/documents',  label: 'Documents',       icon: FileText },
+  ]},
+  { section: 'AI Intelligence', items: [
+    { to: '/intelligence', label: 'Ask AI',     icon: Brain },
+    { to: '/compare',      label: 'Compare',    icon: GitCompare },
+    { to: '/extraction',   label: 'Extraction', icon: Key },
+  ]},
+  { section: 'Manage', items: [
+    { to: '/clause-library', label: 'Clause Library', icon: Library },
+    { to: '/workflows',      label: 'AI Agents',      icon: Workflow },
+    { to: '/settings',       label: 'Settings',        icon: Settings },
+  ]},
+];
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
 
+  const initials = user?.displayName
+    ? user.displayName.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
+    : (user?.email?.[0] || 'U').toUpperCase();
+
   return (
-    <aside className="glass w-60 min-h-screen flex flex-col px-4 py-6">
-      <div className="flex items-center gap-2.5 mb-8 px-2">
-        <Scale className="w-7 h-7 text-primary" />
-        <span className="text-lg font-bold font-display text-text-primary">Legal Partner</span>
+    <aside className="sidebar">
+      <div className="brand">
+        <div className="brand-logo">L</div>
+        <div>
+          <div className="brand-name">Legal Partner</div>
+          <div className="brand-tag">AI drafts. Rules verify.</div>
+        </div>
       </div>
 
-      <nav className="flex-1 space-y-1">
-        <SidebarLink to="/" icon={LayoutDashboard} label="Dashboard" />
-        <SidebarLink to="/matters" icon={Briefcase} label="Matters" />
-        <SidebarLink to="/documents" icon={FileText} label="Documents" />
-
-        <SidebarSection label="AI Intelligence" />
-        <SidebarLink to="/intelligence" icon={Brain} label="Ask AI" />
-        <SidebarLink to="/draft" icon={FileEdit} label="Draft" />
-        <SidebarLink to="/compare" icon={GitCompare} label="Compare" />
-        <SidebarLink to="/review" icon={ClipboardList} label="Review" />
-        <SidebarLink to="/extraction" icon={Key} label="Extraction" />
-
-        <SidebarSection label="Manage" />
-        <SidebarLink to="/workflows" icon={Workflow} label="AI Agents" />
-        <SidebarLink to="/playbooks" icon={Shield} label="Playbooks" />
-        <SidebarLink to="/settings" icon={Settings} label="Settings" />
-      </nav>
-
-      <div className="border-t border-border/50 pt-4 mt-4">
-        <div className="px-3 mb-3">
-          <p className="text-sm font-medium text-text-primary">{user?.displayName || user?.email}</p>
-          <p className="text-xs text-text-muted">{user?.role?.replace('ROLE_', '')}</p>
+      {NAV.map((group) => (
+        <div key={group.section}>
+          <div className="nav-section">{group.section}</div>
+          {group.items.map(it => {
+            const Icon = it.icon;
+            return (
+              <NavLink
+                key={it.to}
+                to={it.to}
+                end={it.end}
+                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+              >
+                <Icon size={16} />
+                <span>{it.label}</span>
+                {it.badge && (
+                  <span className="badge info" style={{ marginLeft: 'auto', height: 18, fontSize: 10 }}>
+                    {it.badge}
+                  </span>
+                )}
+                {it.count && <span className="count">{it.count}</span>}
+              </NavLink>
+            );
+          })}
         </div>
-        <button onClick={logout}
-          className="flex items-center gap-2 px-3 py-2 text-sm text-text-muted hover:text-danger transition-colors w-full rounded-lg hover:bg-surface-el">
-          <LogOut className="w-4 h-4" />
-          Sign Out
+      ))}
+
+      <div className="user-chip">
+        <div className="avatar">{initials}</div>
+        <div className="meta">
+          <div className="name">{user?.displayName || user?.email}</div>
+          <div className="role">{user?.role?.replace('ROLE_', '')}</div>
+        </div>
+        <button
+          onClick={logout}
+          className="icon-btn"
+          title="Sign out"
+          style={{ marginLeft: 'auto', width: 28, height: 28 }}
+        >
+          <LogOut size={14} />
         </button>
       </div>
     </aside>
-  );
-}
-
-function SidebarLink({ to, icon: Icon, label }) {
-  return (
-    <NavLink to={to} end={to === '/matters'}
-      className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-          isActive
-            ? 'bg-primary/10 text-primary'
-            : 'text-text-secondary hover:text-text-primary hover:bg-surface-el'
-        }`
-      }>
-      <Icon className="w-5 h-5" />
-      {label}
-    </NavLink>
-  );
-}
-
-function SidebarSection({ label }) {
-  return (
-    <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wider px-3 pt-4 pb-1">{label}</p>
   );
 }

@@ -2,21 +2,14 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import {
-  Loader2, ArrowRight, CheckCircle2, Clock, AlertTriangle, Users,
-  Brain, Shield, GitPullRequest, FileText
+  Loader2, ArrowRight, ArrowUp, ArrowDown, CheckCircle2, Clock, AlertTriangle, Users,
+  Brain, Shield, GitPullRequest, FileText, Wand2, Upload, Briefcase,
 } from 'lucide-react';
 import api from '../api/client';
-
-const STATUS_COLORS = { IN_PROGRESS: 'text-warning', APPROVED: 'text-success', SENT: 'text-primary' };
-const TABS = [
-  { id: 'ai', label: 'AI Insights', icon: Brain },
-  { id: 'reviews', label: 'Reviews', icon: GitPullRequest },
-];
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState('ai');
   const [reviewData, setReviewData] = useState(null);
   const [aiData, setAiData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -32,269 +25,241 @@ export default function DashboardPage() {
   }, []);
 
   if (loading) return (
-    <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-text-muted" /></div>
+    <div className="page" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+      <Loader2 className="animate-spin" size={24} style={{ color: 'var(--text-3)' }} />
+    </div>
   );
 
   const { needsAction = [], teamActivity = [], recentlyCompleted = [] } = reviewData || {};
   const { highCount = 0, mediumCount = 0, lowCount = 0, unreviewedCount = 0, totalCount = 0, recentFindings = [], matterRiskSummary = [] } = aiData || {};
 
-  // Summary line
   const actionItems = [];
   if (unreviewedCount > 0) actionItems.push(`${unreviewedCount} unreviewed finding${unreviewedCount > 1 ? 's' : ''}`);
   if (needsAction.length > 0) actionItems.push(`${needsAction.length} review${needsAction.length > 1 ? 's' : ''} awaiting action`);
 
+  const displayName = user?.displayName || user?.email?.split('@')[0];
+
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="page">
       {/* Greeting */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold font-display text-text-primary">
-          {getGreeting()}, {user?.displayName || user?.email?.split('@')[0]}
-        </h1>
-        <p className="text-text-muted text-sm mt-1">
-          {actionItems.length > 0
-            ? actionItems.join(' and ') + ' need your attention.'
-            : 'All caught up. No items need your attention right now.'}
-        </p>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">{getGreeting()}, {displayName}.</h1>
+          <div className="page-sub">
+            {actionItems.length > 0
+              ? actionItems.join(' and ') + ' need your attention.'
+              : 'All caught up. No items need your attention right now.'}
+          </div>
+        </div>
+        <div className="row">
+          <button className="btn" onClick={() => navigate('/documents')}>
+            <Upload size={14} /> Upload
+          </button>
+          <button className="btn primary" onClick={() => navigate('/draft')}>
+            <Wand2 size={14} /> New draft
+          </button>
+        </div>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <SummaryCard label="HIGH Risk" value={highCount} color="text-danger" bg="bg-danger/10" icon={AlertTriangle} />
-        <SummaryCard label="MEDIUM Risk" value={mediumCount} color="text-warning" bg="bg-warning/10" icon={Shield} />
-        <SummaryCard label="Unreviewed" value={unreviewedCount} color="text-primary" bg="bg-primary/10" icon={Clock} />
-        <SummaryCard label="Pending Reviews" value={needsAction.length} color="text-warning" bg="bg-warning/10" icon={GitPullRequest} />
+      {/* Stats cards */}
+      <div className="grid-4" style={{ marginBottom: 18 }}>
+        <div className="stat">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="label">HIGH Risk Findings</span>
+            <AlertTriangle size={14} style={{ color: 'var(--text-4)' }} />
+          </div>
+          <div className="value" style={{ color: highCount > 0 ? 'var(--danger-400)' : undefined }}>{highCount}</div>
+          {unreviewedCount > 0 && (
+            <div className="delta down"><ArrowUp size={11} /> {unreviewedCount} unreviewed</div>
+          )}
+        </div>
+        <div className="stat">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="label">MEDIUM Risk</span>
+            <Shield size={14} style={{ color: 'var(--text-4)' }} />
+          </div>
+          <div className="value" style={{ color: mediumCount > 0 ? 'var(--warn-400)' : undefined }}>{mediumCount}</div>
+        </div>
+        <div className="stat">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="label">Pending Reviews</span>
+            <GitPullRequest size={14} style={{ color: 'var(--text-4)' }} />
+          </div>
+          <div className="value">{needsAction.length}</div>
+          {needsAction.length > 0 && (
+            <div className="delta down"><ArrowDown size={11} /> Awaiting action</div>
+          )}
+        </div>
+        <div className="stat">
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="label">Total Findings</span>
+            <Brain size={14} style={{ color: 'var(--text-4)' }} />
+          </div>
+          <div className="value">{totalCount}</div>
+          <div className="delta">
+            <span style={{ color: 'var(--success-400)' }}>{lowCount} low</span>
+          </div>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-border mb-6">
-        {TABS.map(t => {
-          const Icon = t.icon;
-          return (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                tab === t.id ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text-primary'
-              }`}>
-              <Icon className="w-4 h-4" /> {t.label}
+      {/* Main content: matters at risk + activity */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 18 }}>
+        {/* Matters needing attention */}
+        <div className="card">
+          <div className="card-header">
+            <AlertTriangle size={14} style={{ color: 'var(--warn-400)' }} />
+            <h3>Matters Needing Attention</h3>
+            <span className="sub">{matterRiskSummary.length} matters</span>
+            <button className="btn ghost sm" style={{ marginLeft: 'auto' }} onClick={() => navigate('/matters')}>
+              View all <ArrowRight size={12} />
             </button>
-          );
-        })}
-      </div>
-
-      {/* ── AI Insights Tab ──────────────────────────────────────── */}
-      {tab === 'ai' && (
-        <div className="space-y-6">
-          {/* Matters at risk */}
-          {matterRiskSummary.length > 0 && (
-            <Section title="Matters Needing Attention" icon={AlertTriangle} color="text-warning">
-              <div className="space-y-2">
+          </div>
+          {matterRiskSummary.length > 0 ? (
+            <table className="table">
+              <thead>
+                <tr><th>Matter</th><th>High</th><th>Medium</th><th>Low</th></tr>
+              </thead>
+              <tbody>
                 {matterRiskSummary.map(m => (
-                  <div key={m.matterId} onClick={() => navigate(`/matters/${m.matterId}`)}
-                    className="card p-3 flex items-center justify-between cursor-pointer hover:border-primary/30 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <FileText className="w-4 h-4 text-text-muted" />
-                      <span className="text-sm font-medium text-text-primary">{m.matterName}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      {m.high > 0 && <SeverityPill severity="HIGH" count={m.high} />}
-                      {m.medium > 0 && <SeverityPill severity="MEDIUM" count={m.medium} />}
-                      {m.low > 0 && <SeverityPill severity="LOW" count={m.low} />}
-                      <ArrowRight className="w-4 h-4 text-text-muted" />
-                    </div>
-                  </div>
+                  <tr key={m.matterId} onClick={() => navigate(`/matters/${m.matterId}`)}>
+                    <td style={{ fontWeight: 500 }}>{m.matterName}</td>
+                    <td>{m.high > 0 ? <span className="badge high">{m.high}</span> : <span className="muted">0</span>}</td>
+                    <td>{m.medium > 0 ? <span className="badge med">{m.medium}</span> : <span className="muted">0</span>}</td>
+                    <td>{m.low > 0 ? <span className="badge low">{m.low}</span> : <span className="muted">0</span>}</td>
+                  </tr>
                 ))}
-              </div>
-            </Section>
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              No matters with risk findings yet.
+            </div>
           )}
+        </div>
 
-          {/* Recent findings */}
-          <Section title="Recent Findings" icon={Brain} color="text-primary" count={recentFindings.length}>
+        {/* Recent findings feed */}
+        <div className="card">
+          <div className="card-header">
+            <Brain size={14} style={{ color: 'var(--brand-400)' }} />
+            <h3>Recent Findings</h3>
+            <span className="sub">{recentFindings.length}</span>
+          </div>
+          <div style={{ padding: 4 }}>
             {recentFindings.length === 0 ? (
-              <EmptyState text="No AI findings yet. Upload documents and run analysis to see insights." />
+              <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+                No AI findings yet. Upload documents and run analysis.
+              </div>
             ) : (
-              <div className="space-y-2">
-                {recentFindings.map(f => (
-                  <div key={f.id} onClick={() => navigate(`/matters/${f.matterId}`)}
-                    className="card p-3 cursor-pointer hover:border-primary/30 transition-colors">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <SeverityDot severity={f.severity} />
-                          <span className="text-sm font-medium text-text-primary">{f.title}</span>
-                        </div>
-                        <p className="text-xs text-text-secondary line-clamp-2">{f.description}</p>
-                        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-text-muted">
-                          {f.documentName && <span>{f.documentName}</span>}
-                          {f.clauseType && <><span>·</span><span>{f.clauseType.replace(/_/g, ' ')}</span></>}
-                          <span>·</span>
-                          <span>{new Date(f.createdAt).toLocaleDateString()}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                          f.status === 'NEW' ? 'bg-primary/10 text-primary' :
-                          f.status === 'ACCEPTED' ? 'bg-success/10 text-success' :
-                          f.status === 'FLAGGED' ? 'bg-danger/10 text-danger' :
-                          'bg-surface-el text-text-muted'
-                        }`}>{f.status}</span>
-                      </div>
+              recentFindings.map((f, i) => (
+                <div
+                  key={f.id || i}
+                  onClick={() => navigate(`/matters/${f.matterId}`)}
+                  style={{
+                    display: 'flex', gap: 10, padding: '10px 12px', cursor: 'pointer',
+                    borderBottom: i < recentFindings.length - 1 ? '1px solid var(--line-1)' : 'none',
+                  }}
+                >
+                  <div style={{ marginTop: 2 }}>
+                    {f.severity === 'HIGH' && <span style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: 'var(--danger-bg)', color: 'var(--danger-400)', fontSize: 10, fontWeight: 700 }}>!</span>}
+                    {f.severity === 'MEDIUM' && <span style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: 'var(--warn-bg)', color: 'var(--warn-400)', fontSize: 10, fontWeight: 700 }}>!</span>}
+                    {f.severity === 'LOW' && <span style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: 'var(--success-bg)', color: 'var(--success-400)', fontSize: 10, fontWeight: 700 }}>i</span>}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="small" style={{ fontWeight: 500 }}>{f.title}</div>
+                    <div className="tiny muted" style={{ marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.description}</div>
+                    <div className="tiny muted" style={{ marginTop: 4 }}>
+                      {f.documentName && <span>{f.documentName}</span>}
+                      {f.clauseType && <span> &middot; {f.clauseType.replace(/_/g, ' ')}</span>}
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </Section>
-
-          {/* Overall stats */}
-          {totalCount > 0 && (
-            <div className="card p-4">
-              <p className="text-[10px] text-text-muted font-medium mb-3">ALL-TIME FINDINGS</p>
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-4">
-                  <StatItem label="High" value={highCount} color="text-danger" />
-                  <StatItem label="Medium" value={mediumCount} color="text-warning" />
-                  <StatItem label="Low" value={lowCount} color="text-success" />
                 </div>
-                <div className="h-8 w-px bg-border" />
-                <StatItem label="Total" value={totalCount} color="text-text-primary" />
-                <StatItem label="Unreviewed" value={unreviewedCount} color="text-primary" />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Reviews Tab ──────────────────────────────────────────── */}
-      {tab === 'reviews' && (
-        <div className="space-y-6">
-          <Section title="Needs Your Action" icon={AlertTriangle} count={needsAction.length} color="text-warning">
-            {needsAction.length === 0 ? (
-              <EmptyState text="Nothing needs your attention right now." />
-            ) : (
-              needsAction.map(r => <ReviewCard key={r.id} review={r} navigate={navigate} showAction />)
-            )}
-          </Section>
-
-          <Section title="Team Activity" icon={Users} count={teamActivity.length} color="text-primary">
-            {teamActivity.length === 0 ? (
-              <EmptyState text="No active reviews on your matters." />
-            ) : (
-              teamActivity.slice(0, 5).map(r => <ReviewCard key={r.id} review={r} navigate={navigate} />)
-            )}
-          </Section>
-
-          <Section title="Recently Completed" icon={CheckCircle2} count={recentlyCompleted.length} color="text-success">
-            {recentlyCompleted.length === 0 ? (
-              <EmptyState text="No completed reviews yet." />
-            ) : (
-              recentlyCompleted.slice(0, 5).map(r => <ReviewCard key={r.id} review={r} navigate={navigate} completed />)
-            )}
-          </Section>
-        </div>
-      )}
-
-    </div>
-  );
-}
-
-// ── Shared Components ─────────────────────────────────────────────────
-
-function SummaryCard({ label, value, color, bg, icon: Icon }) {
-  return (
-    <div className={`${bg} rounded-xl p-4 flex items-center gap-3`}>
-      <Icon className={`w-5 h-5 ${color} shrink-0`} />
-      <div>
-        <p className={`text-xl font-bold font-display ${color}`}>{value}</p>
-        <p className="text-[10px] text-text-muted font-medium">{label}</p>
-      </div>
-    </div>
-  );
-}
-
-function Section({ title, icon: Icon, count, color, children }) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <Icon className={`w-4 h-4 ${color}`} />
-        <h2 className="text-sm font-semibold text-text-primary font-display">{title}</h2>
-        {count > 0 && (
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium bg-surface-el ${color}`}>{count}</span>
-        )}
-      </div>
-      <div className="space-y-2">{children}</div>
-    </div>
-  );
-}
-
-function ReviewCard({ review: r, navigate, showAction, completed }) {
-  const progress = r.totalStages > 0 ? Math.round((r.currentStageOrder / r.totalStages) * 100) : 0;
-  return (
-    <div onClick={() => navigate(`/matters/${r.matterId}`)}
-      className="card p-4 cursor-pointer hover:border-primary/30 transition-colors">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm font-medium text-text-primary">{r.matterName}</span>
-            {r.documentName && <span className="text-[10px] text-text-muted">· {r.documentName}</span>}
-          </div>
-          <div className="flex items-center gap-2 text-xs text-text-muted">
-            <span>{r.pipelineName}</span>
-            <span>·</span>
-            <span className={completed ? 'text-success' : STATUS_COLORS[r.status] || ''}>
-              {completed ? 'Completed' : r.currentStageName}
-            </span>
-            {r.requiredRole && !completed && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-el">{r.requiredRole}</span>
+              ))
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          {!completed && (
-            <div className="flex items-center gap-1.5">
-              <div className="w-16 h-1.5 bg-surface-el rounded-full overflow-hidden">
-                <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${progress}%` }} />
-              </div>
-              <span className="text-[10px] text-text-muted">{r.currentStageOrder}/{r.totalStages}</span>
-            </div>
-          )}
-          {showAction && <span className="btn-primary text-[10px] px-2 py-1">Review</span>}
-          <ArrowRight className="w-4 h-4 text-text-muted" />
+      </div>
+
+      {/* Quick actions */}
+      <div style={{ marginTop: 18 }} className="grid-3">
+        <div className="card" style={{ padding: 18, cursor: 'pointer' }} onClick={() => navigate('/draft')}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 8,
+            background: 'linear-gradient(135deg, var(--brand-500), var(--teal-500))',
+            display: 'grid', placeItems: 'center', color: 'white', marginBottom: 12,
+          }}>
+            <Wand2 size={18} />
+          </div>
+          <div style={{ fontWeight: 600 }}>Draft a contract</div>
+          <div className="small muted" style={{ marginTop: 4 }}>Generate from curated clause libraries with deterministic rendering.</div>
+        </div>
+        <div className="card" style={{ padding: 18, cursor: 'pointer' }} onClick={() => navigate('/review')}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 8,
+            background: 'var(--warn-bg)', color: 'var(--warn-400)',
+            display: 'grid', placeItems: 'center', marginBottom: 12,
+          }}>
+            <Shield size={18} />
+          </div>
+          <div style={{ fontWeight: 600 }}>Review counterparty paper</div>
+          <div className="small muted" style={{ marginTop: 4 }}>Upload and get risk flags, missing clauses, and per-clause findings.</div>
+        </div>
+        <div className="card" style={{ padding: 18, cursor: 'pointer' }} onClick={() => navigate('/matters')}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 8,
+            background: 'var(--info-bg)', color: 'var(--brand-300)',
+            display: 'grid', placeItems: 'center', marginBottom: 12,
+          }}>
+            <Briefcase size={18} />
+          </div>
+          <div style={{ fontWeight: 600 }}>Open a matter</div>
+          <div className="small muted" style={{ marginTop: 4 }}>Organize documents, drafts, and analyses for a single engagement.</div>
         </div>
       </div>
+
+      {/* Pending reviews */}
+      {needsAction.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div className="card">
+            <div className="card-header">
+              <GitPullRequest size={14} style={{ color: 'var(--warn-400)' }} />
+              <h3>Needs Your Action</h3>
+              <span className="sub">{needsAction.length}</span>
+            </div>
+            <div style={{ padding: 4 }}>
+              {needsAction.map(r => (
+                <div
+                  key={r.id}
+                  onClick={() => navigate(`/matters/${r.matterId}`)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer',
+                    borderBottom: '1px solid var(--line-1)',
+                  }}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="small" style={{ fontWeight: 500 }}>{r.matterName}</div>
+                    <div className="tiny muted">
+                      {r.pipelineName} &middot; {r.currentStageName}
+                      {r.requiredRole && <span className="chip" style={{ marginLeft: 6 }}>{r.requiredRole}</span>}
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap: 8 }}>
+                    <div style={{ width: 60 }}>
+                      <div className="progress-track">
+                        <div className="progress-fill" style={{ width: `${r.totalStages > 0 ? Math.round((r.currentStageOrder / r.totalStages) * 100) : 0}%` }} />
+                      </div>
+                    </div>
+                    <span className="tiny muted">{r.currentStageOrder}/{r.totalStages}</span>
+                    <span className="btn primary sm">Review</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-function SeverityDot({ severity }) {
-  const color = severity === 'HIGH' ? 'text-danger' : severity === 'MEDIUM' ? 'text-warning' : 'text-success';
-  return <span className={`text-sm ${color}`}>{severity === 'HIGH' ? '🔴' : severity === 'MEDIUM' ? '🟡' : '🟢'}</span>;
-}
-
-function SeverityPill({ severity, count }) {
-  const styles = {
-    HIGH: 'bg-danger/10 text-danger',
-    MEDIUM: 'bg-warning/10 text-warning',
-    LOW: 'bg-success/10 text-success',
-  };
-  return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${styles[severity] || ''}`}>
-      {count} {severity}
-    </span>
-  );
-}
-
-function StatItem({ label, value, color }) {
-  return (
-    <div className="text-center">
-      <p className={`text-lg font-bold font-display ${color}`}>{value}</p>
-      <p className="text-[10px] text-text-muted">{label}</p>
-    </div>
-  );
-}
-
-function EmptyState({ text }) {
-  return <p className="text-text-muted text-xs text-center py-6">{text}</p>;
-}
-
 
 function getGreeting() {
   const h = new Date().getHours();
