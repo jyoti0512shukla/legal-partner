@@ -64,13 +64,14 @@ const CONDITION_PRESETS = [
   { label: 'Only if Risk is LOW', condition: { field: 'RISK_ASSESSMENT.overallRisk', op: 'eq', value: 'LOW' } },
 ];
 
-function StepPalette({ onAdd }) {
+function StepPalette({ onAdd, usedTypes = [] }) {
+  const available = STEP_DEFS.filter(s => !usedTypes.includes(s.type));
   return (
     <div className="card h-fit">
       <h3 className="text-sm font-semibold mb-1">Step Palette</h3>
-      <p className="text-xs text-text-muted mb-4">Click to add to workflow</p>
+      <p className="text-xs text-text-muted mb-4">{available.length > 0 ? 'Click to add to workflow' : 'All steps added'}</p>
       <div className="space-y-2">
-        {STEP_DEFS.map(step => {
+        {available.map(step => {
           const Icon = step.icon;
           return (
             <button
@@ -378,7 +379,7 @@ export default function WorkflowBuilderPage() {
 
       <div className="grid grid-cols-3 gap-6">
         {/* Step palette */}
-        <StepPalette onAdd={addStep} />
+        <StepPalette onAdd={addStep} usedTypes={steps.map(s => s.type)} />
 
         {/* Builder canvas */}
         <div className="col-span-2 space-y-4">
