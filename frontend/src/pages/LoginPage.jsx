@@ -132,8 +132,8 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-4">
             <Scale className="w-7 h-7 text-gold" />
           </div>
-          <h1 className="text-2xl font-bold text-text-primary">Legal Partner</h1>
-          <p className="text-text-muted text-sm mt-1">Private Contract Intelligence</p>
+          <h1 className="text-2xl font-bold text-text-primary">ContractIQ</h1>
+          <p className="text-text-muted text-sm mt-1">AI-Powered Contract Intelligence</p>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <input

@@ -82,7 +82,7 @@ export default function AcceptInvitePage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg p-4">
       <div className="glass rounded-xl p-8 max-w-md w-full">
-        <h1 className="text-xl font-bold text-text-primary mb-1">Welcome to Legal Partner</h1>
+        <h1 className="text-xl font-bold text-text-primary mb-1">Welcome to ContractIQ</h1>
         <p className="text-text-muted text-sm mb-6">
           Set your password to activate your account{email ? ` for ${email}` : ''}.
         </p>
