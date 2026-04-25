@@ -44,7 +44,14 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <NavLink to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
-        <div className="brand-logo">C</div>
+        <svg width="32" height="32" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+          <path d="M40 12 L46 12 L52 18 L52 22 M52 22 L52 14 L14 14 L14 50 L52 50 L52 42"
+                fill="none" stroke="#3a86d8" strokeWidth="6" strokeLinejoin="miter" strokeLinecap="square"/>
+          <path d="M46 12 L52 18 L46 18 Z" fill="#3a86d8" fillOpacity="0.45"/>
+          <circle cx="48" cy="32" r="5" fill="#3a86d8"/>
+          <circle cx="48" cy="32" r="1.8" fill="#0b0f14"/>
+          <path d="M43 32 L36 32" stroke="#3a86d8" strokeWidth="2.2" strokeLinecap="round"/>
+        </svg>
         <div>
           <div className="brand-name">ContractIQ</div>
           <div className="brand-tag">{orgName || 'AI-Powered Contract Intelligence'}</div>
