@@ -9,15 +9,15 @@ import {
 const NAV = [
   { section: 'Workspace', items: [
     { to: '/',           label: 'Dashboard',       icon: LayoutDashboard, end: true },
-    { to: '/draft',      label: 'Draft',           icon: Wand2,   badge: 'AI' },
-    { to: '/review',     label: 'Contract Review', icon: Shield },
     { to: '/matters',    label: 'Matters',         icon: Briefcase, end: true },
     { to: '/documents',  label: 'Documents',       icon: FileText },
   ]},
   { section: 'AI Intelligence', items: [
-    { to: '/intelligence', label: 'Ask AI',     icon: Brain },
-    { to: '/compare',      label: 'Compare',    icon: GitCompare },
-    { to: '/extraction',   label: 'Extraction', icon: Key },
+    { to: '/draft',        label: 'Draft',           icon: Wand2, badge: 'AI' },
+    { to: '/review',       label: 'Contract Review', icon: Shield },
+    { to: '/intelligence', label: 'Ask AI',          icon: Brain },
+    { to: '/compare',      label: 'Compare',         icon: GitCompare },
+    { to: '/extraction',   label: 'Extraction',      icon: Key },
   ]},
   { section: 'Manage', items: [
     { to: '/clause-library', label: 'Clause Library', icon: Library },
