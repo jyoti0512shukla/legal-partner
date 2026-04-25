@@ -54,7 +54,7 @@ export default function IntelligencePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-2">Ask AI</h1>
+      <h1 className="text-2xl font-bold mb-2">Ask Cognita</h1>
       <p className="text-text-muted text-sm mb-6">Select a contract, ask any question. Answers are grounded in that contract only.</p>
 
       <div className="card mb-6 space-y-4">

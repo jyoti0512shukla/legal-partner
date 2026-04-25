@@ -14,10 +14,10 @@ const NAV = [
     { to: '/matters',    label: 'Matters',         icon: Briefcase, end: true },
     { to: '/documents',  label: 'Documents',       icon: FileText },
   ]},
-  { section: 'AI Intelligence', items: [
+  { section: 'CognitaAI', items: [
     { to: '/draft',        label: 'Draft',           icon: Wand2, badge: 'AI' },
     { to: '/review',       label: 'Contract Review', icon: Shield },
-    { to: '/intelligence', label: 'Ask AI',          icon: Brain },
+    { to: '/intelligence', label: 'Ask Cognita',     icon: Brain },
     { to: '/compare',      label: 'Compare',         icon: GitCompare },
     { to: '/extraction',   label: 'Extraction',      icon: Key },
   ]},
