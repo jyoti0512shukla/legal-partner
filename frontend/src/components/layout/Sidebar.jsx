@@ -43,13 +43,13 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="brand">
+      <NavLink to="/" className="brand" style={{ textDecoration: 'none', color: 'inherit' }}>
         <div className="brand-logo">C</div>
         <div>
           <div className="brand-name">ContractIQ</div>
           <div className="brand-tag">{orgName || 'AI-Powered Contract Intelligence'}</div>
         </div>
-      </div>
+      </NavLink>
 
       {NAV.map((group) => (
         <div key={group.section}>
