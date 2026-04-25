@@ -175,41 +175,27 @@ export default function DashboardPage() {
             <h3>Getting Started</h3>
           </div>
           <div style={{ padding: 16 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ width: 24, height: 24, borderRadius: '50%', background: counts.documents > 0 ? 'var(--success-bg)' : 'var(--bg-3)', color: counts.documents > 0 ? 'var(--success-400)' : 'var(--text-4)', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                  {counts.documents > 0 ? '✓' : '1'}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {[
+                { done: counts.documents > 0, label: 'Upload a contract', desc: 'Upload PDF, DOCX, or HTML contracts for AI analysis', to: '/documents' },
+                { done: counts.drafts > 0, label: 'Generate your first draft', desc: 'Describe a deal and let AI draft a complete contract', to: '/draft' },
+                { done: false, label: 'Run risk assessment', desc: '104 structured questions identify gaps and risks', to: '/review' },
+                { done: counts.matters > 0, label: 'Organize into matters', desc: 'Group documents, drafts, and analyses by case', to: '/matters' },
+              ].map((step, i) => (
+                <div key={i} onClick={() => navigate(step.to)}
+                     style={{ display: 'flex', gap: 12, alignItems: 'flex-start', cursor: 'pointer', padding: '8px 6px', borderRadius: 6, transition: 'background 0.15s' }}
+                     onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-3)'}
+                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <div style={{ width: 24, height: 24, borderRadius: '50%', background: step.done ? 'var(--success-bg)' : 'var(--bg-3)', color: step.done ? 'var(--success-400)' : 'var(--text-4)', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                    {step.done ? '✓' : i + 1}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="small" style={{ fontWeight: 500, color: step.done ? 'var(--text-2)' : 'var(--text-1)' }}>{step.label}</div>
+                    <div className="tiny muted">{step.desc}</div>
+                  </div>
+                  <ArrowRight size={12} style={{ color: 'var(--text-4)', marginTop: 4, flexShrink: 0 }} />
                 </div>
-                <div>
-                  <div className="small" style={{ fontWeight: 500, color: counts.documents > 0 ? 'var(--text-2)' : 'var(--text-1)' }}>Upload a contract</div>
-                  <div className="tiny muted">Upload PDF, DOCX, or HTML contracts for AI analysis</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ width: 24, height: 24, borderRadius: '50%', background: counts.drafts > 0 ? 'var(--success-bg)' : 'var(--bg-3)', color: counts.drafts > 0 ? 'var(--success-400)' : 'var(--text-4)', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                  {counts.drafts > 0 ? '✓' : '2'}
-                </div>
-                <div>
-                  <div className="small" style={{ fontWeight: 500, color: counts.drafts > 0 ? 'var(--text-2)' : 'var(--text-1)' }}>Generate your first draft</div>
-                  <div className="tiny muted">Describe a deal and let AI draft a complete contract</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--bg-3)', color: 'var(--text-4)', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>3</div>
-                <div>
-                  <div className="small" style={{ fontWeight: 500 }}>Run risk assessment</div>
-                  <div className="tiny muted">104 structured questions identify gaps and risks</div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                <div style={{ width: 24, height: 24, borderRadius: '50%', background: counts.matters > 0 ? 'var(--success-bg)' : 'var(--bg-3)', color: counts.matters > 0 ? 'var(--success-400)' : 'var(--text-4)', display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-                  {counts.matters > 0 ? '✓' : '4'}
-                </div>
-                <div>
-                  <div className="small" style={{ fontWeight: 500, color: counts.matters > 0 ? 'var(--text-2)' : 'var(--text-1)' }}>Organize into matters</div>
-                  <div className="tiny muted">Group documents, drafts, and analyses by case</div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
         </div>
