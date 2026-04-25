@@ -9,6 +9,26 @@ import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
 /* ── Shared helpers ──────────────────────────────────────────────── */
 
+function timeAgo(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  const now = new Date();
+  const diffMs = now - d;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} minute${mins > 1 ? 's' : ''} ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs > 1 ? 's' : ''} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+}
+
+function SourceBadge({ source }) {
+  if (source === 'DRAFT_ASYNC') return <span className="badge" style={{ fontSize: 10, padding: '1px 6px' }}>Draft</span>;
+  if (source === 'CLOUD' || source === 'IMPORT') return <span className="badge" style={{ fontSize: 10, padding: '1px 6px' }}>Imported</span>;
+  return <span className="badge low" style={{ fontSize: 10, padding: '1px 6px' }}>Uploaded</span>;
+}
+
 function RiskBadge({ level }) {
   const kind = level?.toLowerCase() === 'high' ? 'high' : level?.toLowerCase() === 'medium' ? 'med' : 'low';
   return <span className={`badge ${kind}`}>{level}</span>;
@@ -80,7 +100,7 @@ function DrilldownPanel({ data }) {
 
 /* ── Tab 1: Risk Assessment ─────────────────────────────────────── */
 
-function RiskTab({ docId, result, setResult, loading, setLoading, error, setError, cached }) {
+function RiskTab({ docId, result, setResult, loading, setLoading, error, setError, cached, setCached }) {
   const [drilldowns, setDrilldowns] = useState({});
   const [expanded, setExpanded] = useState({});
 
@@ -106,11 +126,12 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
     }
   };
 
-  const run = async () => {
+  const run = async (regenerate = false) => {
     setLoading(true); setError(''); setResult(null); setDrilldowns({}); setExpanded({});
     try {
-      const res = await api.post(`/ai/risk-assessment/${docId}`);
+      const res = await api.post(`/ai/risk-assessment/${docId}${regenerate ? '?regenerate=true' : ''}`);
       setResult(res.data);
+      setCached(!!res.data.cached);
       const initialExpanded = {};
       (res.data.categories || []).forEach(c => { if (c.rating === 'HIGH') initialExpanded[c.name] = true; });
       setExpanded(initialExpanded);
@@ -119,6 +140,26 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
       setError(e.response?.data?.message || 'Assessment failed');
     } finally { setLoading(false); }
   };
+
+  // Auto-load cached result on mount
+  useEffect(() => {
+    if (!docId) { setResult(null); return; }
+    setResult(null); setError(''); setCached(false);
+    api.post(`/ai/risk-assessment/${docId}`)
+      .then(r => {
+        if (r.data?.cached) {
+          setResult(r.data);
+          setCached(true);
+          // Auto-expand HIGH categories
+          const initialExpanded = {};
+          (r.data.categories || []).forEach(c => { if (c.rating === 'HIGH') initialExpanded[c.name] = true; });
+          setExpanded(initialExpanded);
+          (r.data.categories || []).filter(c => c.rating === 'HIGH').forEach(cat => fireDrilldown(cat));
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docId]);
 
   if (!docId) return <EmptyPrompt icon={ShieldAlert} text="Select a document above to assess its risk." />;
 
@@ -129,16 +170,24 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
   return (
     <div>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        {cached && !loading && (
+        {cached && !loading && result?.generatedAt && (
           <span className="tiny muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Clock size={12} /> Cached result -- click to re-analyse
+            <Clock size={12} /> Analysed {timeAgo(result.generatedAt)}
           </span>
         )}
-        <div style={{ marginLeft: 'auto' }}>
-          <button onClick={run} disabled={loading} className="btn primary">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <ShieldAlert size={14} />}
-            {loading ? 'Analysing...' : cached ? 'Re-analyse' : 'Run Risk Assessment'}
-          </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {result && (
+            <button onClick={() => run(true)} disabled={loading} className="btn">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Re-analyse
+            </button>
+          )}
+          {!result && (
+            <button onClick={() => run(false)} disabled={loading} className="btn primary">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <ShieldAlert size={14} />}
+              {loading ? 'Analysing...' : 'Run Risk Assessment'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -341,16 +390,32 @@ function SummaryTab({ docId, result, setResult, loading, setLoading, error, setE
 
 const STATUS_ORDER = { MISSING: 0, WEAK: 1, PRESENT: 2 };
 
-function ChecklistTab({ docId, result, setResult, loading, setLoading, error, setError, cached }) {
-  const run = async () => {
+function ChecklistTab({ docId, result, setResult, loading, setLoading, error, setError, cached, setCached }) {
+  const run = async (regenerate = false) => {
     setLoading(true); setError(''); setResult(null);
     try {
-      const res = await api.post('/review', { documentId: docId });
+      const res = await api.post(`/review${regenerate ? '?regenerate=true' : ''}`, { documentId: docId });
       setResult(res.data);
+      setCached(!!res.data.cached);
     } catch (e) {
       setError(e.response?.data?.message || 'Review failed');
     } finally { setLoading(false); }
   };
+
+  // Auto-load cached result on mount
+  useEffect(() => {
+    if (!docId) { setResult(null); return; }
+    setResult(null); setError(''); setCached(false);
+    api.post('/review', { documentId: docId })
+      .then(r => {
+        if (r.data?.cached) {
+          setResult(r.data);
+          setCached(true);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docId]);
 
   if (!docId) return <EmptyPrompt icon={ClipboardList} text="Select a document above to run a clause checklist." />;
 
@@ -361,16 +426,24 @@ function ChecklistTab({ docId, result, setResult, loading, setLoading, error, se
   return (
     <div>
       <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        {cached && !loading && (
+        {cached && !loading && result?.generatedAt && (
           <span className="tiny muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Clock size={12} /> Cached result -- click to re-run
+            <Clock size={12} /> Reviewed {timeAgo(result.generatedAt)}
           </span>
         )}
-        <div style={{ marginLeft: 'auto' }}>
-          <button onClick={run} disabled={loading} className="btn primary">
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
-            {loading ? 'Reviewing...' : cached ? 'Re-run Checklist' : 'Run Clause Checklist'}
-          </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {result && (
+            <button onClick={() => run(true)} disabled={loading} className="btn">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Re-run Checklist
+            </button>
+          )}
+          {!result && (
+            <button onClick={() => run(false)} disabled={loading} className="btn primary">
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
+              {loading ? 'Reviewing...' : 'Run Clause Checklist'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -550,7 +623,8 @@ const TABS = [
 ];
 
 export default function ContractReviewPage() {
-  const [docs, setDocs] = useState([]);
+  const [grouped, setGrouped] = useState(null);
+  const [allDocs, setAllDocs] = useState([]);
   const [docId, setDocId] = useState('');
   const [tab, setTab] = useState('summary');
 
@@ -572,7 +646,21 @@ export default function ContractReviewPage() {
   const [checklistCached, setChecklistCached] = useState(false);
 
   useEffect(() => {
-    api.get('/documents?size=100').then(r => setDocs(r.data.content || [])).catch(() => {});
+    api.get('/documents/grouped').then(r => {
+      setGrouped(r.data);
+      // Flatten all docs for lookups
+      const flat = [];
+      (r.data.matters || []).forEach(m => (m.documents || []).forEach(d => flat.push(d)));
+      (r.data.unassigned || []).forEach(d => flat.push(d));
+      (r.data.drafts || []).forEach(d => flat.push(d));
+      setAllDocs(flat);
+    }).catch(() => {
+      // Fallback to flat list
+      api.get('/documents?size=100').then(r => {
+        const docs = r.data.content || [];
+        setAllDocs(docs);
+      }).catch(() => {});
+    });
   }, []);
 
   useEffect(() => {
@@ -581,10 +669,7 @@ export default function ContractReviewPage() {
     setSummaryResult(null); setSummaryError('');
   }, [docId]);
 
-  const handleRiskResult = (result) => { setRiskResult(result); setRiskCached(false); };
-  const handleChecklistResult = (result) => { setChecklistResult(result); setChecklistCached(false); };
-
-  const selectedDoc = docs.find(d => d.id === docId);
+  const selectedDoc = allDocs.find(d => d.id === docId);
 
   return (
     <div className="page">
@@ -617,15 +702,57 @@ export default function ContractReviewPage() {
             value={docId}
             onChange={e => setDocId(e.target.value)}
             className="select"
-            style={{ maxWidth: 320, minWidth: 200 }}
+            style={{ maxWidth: 360, minWidth: 220 }}
           >
             <option value="">Choose a contract...</option>
-            {docs.map(d => (
-              <option key={d.id} value={d.id}>
-                {d.fileName}{d.clientName ? ` -- ${d.clientName}` : ''}
-              </option>
-            ))}
+            {grouped ? (
+              <>
+                {allDocs.length > 0 && (
+                  <optgroup label="All Documents">
+                    {allDocs.map(d => (
+                      <option key={`all-${d.id}`} value={d.id}>
+                        {d.fileName}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {(grouped.matters || []).map(m => (
+                  <optgroup key={m.matterId} label={m.matterName}>
+                    {(m.documents || []).map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.fileName}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                {(grouped.unassigned || []).length > 0 && (
+                  <optgroup label="Unassigned">
+                    {grouped.unassigned.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.fileName}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {(grouped.drafts || []).length > 0 && (
+                  <optgroup label="My Drafts">
+                    {grouped.drafts.map(d => (
+                      <option key={d.id} value={d.id}>
+                        {d.fileName}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </>
+            ) : (
+              allDocs.map(d => (
+                <option key={d.id} value={d.id}>
+                  {d.fileName}
+                </option>
+              ))
+            )}
           </select>
+          {selectedDoc && <SourceBadge source={selectedDoc.source} />}
         </div>
       </div>
 
@@ -661,24 +788,26 @@ export default function ContractReviewPage() {
         <RiskTab
           docId={docId}
           result={riskResult}
-          setResult={handleRiskResult}
+          setResult={setRiskResult}
           loading={riskLoading}
           setLoading={setRiskLoading}
           error={riskError}
           setError={setRiskError}
           cached={riskCached}
+          setCached={setRiskCached}
         />
       </div>
       <div style={{ display: tab === 'checklist' ? 'block' : 'none' }}>
         <ChecklistTab
           docId={docId}
           result={checklistResult}
-          setResult={handleChecklistResult}
+          setResult={setChecklistResult}
           loading={checklistLoading}
           setLoading={setChecklistLoading}
           error={checklistError}
           setError={setChecklistError}
           cached={checklistCached}
+          setCached={setChecklistCached}
         />
       </div>
     </div>

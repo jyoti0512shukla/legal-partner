@@ -146,6 +146,20 @@ public class DocumentMetadata {
     @Column(name = "summary_generated_at")
     private Instant summaryGeneratedAt;
 
+    // ── Cached AI risk assessment ──
+    @Column(name = "risk_assessment_json", columnDefinition = "TEXT")
+    private String riskAssessmentJson;
+
+    @Column(name = "risk_assessment_at")
+    private Instant riskAssessmentAt;
+
+    // ── Cached AI extraction / checklist ──
+    @Column(name = "extraction_json", columnDefinition = "TEXT")
+    private String extractionJson;
+
+    @Column(name = "extraction_at")
+    private Instant extractionAt;
+
     // ── Anonymization (client-confidentiality layer) ──
     /** Raw→synthetic map of entities substituted at ingest, JSON-encoded. Encrypted at rest by the service layer. */
     @Column(name = "anonymization_map_json", columnDefinition = "TEXT")

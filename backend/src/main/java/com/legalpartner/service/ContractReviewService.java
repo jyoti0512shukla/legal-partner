@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
 
 @Service
@@ -29,10 +30,24 @@ public class ContractReviewService {
     private final DocumentFullTextRetriever fullTextRetriever;
     private final VllmGuidedClient vllmClient;
     private final LegalSystemConfig legalSystemConfig;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ContractReviewResult review(ContractReviewRequest request, String username) {
+        return review(request, username, false);
+    }
+
+    public ContractReviewResult review(ContractReviewRequest request, String username, boolean regenerate) {
         DocumentMetadata doc = documentRepository.findById(request.documentId())
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + request.documentId()));
+
+        // Return cached result if available and regenerate not requested
+        if (!regenerate && doc.getExtractionJson() != null && !doc.getExtractionJson().isBlank()) {
+            try {
+                return objectMapper.readValue(doc.getExtractionJson(), ContractReviewResult.class);
+            } catch (Exception e) {
+                log.warn("Failed to deserialize cached checklist for doc {}: {}", request.documentId(), e.getMessage());
+            }
+        }
 
         // Full document — checklist must see every clause to detect what's missing
         String context = fullTextRetriever.retrieveFullText(doc.getId());
@@ -93,11 +108,22 @@ public class ContractReviewService {
 
         String overallRisk = computeOverallRisk(clauses);
 
-        return new ContractReviewResult(
+        ContractReviewResult result = new ContractReviewResult(
                 doc.getFileName(), overallRisk,
                 (int) present, (int) missing, (int) weak,
                 clauses, criticalMissing, recommendations
         );
+
+        // Cache the result on the entity (extractionJson = checklist cache)
+        try {
+            doc.setExtractionJson(objectMapper.writeValueAsString(result));
+            doc.setExtractionAt(java.time.Instant.now());
+            documentRepository.save(doc);
+        } catch (Exception e) {
+            log.warn("Failed to cache checklist for doc {}: {}", request.documentId(), e.getMessage());
+        }
+
+        return result;
     }
 
     // Human-readable names for the 12 canonical CLAUSE_IDs

@@ -287,9 +287,18 @@ public class AiService {
         return results;
     }
 
-    public RiskAssessmentResult assessRisk(UUID documentId, String username) {
-        documentRepository.findById(documentId)
+    public RiskAssessmentResult assessRisk(UUID documentId, String username, boolean regenerate) {
+        DocumentMetadata doc = documentRepository.findById(documentId)
                 .orElseThrow(() -> new NoSuchElementException("Document not found: " + documentId));
+
+        // Return cached result if available and regenerate not requested
+        if (!regenerate && doc.getRiskAssessmentJson() != null && !doc.getRiskAssessmentJson().isBlank()) {
+            try {
+                return objectMapper.readValue(doc.getRiskAssessmentJson(), RiskAssessmentResult.class);
+            } catch (Exception e) {
+                log.warn("Failed to deserialize cached risk assessment for doc {}: {}", documentId, e.getMessage());
+            }
+        }
 
         // Risk assessment uses the BATCHED pipeline which analyzes each clause
         // individually (4K chars per clause). It only needs the full text for
@@ -306,54 +315,75 @@ public class AiService {
 
         // BATCHED APPROACH (3 focused passes) — eliminates hallucinations from single big prompt.
         // Falls back to legacy single-call approach if batched approach fails.
+        RiskAssessmentResult result = null;
         try {
             RiskAssessmentResult batched = assessRiskBatched(context);
             if (!batched.categories().isEmpty()) {
                 log.info("[prompt={}] batched risk assessment succeeded with {} categories",
                         PromptTemplates.PROMPT_VERSION, batched.categories().size());
-                return batched;
+                result = batched;
+            } else {
+                log.warn("[prompt={}] batched risk assessment returned no categories — falling back to single-call", PromptTemplates.PROMPT_VERSION);
             }
-            log.warn("[prompt={}] batched risk assessment returned no categories — falling back to single-call", PromptTemplates.PROMPT_VERSION);
         } catch (Exception e) {
             log.warn("[prompt={}] batched risk assessment failed: {} — falling back to single-call",
                     PromptTemplates.PROMPT_VERSION, e.getMessage());
         }
 
-        String guidedPrompt = String.format(PromptTemplates.RISK_USER_GUIDED, context);
+        if (result == null) {
+            String guidedPrompt = String.format(PromptTemplates.RISK_USER_GUIDED, context);
 
-        // Primary: guided_json — vLLM+Outlines physically constrains tokens to schema.
-        com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
-                legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM_GUIDED), guidedPrompt, StructuredSchemas.RISK_SCHEMA, 800);
+            // Primary: guided_json — vLLM+Outlines physically constrains tokens to schema.
+            com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
+                    legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM_GUIDED), guidedPrompt, StructuredSchemas.RISK_SCHEMA, 800);
 
-        log.info("[prompt={}] guided_json node: {}",
-                PromptTemplates.PROMPT_VERSION,
-                json.has("overall_risk") ? "overall_risk+categories" : (json.size() > 0 ? json.fieldNames().next() : "empty"));
+            log.info("[prompt={}] guided_json node: {}",
+                    PromptTemplates.PROMPT_VERSION,
+                    json.has("overall_risk") ? "overall_risk+categories" : (json.size() > 0 ? json.fieldNames().next() : "empty"));
 
-        RiskAssessmentResult guidedResult = parseRiskJson(json);
-        if (!guidedResult.categories().isEmpty()) return guidedResult;
+            RiskAssessmentResult guidedResult = parseRiskJson(json);
+            if (!guidedResult.categories().isEmpty()) {
+                result = guidedResult;
+            } else {
+                // guided_json returned empty — fall back to raw-completions CSV
+                log.info("[prompt={}] guided_json returned no categories — falling back to CSV completions", PromptTemplates.PROMPT_VERSION);
+                String csvPrompt = String.format(PromptTemplates.RISK_USER, documentId, context);
+                String rawText = stripResponsePrefix(
+                        vllmClient.generateText(legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM), csvPrompt, "OVERALL=", 150));
+                log.info("[prompt={}] CSV fallback raw length={}, preview={}", PromptTemplates.PROMPT_VERSION,
+                        rawText.length(), rawText.substring(0, Math.min(200, rawText.length())).replace('\n', ' '));
+                RiskAssessmentResult csvResult = parseRiskCsv(rawText);
+                if (!csvResult.categories().isEmpty()) {
+                    result = csvResult;
+                } else {
+                    RiskAssessmentResult lineResult = parseRiskLines(rawText);
+                    if (!lineResult.categories().isEmpty()) {
+                        result = lineResult;
+                    } else {
+                        // Last resort: ask for prose analysis and run through proximity scanner
+                        log.info("[prompt={}] all structured formats failed — trying prose fallback", PromptTemplates.PROMPT_VERSION);
+                        String prosePrompt = "Analyze the risk in this contract. For each of these categories — " +
+                                "Liability, Indemnity, Termination, IP Rights, Confidentiality, Governing Law, Force Majeure — " +
+                                "state whether the risk is HIGH, MEDIUM, or LOW and briefly explain why.\n\nContract:\n" + context;
+                        String prose = stripResponsePrefix(vllmClient.generateProse(legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM), prosePrompt, 400));
+                        log.info("[prompt={}] prose fallback length={}, preview={}", PromptTemplates.PROMPT_VERSION,
+                                prose.length(), prose.substring(0, Math.min(200, prose.length())).replace('\n', ' '));
+                        result = parseRiskLines(prose);
+                    }
+                }
+            }
+        }
 
-        // guided_json returned empty — fall back to raw-completions CSV
-        log.info("[prompt={}] guided_json returned no categories — falling back to CSV completions", PromptTemplates.PROMPT_VERSION);
-        String csvPrompt = String.format(PromptTemplates.RISK_USER, documentId, context);
-        String rawText = stripResponsePrefix(
-                vllmClient.generateText(legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM), csvPrompt, "OVERALL=", 150));
-        log.info("[prompt={}] CSV fallback raw length={}, preview={}", PromptTemplates.PROMPT_VERSION,
-                rawText.length(), rawText.substring(0, Math.min(200, rawText.length())).replace('\n', ' '));
-        RiskAssessmentResult csvResult = parseRiskCsv(rawText);
-        if (!csvResult.categories().isEmpty()) return csvResult;
+        // Cache the result on the entity
+        try {
+            doc.setRiskAssessmentJson(objectMapper.writeValueAsString(result));
+            doc.setRiskAssessmentAt(java.time.Instant.now());
+            documentRepository.save(doc);
+        } catch (Exception e) {
+            log.warn("Failed to cache risk assessment for doc {}: {}", documentId, e.getMessage());
+        }
 
-        RiskAssessmentResult lineResult = parseRiskLines(rawText);
-        if (!lineResult.categories().isEmpty()) return lineResult;
-
-        // Last resort: ask for prose analysis and run through proximity scanner
-        log.info("[prompt={}] all structured formats failed — trying prose fallback", PromptTemplates.PROMPT_VERSION);
-        String prosePrompt = "Analyze the risk in this contract. For each of these categories — " +
-                "Liability, Indemnity, Termination, IP Rights, Confidentiality, Governing Law, Force Majeure — " +
-                "state whether the risk is HIGH, MEDIUM, or LOW and briefly explain why.\n\nContract:\n" + context;
-        String prose = stripResponsePrefix(vllmClient.generateProse(legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM), prosePrompt, 400));
-        log.info("[prompt={}] prose fallback length={}, preview={}", PromptTemplates.PROMPT_VERSION,
-                prose.length(), prose.substring(0, Math.min(200, prose.length())).replace('\n', ' '));
-        return parseRiskLines(prose);
+        return result;
     }
 
     // ── Structured risk assessment (question-based) ──────────────────────────

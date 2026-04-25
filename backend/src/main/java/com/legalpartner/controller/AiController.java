@@ -393,8 +393,33 @@ public class AiController {
     }
 
     @PostMapping("/risk-assessment/{docId}")
-    public RiskAssessmentResult riskAssessment(@PathVariable UUID docId, Authentication auth) {
-        return aiService.assessRisk(docId, auth.getName());
+    public java.util.Map<String, Object> riskAssessment(
+            @PathVariable UUID docId,
+            @RequestParam(value = "regenerate", defaultValue = "false") boolean regenerate,
+            Authentication auth) {
+        DocumentMetadata doc = documentRepository.findById(docId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Document not found"));
+
+        // Check if we can return cached result before calling service
+        boolean wasCached = !regenerate && doc.getRiskAssessmentJson() != null && !doc.getRiskAssessmentJson().isBlank();
+
+        RiskAssessmentResult result = aiService.assessRisk(docId, auth.getName(), regenerate);
+
+        // Re-read the doc to get the latest generatedAt after a fresh run
+        if (!wasCached) {
+            doc = documentRepository.findById(docId).orElse(doc);
+        }
+
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("overallRisk", result.overallRisk());
+        out.put("categories", result.categories());
+        out.put("riskScore", result.riskScore());
+        out.put("clauseResults", result.clauseResults());
+        out.put("missingClauses", result.missingClauses());
+        out.put("keyFindings", result.keyFindings());
+        out.put("cached", wasCached);
+        out.put("generatedAt", doc.getRiskAssessmentAt() != null ? doc.getRiskAssessmentAt().toString() : null);
+        return out;
     }
 
     @PostMapping("/risk-drilldown/{docId}")
