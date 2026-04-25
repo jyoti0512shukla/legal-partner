@@ -22,6 +22,7 @@ const NAV = [
     { to: '/extraction',   label: 'Extraction',      icon: Key },
   ]},
   { section: 'Manage', items: [
+    { to: '/playbooks',     label: 'Playbooks',       icon: ClipboardList },
     { to: '/clause-library', label: 'Clause Library', icon: Library },
     { to: '/workflows',      label: 'AI Agents',      icon: Workflow },
     { to: '/settings',       label: 'Settings',        icon: Settings },
