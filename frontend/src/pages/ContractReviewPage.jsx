@@ -382,185 +382,6 @@ function SummaryTab({ docId, result, setResult, loading, setLoading, error, setE
   );
 }
 
-/* ── Tab 3: Clause Checklist ────────────────────────────────────── */
-
-const STATUS_ORDER = { MISSING: 0, WEAK: 1, PRESENT: 2 };
-
-function ChecklistTab({ docId, result, setResult, loading, setLoading, error, setError, cached, setCached }) {
-  const run = async (regenerate = false) => {
-    setLoading(true); setError(''); setResult(null);
-    try {
-      const res = await api.post(`/review${regenerate ? '?regenerate=true' : ''}`, { documentId: docId });
-      setResult(res.data);
-      setCached(!!res.data.cached);
-    } catch (e) {
-      setError(e.response?.data?.message || 'Review failed');
-    } finally { setLoading(false); }
-  };
-
-  // Auto-load cached result on mount
-  useEffect(() => {
-    if (!docId) { setResult(null); return; }
-    setResult(null); setError(''); setCached(false);
-    api.post('/review', { documentId: docId })
-      .then(r => {
-        if (r.data?.cached) {
-          setResult(r.data);
-          setCached(true);
-        }
-      })
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId]);
-
-  if (!docId) return <EmptyPrompt icon={ClipboardList} text="Select a document above to run a clause checklist." />;
-
-  const sorted = result?.clauses
-    ? [...result.clauses].sort((a, b) => (STATUS_ORDER[a.status] ?? 2) - (STATUS_ORDER[b.status] ?? 2))
-    : [];
-
-  return (
-    <div>
-      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 16 }}>
-        {cached && !loading && result?.generatedAt && (
-          <span className="tiny muted" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Clock size={12} /> Reviewed {timeAgo(result.generatedAt)}
-          </span>
-        )}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {result && (
-            <button onClick={() => run(true)} disabled={loading} className="btn">
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              Re-run Checklist
-            </button>
-          )}
-          {!result && (
-            <button onClick={() => run(false)} disabled={loading} className="btn primary">
-              {loading ? <Loader2 size={14} className="animate-spin" /> : <ClipboardList size={14} />}
-              {loading ? 'Reviewing...' : 'Run Clause Checklist'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {error && <ErrorCard msg={error} />}
-      {loading && <LoadingSkeleton rows={8} />}
-
-      {result && (
-        <>
-          {/* Summary bar */}
-          <div className="card" style={{ padding: 16, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <div className="row tiny muted" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
-                <span>Clause Coverage</span>
-                <span>{result.clausesPresent ?? result.presentCount} / {((result.clausesPresent ?? result.presentCount) || 0) + ((result.clausesMissing ?? result.missingCount) || 0) + ((result.clausesWeak ?? result.weakCount) || 0)} present</span>
-              </div>
-              <div className="progress-track" style={{ height: 6 }}>
-                <div className="progress-fill" style={{
-                  width: `${((result.clausesPresent ?? result.presentCount) || 0) / Math.max(1, ((result.clausesPresent ?? result.presentCount) || 0) + ((result.clausesMissing ?? result.missingCount) || 0) + ((result.clausesWeak ?? result.weakCount) || 0)) * 100}%`,
-                  height: 6,
-                }} />
-              </div>
-            </div>
-            <div className="row" style={{ gap: 16, fontSize: 12 }}>
-              <span style={{ color: 'var(--success-400)', fontWeight: 500 }}>{result.clausesPresent ?? result.presentCount} Present</span>
-              <span style={{ color: 'var(--warn-400)', fontWeight: 500 }}>{result.clausesWeak ?? result.weakCount} Weak</span>
-              <span style={{ color: 'var(--danger-400)', fontWeight: 500 }}>{result.clausesMissing ?? result.missingCount} Missing</span>
-            </div>
-            <RiskBadge level={result.overallRisk} />
-          </div>
-
-          {/* Critical missing */}
-          {(result.criticalMissingClauses ?? result.criticalMissing)?.length > 0 && (
-            <div className="card" style={{ borderColor: 'rgba(217,83,78,0.3)', background: 'var(--danger-bg)', padding: 14, marginBottom: 14 }}>
-              <div className="row tiny" style={{ fontWeight: 600, color: 'var(--danger-400)', marginBottom: 8 }}>
-                <XCircle size={12} /> Critical clauses missing
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {(result.criticalMissingClauses ?? result.criticalMissing).map(c => (
-                  <span key={c} className="tag danger">{c}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Checklist table */}
-          <div className="card" style={{ overflow: 'hidden' }}>
-            <table className="table">
-              <thead>
-                <tr>
-                  <th style={{ width: '30%' }}>Clause</th>
-                  <th>Assessment</th>
-                  <th style={{ width: 120 }}>Status</th>
-                  <th style={{ width: 100 }}>Risk</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((clause, i) => (
-                  <ClauseRow key={i} clause={clause} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Recommendations */}
-          {result.recommendations?.length > 0 && (
-            <div className="card" style={{ padding: 16, marginTop: 14 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 10 }}>Top Recommendations</div>
-              <ol style={{ margin: 0, paddingLeft: 20 }}>
-                {result.recommendations.map((r, i) => (
-                  <li key={i} style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 6, lineHeight: 1.5 }}>
-                    {r}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-        </>
-      )}
-
-      {!result && !loading && !error && (
-        <EmptyPrompt icon={ClipboardList} text="Click Run Clause Checklist to audit each standard clause." />
-      )}
-    </div>
-  );
-}
-
-function ClauseRow({ clause }) {
-  const [open, setOpen] = useState(clause.status !== 'PRESENT');
-
-  return (
-    <>
-      <tr onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer' }}>
-        <td style={{ fontWeight: 500 }}>{clause.clauseName}</td>
-        <td style={{ color: 'var(--text-2)', fontSize: 12 }}>{clause.assessment ? clause.assessment.slice(0, 120) + (clause.assessment.length > 120 ? '...' : '') : '--'}</td>
-        <td>
-          {clause.status === 'PRESENT' && <span className="badge low"><CheckCircle2 size={10} /> Found</span>}
-          {clause.status === 'WEAK' && <span className="badge med"><AlertTriangle size={10} /> Weak</span>}
-          {clause.status === 'MISSING' && <span className="badge high"><XCircle size={10} /> Missing</span>}
-        </td>
-        <td><RiskBadge level={clause.riskLevel} /></td>
-      </tr>
-      {open && (clause.foundText || clause.recommendation) && (
-        <tr>
-          <td colSpan={4} style={{ background: 'var(--bg-0)', padding: '12px 14px' }}>
-            {clause.foundText && (
-              <div style={{ fontFamily: 'var(--font-doc)', fontSize: 12.5, fontStyle: 'italic', color: 'var(--text-2)', paddingLeft: 10, borderLeft: '2px solid var(--line-2)', marginBottom: 8 }}>
-                "{clause.foundText}"
-              </div>
-            )}
-            {clause.recommendation && (
-              <div className="small" style={{ display: 'flex', gap: 6, color: 'var(--warn-400)' }}>
-                <AlertTriangle size={12} style={{ marginTop: 2, flexShrink: 0 }} /> {clause.recommendation}
-              </div>
-            )}
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
 /* ── Shared micro-components ────────────────────────────────────── */
 
 function EmptyPrompt({ icon: Icon, text }) {
@@ -615,7 +436,6 @@ function markdownToHtml(md) {
 const TABS = [
   { id: 'summary', label: 'Summary', icon: FileText },
   { id: 'risk', label: 'Risk Assessment', icon: ShieldAlert },
-  { id: 'checklist', label: 'Checklist', icon: ClipboardList },
 ];
 
 export default function ContractReviewPage() {
@@ -635,12 +455,6 @@ export default function ContractReviewPage() {
   const [riskLoading, setRiskLoading] = useState(false);
   const [riskError, setRiskError] = useState('');
   const [riskCached, setRiskCached] = useState(false);
-
-  // Checklist tab state
-  const [checklistResult, setChecklistResult] = useState(null);
-  const [checklistLoading, setChecklistLoading] = useState(false);
-  const [checklistError, setChecklistError] = useState('');
-  const [checklistCached, setChecklistCached] = useState(false);
 
   useEffect(() => {
     api.get('/documents/grouped').then(r => {
@@ -662,7 +476,6 @@ export default function ContractReviewPage() {
 
   useEffect(() => {
     setRiskResult(null); setRiskError(''); setRiskCached(false);
-    setChecklistResult(null); setChecklistError(''); setChecklistCached(false);
     setSummaryResult(null); setSummaryError('');
   }, [docId]);
 
@@ -764,8 +577,8 @@ export default function ContractReviewPage() {
           docName={selectedDoc?.fileName}
           matterId={selectedDoc?.matterId}
           parties={{
-            partyA: checklistResult?.partyA || riskResult?.partyA,
-            partyB: checklistResult?.partyB || riskResult?.partyB,
+            partyA: riskResult?.partyA,
+            partyB: riskResult?.partyB,
           }}
           onClose={() => setShowSignModal(false)}
           onSent={() => {}}
@@ -783,7 +596,6 @@ export default function ContractReviewPage() {
             <Icon size={14} />
             {label}
             {id === 'risk' && riskResult && <span className="count">{(riskResult.categories?.length || 0)}</span>}
-            {id === 'checklist' && checklistResult && <span className="count">{(checklistResult.clauses?.length || 0)}</span>}
           </button>
         ))}
       </div>
@@ -811,19 +623,6 @@ export default function ContractReviewPage() {
           setError={setRiskError}
           cached={riskCached}
           setCached={setRiskCached}
-        />
-      </div>
-      <div style={{ display: tab === 'checklist' ? 'block' : 'none' }}>
-        <ChecklistTab
-          docId={docId}
-          result={checklistResult}
-          setResult={setChecklistResult}
-          loading={checklistLoading}
-          setLoading={setChecklistLoading}
-          error={checklistError}
-          setError={setChecklistError}
-          cached={checklistCached}
-          setCached={setChecklistCached}
         />
       </div>
     </div>

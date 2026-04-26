@@ -30,6 +30,7 @@ public class ContractReviewService {
     private final DocumentFullTextRetriever fullTextRetriever;
     private final VllmGuidedClient vllmClient;
     private final LegalSystemConfig legalSystemConfig;
+    private final RiskQuestionEngine riskQuestionEngine;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ContractReviewResult review(ContractReviewRequest request, String username) {
@@ -57,11 +58,42 @@ public class ContractReviewService {
                     List.of(), List.of("Document not yet indexed"), List.of("Wait for INDEXED status"));
         }
 
+        // Detect contract type and get relevant clauses to check
+        String contractType = doc.getDocumentType() != null ? doc.getDocumentType().name() : null;
+        List<String> clausesToCheck = riskQuestionEngine.getRequiredClauses(contractType);
+        if (clausesToCheck.isEmpty()) {
+            // Fallback: use all clause types from the engine
+            clausesToCheck = List.of("LIABILITY", "INDEMNIFICATION", "TERMINATION", "CONFIDENTIALITY",
+                    "IP_RIGHTS", "GOVERNING_LAW", "FORCE_MAJEURE", "PAYMENT", "DATA_PROTECTION",
+                    "WARRANTIES", "GENERAL_PROVISIONS");
+        }
+        String clauseIdList = String.join(", ", clausesToCheck);
+        log.info("Checklist for doc {} (type={}): checking {} clauses: {}",
+                doc.getFileName(), contractType, clausesToCheck.size(), clauseIdList);
+
+        // Build dynamic system prompt with the relevant clause list
+        String systemPrompt = legalSystemConfig.localize("""
+                You are a %LEGAL_REVIEWER%. Check the following clauses in the contract.
+
+                Clause IDs to check (use exactly as shown):
+                """ + clauseIdList + """
+
+                For each clause provide:
+                - clause_id: one of the IDs above
+                - status: PRESENT (clearly present), WEAK (present but incomplete or one-sided), MISSING (not found)
+                - risk_level: HIGH (missing or dangerously weak), MEDIUM (present but improvable), LOW (clear and balanced)
+                - section_ref: section number (e.g. "Section 8.1") or "MISSING" if absent
+                - finding: one sentence describing what was found or not found
+                - recommendation: specific improvement recommendation, or null if the clause is standard
+
+                %COUNTRY% law context: reference %DATA_PROTECTION_LAWS_ABBREV% for DATA_PROTECTION, %ARBITRATION_ACT% for DISPUTE_RESOLUTION.
+                """);
+
         String guidedPrompt = String.format(PromptTemplates.CHECKLIST_USER_GUIDED, doc.getFileName(), context);
 
         // Primary: guided_json
         com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
-                legalSystemConfig.localize(PromptTemplates.CHECKLIST_SYSTEM_GUIDED), guidedPrompt, StructuredSchemas.CHECKLIST_SCHEMA, 1200);
+                systemPrompt, guidedPrompt, StructuredSchemas.CHECKLIST_SCHEMA, 1200);
 
         log.info("[prompt={}] checklist guided_json node: {}",
                 PromptTemplates.PROMPT_VERSION,
