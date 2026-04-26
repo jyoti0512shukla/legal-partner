@@ -1,0 +1,22 @@
+creation_rules:
+  # Each customer's .env.sops is encrypted with that customer's age public key.
+  # Add the customer's public key here after running `lp provision <name>`.
+  #
+  # The age private key lives ONLY on the customer's VM at /opt/legalpartner/.age-key
+  # Decryption happens on the VM during `lp deploy`, never on developer machines.
+  #
+  # To add a new customer:
+  #   1. lp provision <name>   → generates key on VM, prints public key
+  #   2. Add the public key below
+  #   3. lp encrypt <name>     → encrypts .env → .env.sops
+  #   4. git commit & push
+  #   5. lp deploy <name>
+
+  - path_regex: customers/test-vm/\.env\.sops$
+    age: >-
+      PASTE_TEST_VM_PUBLIC_KEY_HERE
+
+  # Example for adding more customers:
+  # - path_regex: customers/firm-a/\.env\.sops$
+  #   age: >-
+  #     age1abc123...

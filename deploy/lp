@@ -20,11 +20,20 @@ load_customer() {
   local dir="$CUSTOMERS_DIR/$name"
   [[ -d "$dir" ]] || die "Customer '$name' not found. Run: lp init $name"
   [[ -f "$dir/metadata.sh" ]] || die "Missing $dir/metadata.sh"
-  [[ -f "$dir/.env" ]] || die "Missing $dir/.env"
+  # Accept either .env (plaintext, gitignored) or .env.sops (encrypted, committed)
+  if [[ -f "$dir/.env.sops" ]]; then
+    CUSTOMER_SOPS="$dir/.env.sops"
+  fi
+  if [[ -f "$dir/.env" ]]; then
+    CUSTOMER_ENV="$dir/.env"
+  elif [[ -n "${CUSTOMER_SOPS:-}" ]]; then
+    CUSTOMER_ENV=""  # will decrypt on VM
+  else
+    die "Missing $dir/.env or $dir/.env.sops"
+  fi
   # shellcheck source=/dev/null
   source "$dir/metadata.sh"
   CUSTOMER_DIR="$dir"
-  CUSTOMER_ENV="$dir/.env"
   : "${SSH_HOST:?SSH_HOST not set in metadata.sh}"
   : "${SSH_USER:?SSH_USER not set in metadata.sh}"
   SSH_TARGET="${SSH_USER}@${SSH_HOST}"
@@ -144,6 +153,27 @@ cmd_provision() {
   # Create remote directory
   remote "sudo mkdir -p $REMOTE_DIR && sudo chown \$USER:\$USER $REMOTE_DIR"
 
+  # Install age + sops on VM for secret decryption
+  echo "  Installing age + sops..."
+  remote 'command -v age >/dev/null 2>&1 || (sudo apt-get update -qq && sudo apt-get install -y -qq age >/dev/null 2>&1) || (curl -sL https://dl.filippo.io/age/latest?for=linux/amd64 | tar xz -C /usr/local/bin/ age age-keygen 2>/dev/null)'
+  remote 'command -v sops >/dev/null 2>&1 || (curl -sLo /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v3.9.4/sops-v3.9.4.linux.amd64 && chmod +x /usr/local/bin/sops)'
+
+  # Generate age key on VM (key never leaves the VM)
+  echo "  Generating age key on VM..."
+  local pubkey
+  pubkey=$(remote "if [[ -f $REMOTE_DIR/.age-key ]]; then grep 'public key' $REMOTE_DIR/.age-key | awk '{print \$NF}'; else age-keygen -o $REMOTE_DIR/.age-key 2>&1 | grep 'public key' | awk '{print \$NF}'; chmod 600 $REMOTE_DIR/.age-key; grep 'public key' $REMOTE_DIR/.age-key | awk '{print \$NF}'; fi")
+
+  echo ""
+  bold "  Age public key for $name:"
+  echo "  $pubkey"
+  echo ""
+  yellow "  Add this key to deploy/.sops.yaml under the $name section."
+  echo ""
+
+  # Install Caddy for HTTPS
+  echo "  Installing Caddy..."
+  remote 'command -v caddy >/dev/null 2>&1 || (sudo apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl >/dev/null 2>&1 && curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/gpg.key" | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null && curl -1sLf "https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt" | sudo tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null && sudo apt-get update -qq && sudo apt-get install -y -qq caddy >/dev/null 2>&1)'
+
   # Log in to ghcr.io for private image pulls
   if [[ -n "${GHCR_PAT:-}" ]]; then
     echo "  Logging in to ghcr.io..."
@@ -202,7 +232,19 @@ cmd_deploy() {
   # Push files
   echo "  Pushing compose + config..."
   remote_scp "$COMPOSE_FILE" "$SSH_TARGET:$REMOTE_DIR/docker-compose.yml"
-  remote_scp "$CUSTOMER_ENV" "$SSH_TARGET:$REMOTE_DIR/.env"
+
+  if [[ -f "$CUSTOMERS_DIR/$name/.env.sops" ]]; then
+    # Encrypted path: push .env.sops, decrypt on VM
+    echo "  Pushing encrypted config (.env.sops)..."
+    remote_scp "$CUSTOMERS_DIR/$name/.env.sops" "$SSH_TARGET:$REMOTE_DIR/.env.sops"
+    remote "cd $REMOTE_DIR && SOPS_AGE_KEY_FILE=$REMOTE_DIR/.age-key sops decrypt --input-type dotenv --output-type dotenv .env.sops > .env.new && mv .env.new .env"
+    echo "  Decrypted on VM."
+  elif [[ -n "$CUSTOMER_ENV" ]]; then
+    # Legacy plaintext path
+    remote_scp "$CUSTOMER_ENV" "$SSH_TARGET:$REMOTE_DIR/.env"
+  else
+    die "No .env or .env.sops found for $name"
+  fi
 
   # Push Caddyfile if present
   local caddyfile="$CUSTOMERS_DIR/$name/Caddyfile"
@@ -322,6 +364,30 @@ cmd_ssh() {
   fi
 }
 
+cmd_encrypt() {
+  local name="${1:?Usage: lp encrypt <customer>}"
+  local dir="$CUSTOMERS_DIR/$name"
+  [[ -f "$dir/.env" ]] || die "No $dir/.env to encrypt"
+  command -v sops >/dev/null 2>&1 || die "sops not installed. brew install sops"
+  bold "Encrypting $name config..."
+  cd "$DEPLOY_DIR"
+  sops encrypt --input-type dotenv --output-type dotenv "$dir/.env" > "$dir/.env.sops"
+  green "Encrypted → $dir/.env.sops"
+  echo "  You can now commit .env.sops to git."
+  echo "  The plaintext .env is gitignored and stays local."
+}
+
+cmd_decrypt() {
+  local name="${1:?Usage: lp decrypt <customer>}"
+  local dir="$CUSTOMERS_DIR/$name"
+  [[ -f "$dir/.env.sops" ]] || die "No $dir/.env.sops to decrypt"
+  command -v sops >/dev/null 2>&1 || die "sops not installed. brew install sops"
+  bold "Decrypting $name config..."
+  cd "$DEPLOY_DIR"
+  sops decrypt --input-type dotenv --output-type dotenv "$dir/.env.sops" > "$dir/.env"
+  green "Decrypted → $dir/.env (gitignored)"
+}
+
 cmd_diff() {
   local name="${1:?Usage: lp diff <customer>}"
   load_customer "$name"
@@ -366,6 +432,8 @@ case "$cmd" in
   provision)  cmd_provision "$@" ;;
   deploy)     cmd_deploy "$@" ;;
   deploy-all) cmd_deploy_all "$@" ;;
+  encrypt)    cmd_encrypt "$@" ;;
+  decrypt)    cmd_decrypt "$@" ;;
   diff)       cmd_diff "$@" ;;
   rollback)   cmd_rollback "$@" ;;
   status)     cmd_status "$@" ;;
@@ -375,15 +443,18 @@ case "$cmd" in
   ssh)        cmd_ssh "$@" ;;
   list)       cmd_list ;;
   help|*)
-    bold "lp — Legal Partner deployment CLI"
+    bold "lp — ContractIQ deployment CLI"
     echo ""
     echo "Usage: lp <command> [args]"
     echo ""
     echo "Commands:"
     echo "  init <customer>           Create customer config from template"
-    echo "  provision <customer>      Install Docker on VM, create directories"
-    echo "  deploy <customer> [tag]   Push config, pull images, start services"
+    echo "  provision <customer>      Install Docker + age key + Caddy on VM"
+    echo "  deploy <customer> [tag]   Push config, decrypt on VM, start services"
     echo "  deploy-all [tag]          Deploy to all customers"
+    echo "  encrypt <customer>        Encrypt .env → .env.sops (for git)"
+    echo "  decrypt <customer>        Decrypt .env.sops → .env (local editing)"
+    echo "  diff <customer>           Show config changes since last deploy"
     echo "  rollback <customer> <tag> Pin image tag and redeploy"
     echo "  status <customer>         Show service status and health"
     echo "  status-all                Status of all customers"

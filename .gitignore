@@ -26,9 +26,14 @@ ollama_models/
 *.env.local
 .venv-convert/
 
-# Customer deployment configs (secrets)
-deploy/customers/
+# Customer configs — plaintext secrets stay local, encrypted committed
+deploy/customers/*/.env
+deploy/customers/*/.env.deployed
 deploy/.ghcr-token
+# Allow these to be committed:
+!deploy/customers/*/metadata.sh
+!deploy/customers/*/.env.sops
+!deploy/customers/*/Caddyfile
 
 # OS
 Thumbs.db
