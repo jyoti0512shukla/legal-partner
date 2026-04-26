@@ -5,12 +5,15 @@ import com.legalpartner.config.IntegrationProperties;
 import com.legalpartner.integration.DocuSignProvider;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.model.entity.IntegrationConnection;
+import com.legalpartner.model.entity.SignatureEnvelope;
 import com.legalpartner.rag.DocumentFullTextRetriever;
 import com.legalpartner.repository.DocumentMetadataRepository;
+import com.legalpartner.repository.SignatureEnvelopeRepository;
 import com.legalpartner.repository.UserRepository;
 import com.legalpartner.service.IntegrationService;
 import com.legalpartner.service.IntegrationService.IntegrationStatus;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +27,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/integrations")
 @RequiredArgsConstructor
+@Slf4j
 public class IntegrationController {
 
     private final IntegrationService integrationService;
@@ -32,6 +36,7 @@ public class IntegrationController {
     private final DocuSignProvider docuSignProvider;
     private final DocumentMetadataRepository documentRepository;
     private final DocumentFullTextRetriever fullTextRetriever;
+    private final SignatureEnvelopeRepository envelopeRepository;
     private final ObjectMapper objectMapper;
 
     @GetMapping("/connections")
@@ -81,7 +86,7 @@ public class IntegrationController {
     }
 
     @PostMapping("/docusign/send/{docId}")
-    public Map<String, String> sendForSignature(
+    public Map<String, Object> sendForSignature(
             @PathVariable UUID docId,
             @RequestBody SendForSignatureRequest request,
             Authentication auth
@@ -90,7 +95,6 @@ public class IntegrationController {
         String accessToken = integrationService.ensureValidToken(userId, "DOCUSIGN");
         IntegrationConnection conn = integrationService.getConnection(userId, "DOCUSIGN");
 
-        // Parse accountId and baseUri from connection config
         String accountId;
         String baseUri;
         try {
@@ -104,7 +108,7 @@ public class IntegrationController {
             throw new IllegalStateException("DocuSign accountId or baseUri missing — try reconnecting");
         }
 
-        // Get document content as base64
+        // Get document content
         DocumentMetadata doc = documentRepository.findById(docId)
                 .orElseThrow(() -> new IllegalArgumentException("Document not found"));
         String htmlContent = fullTextRetriever.retrieveFullText(docId);
@@ -113,15 +117,87 @@ public class IntegrationController {
         }
         String documentBase64 = Base64.getEncoder().encodeToString(htmlContent.getBytes());
         String docName = doc.getFileName() != null ? doc.getFileName() : "Contract.html";
+        String subject = request.emailSubject() != null ? request.emailSubject() : "Please sign: " + docName;
 
-        String envelopeId = docuSignProvider.sendEnvelope(
+        // Build multi-recipient envelope
+        String envelopeId = docuSignProvider.sendMultiRecipientEnvelope(
                 accessToken, accountId, baseUri,
-                documentBase64, docName,
-                request.signerEmail(), request.signerName(),
-                request.emailSubject() != null ? request.emailSubject() : "Please sign: " + docName
+                documentBase64, docName, subject,
+                request.recipients()
         );
 
-        return Map.of("envelopeId", envelopeId, "status", "sent");
+        // Track the envelope
+        String recipientsJson;
+        try { recipientsJson = objectMapper.writeValueAsString(request.recipients()); }
+        catch (Exception e) { recipientsJson = "[]"; }
+
+        SignatureEnvelope envelope = SignatureEnvelope.builder()
+                .envelopeId(envelopeId)
+                .documentId(docId)
+                .matterId(request.matterId())
+                .sentBy(userId)
+                .status("sent")
+                .recipients(recipientsJson)
+                .emailSubject(subject)
+                .build();
+        envelopeRepository.save(envelope);
+        log.info("Sent DocuSign envelope {} for doc {} with {} recipients", envelopeId, docId, request.recipients().size());
+
+        return Map.of("envelopeId", envelopeId, "status", "sent", "recipientCount", request.recipients().size());
+    }
+
+    @GetMapping("/docusign/envelopes/{docId}")
+    public List<SignatureEnvelope> getEnvelopes(@PathVariable UUID docId) {
+        return envelopeRepository.findByDocumentIdOrderBySentAtDesc(docId);
+    }
+
+    /** DocuSign Connect webhook — receives envelope status updates */
+    @PostMapping("/docusign/webhook")
+    @ResponseStatus(HttpStatus.OK)
+    public void docuSignWebhook(@RequestBody String payload) {
+        try {
+            var node = objectMapper.readTree(payload);
+            String envelopeId = node.path("envelopeId").asText(node.path("EnvelopeID").asText(""));
+            String status = node.path("status").asText(node.path("Status").asText(""));
+            if (envelopeId.isBlank()) {
+                log.warn("DocuSign webhook: no envelopeId in payload");
+                return;
+            }
+            log.info("DocuSign webhook: envelope {} status → {}", envelopeId, status);
+
+            envelopeRepository.findByEnvelopeId(envelopeId).ifPresent(envelope -> {
+                envelope.setStatus(status.toLowerCase());
+                if ("completed".equalsIgnoreCase(status)) {
+                    envelope.setCompletedAt(java.time.Instant.now());
+                    // Download signed PDF and store it
+                    try {
+                        IntegrationConnection conn = integrationService.getConnection(envelope.getSentBy(), "DOCUSIGN");
+                        String accessToken = integrationService.ensureValidToken(envelope.getSentBy(), "DOCUSIGN");
+                        var configNode = objectMapper.readTree(conn.getConfig());
+                        String acctId = configNode.path("accountId").asText();
+                        String bUri = configNode.path("baseUri").asText();
+                        byte[] pdfBytes = docuSignProvider.downloadSignedDocument(accessToken, acctId, bUri, envelopeId);
+                        if (pdfBytes != null && pdfBytes.length > 0) {
+                            String pdfPath = "signed/" + envelopeId + ".pdf";
+                            // Store in document storage volume
+                            java.nio.file.Path storagePath = java.nio.file.Path.of("/data/documents", pdfPath);
+                            java.nio.file.Files.createDirectories(storagePath.getParent());
+                            java.nio.file.Files.write(storagePath, pdfBytes);
+                            envelope.setSignedPdfPath(pdfPath);
+                            log.info("Stored signed PDF for envelope {} at {}", envelopeId, pdfPath);
+                        }
+                    } catch (Exception ex) {
+                        log.warn("Failed to download signed PDF for envelope {}: {}", envelopeId, ex.getMessage());
+                    }
+                } else if ("voided".equalsIgnoreCase(status) || "declined".equalsIgnoreCase(status)) {
+                    envelope.setVoidedAt(java.time.Instant.now());
+                }
+                envelopeRepository.save(envelope);
+                log.info("Updated envelope {} → {}", envelopeId, status);
+            });
+        } catch (Exception e) {
+            log.error("DocuSign webhook processing failed: {}", e.getMessage());
+        }
     }
 
     @DeleteMapping("/disconnect")
@@ -143,5 +219,15 @@ public class IntegrationController {
     public record AuthUrlResponse(String url) {}
     public record SlackConfigRequest(String webhookUrl) {}
     public record TeamsConfigRequest(String webhookUrl) {}
-    public record SendForSignatureRequest(String signerEmail, String signerName, String emailSubject) {}
+    public record SendForSignatureRequest(
+            List<SignatureRecipient> recipients,
+            String emailSubject,
+            UUID matterId
+    ) {}
+    public record SignatureRecipient(
+            String email,
+            String name,
+            String role,       // SIGNER, REVIEWER, CC
+            int routingOrder
+    ) {}
 }

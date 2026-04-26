@@ -81,8 +81,12 @@ public class IntegrationService {
         conn.setRefreshToken(tr.getRefreshToken());
         conn.setTokenExpiresAt(tr.getTokenExpiresAt());
         conn.setConfig(config);
+        // DocuSign connections are org-level — one connection serves the whole firm
+        if ("DOCUSIGN".equals(providerId)) {
+            conn.setScope("ORGANIZATION");
+        }
         connectionRepository.save(conn);
-        log.info("Connected {} for user {}", providerId, userId);
+        log.info("Connected {} for user {} (scope={})", providerId, userId, conn.getScope());
     }
 
     @Transactional
@@ -115,8 +119,7 @@ public class IntegrationService {
     }
 
     public String ensureValidToken(UUID userId, String providerId) {
-        IntegrationConnection conn = connectionRepository.findByUserIdAndProvider(userId, providerId)
-                .orElseThrow(() -> new IllegalStateException("Not connected to " + providerId));
+        IntegrationConnection conn = resolveConnection(userId, providerId);
         if (conn.getTokenExpiresAt() != null && conn.getTokenExpiresAt().isBefore(Instant.now().plusSeconds(60))) {
             if (conn.getRefreshToken() != null) {
                 IntegrationProvider provider = getProvider(providerId);
@@ -132,8 +135,15 @@ public class IntegrationService {
     }
 
     public IntegrationConnection getConnection(UUID userId, String providerId) {
+        return resolveConnection(userId, providerId);
+    }
+
+    /** Resolve connection: user-level first, then org-level fallback */
+    private IntegrationConnection resolveConnection(UUID userId, String providerId) {
         return connectionRepository.findByUserIdAndProvider(userId, providerId)
-                .orElseThrow(() -> new IllegalStateException("Not connected to " + providerId));
+                .or(() -> connectionRepository.findFirstByProviderAndScope(providerId, "ORGANIZATION"))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Not connected to " + providerId + ". Ask your admin to connect the firm's " + providerId + " account in Settings."));
     }
 
     private IntegrationProvider getProvider(String providerId) {

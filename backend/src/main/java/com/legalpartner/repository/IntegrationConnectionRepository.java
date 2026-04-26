@@ -11,6 +11,9 @@ public interface IntegrationConnectionRepository extends JpaRepository<Integrati
 
     Optional<IntegrationConnection> findByUserIdAndProvider(UUID userId, String provider);
 
+    /** Find org-level connection for a provider (any user who connected it as ORGANIZATION scope) */
+    Optional<IntegrationConnection> findFirstByProviderAndScope(String provider, String scope);
+
     boolean existsByUserIdAndProvider(UUID userId, String provider);
 
     void deleteByUserIdAndProvider(UUID userId, String provider);

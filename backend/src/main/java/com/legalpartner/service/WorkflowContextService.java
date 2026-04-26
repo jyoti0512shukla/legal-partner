@@ -24,8 +24,7 @@ import java.util.stream.StreamSupport;
  * Retrieves RAG context (corpus benchmarks + clause library) for workflow step execution.
  *
  * - RISK_ASSESSMENT: similar contract segments for benchmarking risk clauses
- * - REDLINE_SUGGESTIONS: golden library clauses for WEAK/MISSING types + corpus precedents
- * - CLAUSE_CHECKLIST: standard clause benchmarks from similar contracts
+ * - REDLINE_SUGGESTIONS: golden library clauses for HIGH/MEDIUM risk types + corpus precedents
  * - DRAFT_CLAUSE: full clause library + corpus for the requested clause type
  */
 @Service
@@ -50,9 +49,8 @@ public class WorkflowContextService {
             return switch (type) {
                 case RISK_ASSESSMENT     -> getRiskContext(docMeta);
                 case REDLINE_SUGGESTIONS -> getRedlineContext(docMeta, priorResults, mapper);
-                case CLAUSE_CHECKLIST    -> getChecklistContext(docMeta);
                 case DRAFT_CLAUSE        -> getDraftContext(docMeta);
-                default                  -> ""; // EXTRACT_KEY_TERMS, GENERATE_SUMMARY: no RAG needed
+                default                  -> ""; // EXTRACT_KEY_TERMS, GENERATE_SUMMARY, COMPLIANCE_CHECK, etc: no RAG
             };
         } catch (Exception e) {
             log.warn("WorkflowContextService: failed for {}: {}", type, e.getMessage());
@@ -76,8 +74,8 @@ public class WorkflowContextService {
     }
 
     private String getRedlineContext(DocumentMetadata docMeta, Map<String, Object> priorResults, ObjectMapper mapper) {
-        // Pull WEAK/MISSING clause types from the prior CLAUSE_CHECKLIST step
-        List<String> weakTypes = extractWeakClauseTypes(priorResults, mapper);
+        // Pull HIGH/MEDIUM risk categories from RISK_ASSESSMENT
+        List<String> weakTypes = extractHighRiskTypes(priorResults, mapper);
         log.info("WorkflowContextService: weak clause types for redline context: {}", weakTypes);
 
         StringBuilder sb = new StringBuilder();
@@ -114,18 +112,6 @@ public class WorkflowContextService {
         }
 
         sb.append("=== END FIRM STANDARDS ===\n\n");
-        return sb.toString();
-    }
-
-    private String getChecklistContext(DocumentMetadata docMeta) {
-        String query = "standard contract clauses definitions confidentiality termination liability governing law force majeure warranty";
-        List<EmbeddingMatch<TextSegment>> matches = retrieve(query, docMeta);
-        if (matches.isEmpty()) return "";
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("=== BENCHMARK: Standard clause coverage from similar contracts ===\n\n");
-        appendMatches(sb, matches, maxContextChars);
-        sb.append("=== END BENCHMARK ===\n\n");
         return sb.toString();
     }
 
@@ -186,25 +172,23 @@ public class WorkflowContextService {
         }
     }
 
-    private List<String> extractWeakClauseTypes(Map<String, Object> priorResults, ObjectMapper mapper) {
+    private List<String> extractHighRiskTypes(Map<String, Object> priorResults, ObjectMapper mapper) {
         List<String> types = new ArrayList<>();
         try {
-            Object checklist = priorResults.get("CLAUSE_CHECKLIST");
-            if (checklist == null) return types;
-            JsonNode node = mapper.readTree(mapper.writeValueAsString(checklist));
-            StreamSupport.stream(node.path("clauses").spliterator(), false)
+            Object riskRaw = priorResults.get("RISK_ASSESSMENT");
+            if (riskRaw == null) return types;
+            JsonNode node = mapper.readTree(mapper.writeValueAsString(riskRaw));
+            StreamSupport.stream(node.path("categories").spliterator(), false)
                     .filter(c -> {
-                        String status = c.path("status").asText("");
-                        return "WEAK".equals(status) || "MISSING".equals(status);
+                        String rating = c.path("rating").asText("");
+                        return "HIGH".equals(rating) || "MEDIUM".equals(rating);
                     })
                     .forEach(c -> {
-                        String id = c.path("clauseId").asText(
-                                c.path("clause_id").asText(
-                                        c.path("clauseName").asText("")));
-                        if (!id.isBlank()) types.add(id.toUpperCase().replace(" ", "_"));
+                        String name = c.path("name").asText("");
+                        if (!name.isBlank()) types.add(name.toUpperCase().replace(" ", "_"));
                     });
         } catch (Exception e) {
-            log.warn("Failed to extract weak clause types: {}", e.getMessage());
+            log.warn("Failed to extract high-risk clause types: {}", e.getMessage());
         }
         return types;
     }

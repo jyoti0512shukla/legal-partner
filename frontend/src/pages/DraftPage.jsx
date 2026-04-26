@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FileEdit, Loader2, Download, Lightbulb, Sparkles, CloudUpload, Check, X,
   FileText, Save, FolderOpen, Pencil, AlertTriangle, Briefcase, Clock,
-  ChevronRight, ChevronLeft, ArrowRight, Lock, Plus, RefreshCw, Wand2,
+  ChevronRight, ChevronLeft, ArrowRight, Lock, Plus, RefreshCw, Wand2, Send,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
+import SendForSignatureModal from '../components/SendForSignatureModal';
 import DraftsRecentStrip from '../components/DraftsRecentStrip';
 
 function stripHtml(html) {
@@ -96,6 +97,7 @@ export default function DraftPage() {
   const [refining, setRefining] = useState(false);
   const [refiningAt, setRefiningAt] = useState(null);
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
+  const [showSignModal, setShowSignModal] = useState(false);
   const [selectionInfo, setSelectionInfo] = useState(null);
   const [pendingRefinement, setPendingRefinement] = useState(null);
   const [qaWarnings, setQaWarnings] = useState({});
@@ -793,6 +795,11 @@ export default function DraftPage() {
                       <button className="btn" onClick={() => setShowSaveToCloud(true)}>
                         <CloudUpload size={14} /> Save to Cloud
                       </button>
+                      {draft?.id && (
+                        <button className="btn primary" onClick={() => setShowSignModal(true)}>
+                          <Send size={14} /> Send for Signature
+                        </button>
+                      )}
                     </div>
                   </>
                 )}
@@ -973,6 +980,16 @@ export default function DraftPage() {
           defaultFileName={`draft-${form.templateId}-${form.effectiveDate || 'draft'}.html`}
           onClose={() => setShowSaveToCloud(false)}
           onSaved={() => setShowSaveToCloud(false)}
+        />
+      )}
+      {showSignModal && draft?.id && (
+        <SendForSignatureModal
+          docId={draft.id}
+          docName={draft.fileName || `${form.templateId}-draft`}
+          matterId={form.matterId}
+          parties={{ partyA: form.partyA, partyB: form.partyB }}
+          onClose={() => setShowSignModal(false)}
+          onSent={() => {}}
         />
       )}
 

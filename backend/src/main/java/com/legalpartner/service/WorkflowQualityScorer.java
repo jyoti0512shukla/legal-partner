@@ -31,13 +31,14 @@ public class WorkflowQualityScorer {
             String json = mapper.writeValueAsString(result);
             JsonNode node = mapper.readTree(json);
             return switch (type) {
-                case RISK_ASSESSMENT    -> scoreRisk(node);
-                case CLAUSE_CHECKLIST   -> scoreChecklist(node);
+                case RISK_ASSESSMENT     -> scoreRisk(node);
                 case REDLINE_SUGGESTIONS -> scoreRedlines(node);
-                case GENERATE_SUMMARY   -> scoreSummary(node);
-                case EXTRACT_KEY_TERMS  -> scoreExtraction(node);
-                case DRAFT_CLAUSE       -> scoreDraft(node);
-                case SEND_FOR_SIGNATURE -> new QualityScore(100, List.of());
+                case GENERATE_SUMMARY    -> scoreSummary(node);
+                case EXTRACT_KEY_TERMS   -> scoreExtraction(node);
+                case DRAFT_CLAUSE        -> scoreDraft(node);
+                case COMPLIANCE_CHECK    -> scoreCompliance(node);
+                case OBLIGATION_EXTRACT  -> scoreObligations(node);
+                case APPROVAL_GATE       -> new QualityScore(100, List.of()); // no quality loop for human gate
             };
         } catch (Exception e) {
             log.warn("Quality scoring failed for {}: {}", type, e.getMessage());
@@ -72,20 +73,40 @@ public class WorkflowQualityScorer {
         return new QualityScore(Math.min(score, 100), gaps);
     }
 
-    private QualityScore scoreChecklist(JsonNode node) {
+    private QualityScore scoreCompliance(JsonNode node) {
         List<String> gaps = new ArrayList<>();
-        int score = 35;
+        int score = 50;
 
-        int clauseCount = node.path("clauses").size();
-        if (clauseCount >= 8) score += 30;
-        else { score += clauseCount * 3; gaps.add("Only " + clauseCount + " clauses checked — audit at least 8 standard clauses (Definitions, Confidentiality, Liability, Termination, Force Majeure, Governing Law, IP Rights, Warranties, Payment, Notices, Assignment, Entire Agreement)"); }
+        String status = node.path("status").asText("");
+        if ("COMPLETED".equals(status)) score += 20;
+        else gaps.add("Compliance check did not complete — " + status);
 
-        boolean hasAssessments = StreamSupport.stream(node.path("clauses").spliterator(), false)
-                .anyMatch(c -> c.path("assessment").asText(c.path("finding").asText("")).length() > 15);
-        if (hasAssessments) score += 25;
-        else gaps.add("Clause assessments are empty or too brief — explain specifically what is weak or missing and why it matters");
+        int totalChecked = node.path("totalChecked").asInt(0);
+        if (totalChecked >= 3) score += 15;
+        else gaps.add("Fewer than 3 playbook positions checked");
 
-        if (!node.path("criticalMissingClauses").isMissingNode()) score += 10;
+        int violations = node.path("violations").size();
+        // Having violations is expected — the quality is about completeness, not absence of issues
+        if (totalChecked > 0) score += 15;
+
+        return new QualityScore(Math.min(score, 100), gaps);
+    }
+
+    private QualityScore scoreObligations(JsonNode node) {
+        List<String> gaps = new ArrayList<>();
+        int score = 40;
+
+        String status = node.path("status").asText("");
+        if ("COMPLETED".equals(status)) score += 20;
+
+        int obligationCount = node.path("obligations").size();
+        if (obligationCount >= 3) score += 25;
+        else if (obligationCount > 0) { score += obligationCount * 8; gaps.add("Only " + obligationCount + " obligation(s) found — check for payments, deadlines, renewals, notice periods"); }
+        else gaps.add("No obligations extracted — scan for payment terms, deliverable dates, renewal clauses, notice requirements");
+
+        boolean hasTypes = StreamSupport.stream(node.path("obligations").spliterator(), false)
+                .allMatch(o -> !o.path("type").asText("").isBlank());
+        if (hasTypes) score += 15;
 
         return new QualityScore(Math.min(score, 100), gaps);
     }

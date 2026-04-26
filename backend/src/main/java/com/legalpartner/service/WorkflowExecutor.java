@@ -168,6 +168,18 @@ public class WorkflowExecutor {
                     "stepIndex", i, "stepType", step.getType().name(),
                     "label", step.getLabel(), "result", result
             ));
+
+            // Approval gate pauses the workflow — save state and stop execution
+            if (step.getType() == WorkflowStepType.APPROVAL_GATE) {
+                updateStatus(runId, WorkflowStatus.AWAITING_APPROVAL, i + 1, results, skippedIndices);
+                send(emitter, "workflow_paused", Map.of(
+                        "reason", "Awaiting approval",
+                        "pausedAtStep", i,
+                        "remainingSteps", steps.size() - i - 1
+                ));
+                emitter.complete();
+                return; // Stop execution — resume when approved
+            }
         }
     }
 
@@ -281,9 +293,6 @@ public class WorkflowExecutor {
                     ? aiService.extractKeyTerms(docId, username)
                     : Map.of("note", "Key terms extraction requires an uploaded document");
             case RISK_ASSESSMENT     -> aiService.assessRiskWithContext(docId, username, ragContext, feedbackContext, draftedText);
-            case CLAUSE_CHECKLIST    -> docId != null
-                    ? contractReviewService.review(new ContractReviewRequest(docId, null), username)
-                    : Map.of("clauses", List.of(), "note", "Clause checklist requires an uploaded document");
             case GENERATE_SUMMARY    -> aiService.generateWorkflowSummary(docId, priorResults, username, draftedText);
             case REDLINE_SUGGESTIONS -> aiService.generateRedlinesWithContext(docId, priorResults, username, ragContext, feedbackContext, draftedText);
             case DRAFT_CLAUSE        -> {
@@ -294,7 +303,6 @@ public class WorkflowExecutor {
 
                 String mode = mergedParams.getOrDefault("mode", "clause");
                 if ("agreement".equalsIgnoreCase(mode)) {
-                    // Full agreement — use DraftService (same as /api/v1/ai/draft)
                     var req = new com.legalpartner.model.dto.DraftRequest();
                     req.setContractTypeName(mergedParams.getOrDefault("contractTypeName", "Master Services Agreement"));
                     req.setPartyA(mergedParams.getOrDefault("partyA", ""));
@@ -309,14 +317,24 @@ public class WorkflowExecutor {
                         "suggestions", draftResponse.getSuggestions() != null ? draftResponse.getSuggestions() : List.of()
                     );
                 } else {
-                    // Single clause (default)
                     yield aiService.draftClauseForWorkflow(docId, mergedParams, username, ragContext, feedbackContext);
                 }
             }
-            case SEND_FOR_SIGNATURE -> Map.of(
-                    "status", "pending",
-                    "note", "E-signature sending requires DocuSign integration configured in Settings"
-            );
+            case COMPLIANCE_CHECK    -> {
+                UUID playbookId = step.getParams() != null && step.getParams().containsKey("playbookId")
+                        ? UUID.fromString(step.getParams().get("playbookId")) : null;
+                yield aiService.complianceCheck(docId, playbookId, username, draftedText);
+            }
+            case OBLIGATION_EXTRACT  -> aiService.extractObligations(docId, username, draftedText);
+            case APPROVAL_GATE       -> {
+                // Approval gate pauses the workflow — executor handles the pause externally
+                String assignee = step.getParams() != null ? step.getParams().getOrDefault("assignee", "") : "";
+                yield Map.of(
+                    "status", "AWAITING_APPROVAL",
+                    "assignee", assignee,
+                    "priorResults", summarizeForApproval(priorResults)
+                );
+            }
         };
     }
 
@@ -413,6 +431,33 @@ public class WorkflowExecutor {
             }
             runRepo.save(run);
         });
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, String> summarizeForApproval(Map<String, Object> results) {
+        Map<String, String> summary = new LinkedHashMap<>();
+        try {
+            Object riskRaw = results.get("RISK_ASSESSMENT");
+            if (riskRaw != null) {
+                String json = objectMapper.writeValueAsString(riskRaw);
+                var node = objectMapper.readTree(json);
+                summary.put("overallRisk", node.path("overallRisk").asText("UNKNOWN"));
+                int highCount = 0;
+                for (var cat : (Iterable<com.fasterxml.jackson.databind.JsonNode>) () -> node.path("categories").elements()) {
+                    if ("HIGH".equalsIgnoreCase(cat.path("rating").asText(""))) highCount++;
+                }
+                summary.put("highRiskCategories", String.valueOf(highCount));
+            }
+            Object complianceRaw = results.get("COMPLIANCE_CHECK");
+            if (complianceRaw != null) {
+                String json = objectMapper.writeValueAsString(complianceRaw);
+                var node = objectMapper.readTree(json);
+                summary.put("complianceViolations", String.valueOf(node.path("violations").size()));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to summarize prior results for approval gate: {}", e.getMessage());
+        }
+        return summary;
     }
 
     private void send(SseEmitter emitter, String event, Object data) throws IOException {

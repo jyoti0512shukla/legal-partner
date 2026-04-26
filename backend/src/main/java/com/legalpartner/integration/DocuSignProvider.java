@@ -155,6 +155,71 @@ public class DocuSignProvider implements IntegrationProvider {
         }
     }
 
+    /**
+     * Send envelope with multiple recipients: signers, reviewers (approve), and CC.
+     * Recipients are ordered by routingOrder — DocuSign sends to each in sequence.
+     */
+    public String sendMultiRecipientEnvelope(String accessToken, String accountId, String baseUri,
+                                              String documentBase64, String documentName, String emailSubject,
+                                              java.util.List<com.legalpartner.controller.IntegrationController.SignatureRecipient> recipients) {
+        try {
+            java.util.List<java.util.Map<String, Object>> signers = new java.util.ArrayList<>();
+            java.util.List<java.util.Map<String, Object>> carbonCopies = new java.util.ArrayList<>();
+            int recipientCounter = 1;
+
+            for (var r : recipients) {
+                java.util.Map<String, Object> recipient = new java.util.LinkedHashMap<>();
+                recipient.put("email", r.email());
+                recipient.put("name", r.name());
+                recipient.put("recipientId", String.valueOf(recipientCounter++));
+                recipient.put("routingOrder", String.valueOf(r.routingOrder()));
+
+                if ("CC".equalsIgnoreCase(r.role())) {
+                    carbonCopies.add(recipient);
+                } else {
+                    // Both SIGNER and REVIEWER are "signers" in DocuSign — reviewers just approve
+                    signers.add(recipient);
+                }
+            }
+
+            // If no recipients were provided, fail early
+            if (signers.isEmpty() && carbonCopies.isEmpty()) {
+                throw new IllegalArgumentException("At least one signer is required");
+            }
+
+            java.util.Map<String, Object> recipientsMap = new java.util.LinkedHashMap<>();
+            if (!signers.isEmpty()) recipientsMap.put("signers", signers);
+            if (!carbonCopies.isEmpty()) recipientsMap.put("carbonCopies", carbonCopies);
+
+            String fileExt = documentName.endsWith(".pdf") ? "pdf" : "html";
+            java.util.Map<String, Object> envelope = new java.util.LinkedHashMap<>();
+            envelope.put("emailSubject", emailSubject);
+            envelope.put("documents", new Object[]{java.util.Map.of(
+                    "documentBase64", documentBase64,
+                    "name", documentName,
+                    "fileExtension", fileExt,
+                    "documentId", "1"
+            )});
+            envelope.put("recipients", recipientsMap);
+            envelope.put("status", "sent");
+
+            String envelopeJson = objectMapper.writeValueAsString(envelope);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(accessToken);
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            String url = baseUri + "/restapi/v2.1/accounts/" + accountId + "/envelopes";
+            HttpEntity<String> request = new HttpEntity<>(envelopeJson, headers);
+            ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+            JsonNode node = objectMapper.readTree(response.getBody());
+            return node.path("envelopeId").asText();
+        } catch (Exception e) {
+            log.error("Failed to send multi-recipient DocuSign envelope: {}", e.getMessage());
+            throw new RuntimeException("DocuSign envelope failed: " + e.getMessage());
+        }
+    }
+
     /** Get envelope status. */
     public String getEnvelopeStatus(String accessToken, String accountId, String baseUri, String envelopeId) {
         HttpHeaders headers = new HttpHeaders();
@@ -168,6 +233,22 @@ public class DocuSignProvider implements IntegrationProvider {
         } catch (Exception e) {
             log.error("Failed to get envelope status: {}", e.getMessage());
             return "unknown";
+        }
+    }
+
+    /** Download the combined signed PDF (all documents merged) from a completed envelope. */
+    public byte[] downloadSignedDocument(String accessToken, String accountId, String baseUri, String envelopeId) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(accessToken);
+            String url = baseUri + "/restapi/v2.1/accounts/" + accountId + "/envelopes/" + envelopeId + "/documents/combined";
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+            ResponseEntity<byte[]> response = restTemplate.exchange(url, HttpMethod.GET, request, byte[].class);
+            log.info("Downloaded signed PDF for envelope {} ({} bytes)", envelopeId, response.getBody() != null ? response.getBody().length : 0);
+            return response.getBody();
+        } catch (Exception e) {
+            log.error("Failed to download signed document for envelope {}: {}", envelopeId, e.getMessage());
+            return null;
         }
     }
 

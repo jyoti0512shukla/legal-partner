@@ -57,20 +57,21 @@ public class WorkflowService implements ApplicationRunner {
 
     private void seedPredefinedWorkflows() {
         seedIfAbsent("Due Diligence",
-                "Full contract analysis: extract terms, assess risk, and audit clauses",
+                "Full contract analysis: extract terms, assess risk, check compliance, and extract obligations",
                 List.of(
-                        step(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms", null, 1),
-                        step(WorkflowStepType.RISK_ASSESSMENT,   "Risk Assessment (RAG)", null, 2),
-                        step(WorkflowStepType.CLAUSE_CHECKLIST,  "Clause Checklist", null, 2),
-                        step(WorkflowStepType.GENERATE_SUMMARY,  "Executive Summary", null, 1)
+                        step(WorkflowStepType.EXTRACT_KEY_TERMS,  "Extract Key Terms", null, 1),
+                        step(WorkflowStepType.RISK_ASSESSMENT,    "Risk Assessment", null, 2),
+                        step(WorkflowStepType.COMPLIANCE_CHECK,   "Playbook Compliance", null, 1),
+                        step(WorkflowStepType.OBLIGATION_EXTRACT, "Extract Obligations", null, 1),
+                        step(WorkflowStepType.GENERATE_SUMMARY,   "Executive Summary", null, 1)
                 ));
 
         seedIfAbsent("Contract Review",
-                "Rapid review: audit clauses, corpus-benchmarked risk, and firm-grounded redlines",
+                "Rapid review: risk assessment → firm-grounded redlines for HIGH/MEDIUM risks",
                 List.of(
-                        step(WorkflowStepType.CLAUSE_CHECKLIST,   "Clause Checklist", null, 2),
-                        step(WorkflowStepType.RISK_ASSESSMENT,    "Risk Assessment (RAG)", null, 2),
-                        step(WorkflowStepType.REDLINE_SUGGESTIONS,"Redline Suggestions (Firm Clauses)", null, 2)
+                        step(WorkflowStepType.RISK_ASSESSMENT,     "Risk Assessment", null, 2),
+                        step(WorkflowStepType.REDLINE_SUGGESTIONS, "Redline Suggestions (Firm Clauses)", null, 2),
+                        step(WorkflowStepType.GENERATE_SUMMARY,    "Executive Summary", null, 1)
                 ));
 
         seedIfAbsent("Key Terms Only",
@@ -80,28 +81,27 @@ public class WorkflowService implements ApplicationRunner {
                 ));
 
         seedIfAbsent("High-Risk Deep Dive",
-                "Full analysis with conditional redlines — redlines generated only when risk is HIGH",
+                "Full analysis with conditional redlines and approval gate — partner reviews before sign-off",
                 List.of(
-                        step(WorkflowStepType.RISK_ASSESSMENT,    "Risk Assessment (RAG)", null, 2),
-                        step(WorkflowStepType.CLAUSE_CHECKLIST,   "Clause Checklist", null, 2),
-                        step(WorkflowStepType.REDLINE_SUGGESTIONS,"Redline Suggestions (Firm Clauses)",
-                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "eq", "HIGH"), 2),
-                        step(WorkflowStepType.GENERATE_SUMMARY,   "Executive Summary", null, 1)
+                        step(WorkflowStepType.RISK_ASSESSMENT,     "Risk Assessment", null, 2),
+                        step(WorkflowStepType.COMPLIANCE_CHECK,    "Playbook Compliance", null, 1),
+                        step(WorkflowStepType.REDLINE_SUGGESTIONS, "Redline Suggestions",
+                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "in", "HIGH,MEDIUM"), 2),
+                        step(WorkflowStepType.APPROVAL_GATE,       "Partner Review",  null, 1),
+                        step(WorkflowStepType.GENERATE_SUMMARY,    "Executive Summary", null, 1)
                 ));
 
-        // ── New: Playbook Review — clause library grounded, full iterative loop ──
         seedIfAbsent("Playbook Review",
-                "Checklist → corpus-benchmarked risk → firm-grounded redlines, each step self-refines up to 2 passes",
+                "Compliance-first: check against firm playbook → risk assessment → firm-grounded redlines → summary",
                 List.of(
-                        step(WorkflowStepType.CLAUSE_CHECKLIST,   "Clause Checklist (Refined)", null, 2),
-                        step(WorkflowStepType.RISK_ASSESSMENT,    "Risk Benchmark vs Corpus", null, 2),
-                        step(WorkflowStepType.REDLINE_SUGGESTIONS,"Redlines from Firm Playbook", null, 2),
-                        step(WorkflowStepType.GENERATE_SUMMARY,   "Executive Memo", null, 1)
+                        step(WorkflowStepType.COMPLIANCE_CHECK,    "Playbook Compliance", null, 1),
+                        step(WorkflowStepType.RISK_ASSESSMENT,     "Risk Benchmark vs Corpus", null, 2),
+                        step(WorkflowStepType.REDLINE_SUGGESTIONS, "Redlines from Firm Playbook", null, 2),
+                        step(WorkflowStepType.GENERATE_SUMMARY,    "Executive Memo", null, 1)
                 ));
 
-        // ── Draft & Assess Loop — draft a clause, assess, refine ────────────
         seedIfAbsent("Draft & Assess Loop",
-                "Draft a clause using corpus + firm library → assess risk → refine redlines → summary. Each step iterates until quality passes.",
+                "Draft a clause → assess risk → refine redlines → summary. Each step self-refines until quality passes.",
                 List.of(
                         stepWithParams(WorkflowStepType.DRAFT_CLAUSE, "Draft Liability Clause",  null, 2, Map.of("clauseType", "LIABILITY")),
                         step(WorkflowStepType.RISK_ASSESSMENT,        "Assess Drafted Clause",    null, 2),
@@ -110,15 +110,24 @@ public class WorkflowService implements ApplicationRunner {
                         step(WorkflowStepType.GENERATE_SUMMARY,       "Draft Summary", null, 1)
                 ));
 
-        // ── Draft Full Agreement — generates all 12 clause sections ────────────
         seedIfAbsent("Draft Full Agreement",
-                "Draft a complete contract with all sections → assess risk → refine weak clauses → executive summary.",
+                "Draft a complete contract → assess risk → compliance check → redlines → approval → summary",
                 List.of(
                         stepWithParams(WorkflowStepType.DRAFT_CLAUSE, "Draft Full Agreement", null, 1, Map.of("mode", "agreement")),
                         step(WorkflowStepType.RISK_ASSESSMENT,        "Assess Agreement",     null, 2),
+                        step(WorkflowStepType.COMPLIANCE_CHECK,       "Playbook Compliance",  null, 1),
                         step(WorkflowStepType.REDLINE_SUGGESTIONS,    "Redline Weak Clauses",
                                 new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "in", "HIGH,MEDIUM"), 2),
                         step(WorkflowStepType.GENERATE_SUMMARY,       "Executive Summary", null, 1)
+                ));
+
+        // ── Post-Signature Lifecycle — extract obligations and deadlines ────────
+        seedIfAbsent("Post-Signature Tracker",
+                "Extract obligations, deadlines, payments, and renewal dates from executed contracts",
+                List.of(
+                        step(WorkflowStepType.EXTRACT_KEY_TERMS,  "Extract Key Terms", null, 1),
+                        step(WorkflowStepType.OBLIGATION_EXTRACT, "Extract Obligations & Deadlines", null, 1),
+                        step(WorkflowStepType.GENERATE_SUMMARY,   "Obligation Summary", null, 1)
                 ));
     }
 
@@ -169,6 +178,7 @@ public class WorkflowService implements ApplicationRunner {
                     .predefined(false)
                     .team(req.isTeam())
                     .autoTrigger(req.isAutoTrigger())
+                    .triggers(objectMapper.writeValueAsString(req.getTriggers() != null ? req.getTriggers() : List.of()))
                     .steps(objectMapper.writeValueAsString(req.getSteps()))
                     .connectors(objectMapper.writeValueAsString(connectors))
                     .createdBy(username)
@@ -407,6 +417,10 @@ public class WorkflowService implements ApplicationRunner {
         try {
             if (def.getConnectors() != null) connectors = objectMapper.readValue(def.getConnectors(), new TypeReference<>() {});
         } catch (Exception ignored) {}
+        List<WorkflowTrigger> triggers = List.of();
+        try {
+            if (def.getTriggers() != null) triggers = objectMapper.readValue(def.getTriggers(), new TypeReference<>() {});
+        } catch (Exception ignored) {}
         return WorkflowDefinitionDto.builder()
                 .id(def.getId())
                 .name(def.getName())
@@ -414,6 +428,7 @@ public class WorkflowService implements ApplicationRunner {
                 .predefined(def.isPredefined())
                 .team(def.isTeam())
                 .autoTrigger(def.isAutoTrigger())
+                .triggers(triggers)
                 .steps(steps)
                 .connectors(connectors)
                 .createdBy(def.getCreatedBy())

@@ -46,6 +46,8 @@ public class AiService {
     private final VllmGuidedClient vllmClient;
     private final LegalSystemConfig legalSystemConfig;
     private final RiskQuestionEngine riskQuestionEngine;
+    private final com.legalpartner.repository.PlaybookRepository playbookRepository;
+    private final com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${legalpartner.rag.candidate-count:20}")
@@ -108,7 +110,9 @@ public class AiService {
             DocumentFullTextRetriever fullTextRetriever,
             VllmGuidedClient vllmClient,
             LegalSystemConfig legalSystemConfig,
-            RiskQuestionEngine riskQuestionEngine) {
+            RiskQuestionEngine riskQuestionEngine,
+            com.legalpartner.repository.PlaybookRepository playbookRepository,
+            com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
@@ -125,6 +129,8 @@ public class AiService {
         this.vllmClient = vllmClient;
         this.legalSystemConfig = legalSystemConfig;
         this.riskQuestionEngine = riskQuestionEngine;
+        this.playbookRepository = playbookRepository;
+        this.playbookPositionRepository = playbookPositionRepository;
     }
 
     public QueryResult query(QueryRequest request, String username) {
@@ -1356,6 +1362,18 @@ public class AiService {
         if (raw == null) raw = "";
         String cleaned = raw.replaceAll("(?s)<style[^>]*>.*?</style>", "").replaceAll("<[^>]+>", "").trim();
 
+        // Strip echoed prompt artifacts — LLM sometimes echoes the user prompt template
+        cleaned = cleaned
+                .replaceAll("(?im)^Category:.*$", "")
+                .replaceAll("(?im)^Risk rating:.*$", "")
+                .replaceAll("(?im)^Initial assessment:.*$", "")
+                .replaceAll("(?im)^Section reference:.*$", "")
+                .replaceAll("(?im)^Contract context:.*$", "")
+                .replaceAll("(?im)^Output (?:the |EXACTLY )?(?:four )?labelled lines.*$", "")
+                .replaceAll("(?im)^Note:.*basic example.*$", "")
+                .replaceAll("(?im)^STOP after the LANGUAGE line\\.?\\s*$", "")
+                .trim();
+
         java.util.regex.Matcher rm = DRILLDOWN_RISK.matcher(cleaned);
         java.util.regex.Matcher im = DRILLDOWN_IMPACT.matcher(cleaned);
         java.util.regex.Matcher fm = DRILLDOWN_FIX.matcher(cleaned);
@@ -1664,7 +1682,7 @@ public class AiService {
         documentRepository.findById(documentId)
                 .orElseThrow(() -> new java.util.NoSuchElementException("Document not found: " + documentId));
 
-        // Build clause issues list from prior checklist results (if available)
+        // Build clause issues from risk assessment results
         String clauseIssues = buildClauseIssuesList(priorResults);
         if (clauseIssues.isBlank()) {
             return RedlineSuggestionsResult.builder().suggestions(List.of()).build();
@@ -1677,33 +1695,8 @@ public class AiService {
         return parseRedlineJson(json);
     }
 
-    @SuppressWarnings("unchecked")
+    /** Builds redline issues from RISK_ASSESSMENT categories (HIGH/MEDIUM risk → redline targets). */
     private String buildClauseIssuesList(Map<String, Object> priorResults) {
-        // Try to get clause checklist results
-        Object checklistRaw = priorResults.get("CLAUSE_CHECKLIST");
-        if (checklistRaw == null) return "";
-        try {
-            String json = objectMapper.writeValueAsString(checklistRaw);
-            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(json);
-            StringBuilder sb = new StringBuilder();
-            node.path("clauses").forEach(clause -> {
-                String status = clause.path("status").asText("");
-                if ("WEAK".equals(status) || "MISSING".equals(status)) {
-                    sb.append("- ").append(clause.path("clauseName").asText(clause.path("clause_id").asText("Unknown")))
-                      .append(" [").append(status).append("]: ")
-                      .append(clause.path("assessment").asText(clause.path("finding").asText("")))
-                      .append("\n");
-                }
-            });
-            return sb.toString();
-        } catch (Exception e) {
-            log.warn("Failed to extract clause issues for redlines: {}", e.getMessage());
-            return "";
-        }
-    }
-
-    /** Builds redline issues from RISK_ASSESSMENT categories (for draft-only runs with no checklist). */
-    private String buildClauseIssuesFromRisk(Map<String, Object> priorResults) {
         Object riskRaw = priorResults.get("RISK_ASSESSMENT");
         if (riskRaw == null) return "";
         try {
@@ -1822,10 +1815,6 @@ public class AiService {
         }
 
         String clauseIssues = buildClauseIssuesList(priorResults);
-        // For draft-only runs, fall back to risk categories as clause issues
-        if (clauseIssues.isBlank() && draftedText != null) {
-            clauseIssues = buildClauseIssuesFromRisk(priorResults);
-        }
         if (clauseIssues.isBlank()) return RedlineSuggestionsResult.builder().suggestions(List.of()).build();
 
         StringBuilder userPrompt = new StringBuilder();
@@ -1844,6 +1833,163 @@ public class AiService {
                 legalSystemConfig.localize(PromptTemplates.REDLINE_SYSTEM_GUIDED),
                 prompt, StructuredSchemas.REDLINE_SCHEMA, 1400);
         return parseRedlineJson(json);
+    }
+
+    // ── Workflow: Compliance Check step ─────────────────────────────────────────
+
+    /**
+     * Validates a contract against playbook rules. Each position in the playbook is checked
+     * against the contract text. Returns structured violations with severity.
+     */
+    public Map<String, Object> complianceCheck(UUID documentId, UUID playbookId, String username, String draftedText) {
+        String contractText;
+        if (documentId != null) {
+            contractText = fullTextRetriever.retrieveFullText(documentId);
+        } else if (draftedText != null) {
+            contractText = draftedText;
+        } else {
+            return Map.of("violations", List.of(), "status", "NO_DOCUMENT");
+        }
+        if (contractText.isBlank()) return Map.of("violations", List.of(), "status", "NOT_INDEXED");
+
+        // Find playbook — either specified or the default for the detected contract type
+        List<com.legalpartner.model.entity.PlaybookPosition> positions;
+        if (playbookId != null) {
+            positions = playbookPositionRepository.findByPlaybookId(playbookId);
+        } else {
+            // Use the first available playbook
+            List<com.legalpartner.model.entity.Playbook> playbooks = playbookRepository.findAll();
+            if (playbooks.isEmpty()) return Map.of("violations", List.of(), "status", "NO_PLAYBOOK");
+            positions = playbookPositionRepository.findByPlaybookId(playbooks.get(0).getId());
+        }
+        if (positions.isEmpty()) return Map.of("violations", List.of(), "status", "EMPTY_PLAYBOOK");
+
+        String truncated = contractText.length() > 8000 ? contractText.substring(0, 8000) : contractText;
+        List<Map<String, Object>> violations = new java.util.ArrayList<>();
+        int matches = 0;
+
+        for (var position : positions) {
+            String prompt = String.format("""
+                    Analyze this contract clause against the firm's standard.
+                    Clause Type: %s
+                    Firm Standard: %s
+                    Minimum Acceptable: %s
+                    Non-negotiable: %s
+
+                    Contract text:
+                    %s
+
+                    Respond ONLY with JSON:
+                    {"verdict": "MATCHES|DEVIATES|MISSING", "severity": "HIGH|MEDIUM|LOW", "explanation": "one sentence", "section_ref": "Section X.Y or MISSING"}
+                    """,
+                    position.getClauseType(),
+                    position.getStandardPosition(),
+                    position.getMinimumAcceptable() != null ? position.getMinimumAcceptable() : "N/A",
+                    position.isNonNegotiable(),
+                    truncated);
+
+            try {
+                String response = shortChatModel.generate(dev.langchain4j.data.message.UserMessage.from(prompt)).content().text();
+                com.fasterxml.jackson.databind.JsonNode node = parseJsonResponse(response);
+                String verdict = node.path("verdict").asText("MATCHES");
+                if ("MATCHES".equalsIgnoreCase(verdict)) {
+                    matches++;
+                    continue;
+                }
+                String severity = node.path("severity").asText("MEDIUM");
+                if (position.isNonNegotiable()) severity = "HIGH";
+
+                violations.add(Map.of(
+                        "clauseType", position.getClauseType(),
+                        "verdict", verdict,
+                        "severity", severity,
+                        "explanation", node.path("explanation").asText(""),
+                        "sectionRef", node.path("section_ref").asText(""),
+                        "nonNegotiable", position.isNonNegotiable(),
+                        "firmStandard", position.getStandardPosition()
+                ));
+            } catch (Exception e) {
+                log.warn("Compliance check failed for clause {}: {}", position.getClauseType(), e.getMessage());
+            }
+        }
+
+        return Map.of(
+                "violations", violations,
+                "matches", matches,
+                "totalChecked", positions.size(),
+                "status", "COMPLETED"
+        );
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode parseJsonResponse(String response) throws Exception {
+        try {
+            return objectMapper.readTree(response);
+        } catch (Exception e) {
+            int start = response.indexOf('{');
+            int end = response.lastIndexOf('}');
+            if (start >= 0 && end > start) {
+                return objectMapper.readTree(response.substring(start, end + 1));
+            }
+            throw e;
+        }
+    }
+
+    // ── Workflow: Obligation Extract step ─────────────────────────────────────
+
+    /**
+     * Extracts structured obligations from a contract: deadlines, payments, renewals, notice periods.
+     */
+    public Map<String, Object> extractObligations(UUID documentId, String username, String draftedText) {
+        String contractText;
+        if (documentId != null) {
+            contractText = fullTextRetriever.retrieveFullText(documentId);
+        } else if (draftedText != null) {
+            contractText = draftedText;
+        } else {
+            return Map.of("obligations", List.of(), "status", "NO_DOCUMENT");
+        }
+        if (contractText.isBlank()) return Map.of("obligations", List.of(), "status", "NOT_INDEXED");
+
+        String truncated = contractText.length() > 10000 ? contractText.substring(0, 10000) : contractText;
+
+        String prompt = String.format("""
+                Extract ALL obligations, deadlines, and key dates from this contract.
+                For each item, provide: type, description, date (if specified), party responsible, and section reference.
+
+                Types to look for:
+                - PAYMENT: amounts, payment dates, invoicing terms
+                - DEADLINE: deliverable due dates, milestones
+                - RENEWAL: renewal/expiry dates, auto-renewal terms
+                - NOTICE: notice periods for termination, renewal, breach
+                - REPORTING: reporting obligations, audit rights
+                - COMPLIANCE: regulatory compliance deadlines
+
+                Contract text:
+                %s
+
+                Respond ONLY with JSON:
+                {"obligations": [{"type": "PAYMENT|DEADLINE|RENEWAL|NOTICE|REPORTING|COMPLIANCE", "description": "...", "date": "YYYY-MM-DD or null", "party": "Party A|Party B|Both", "section_ref": "Section X.Y", "recurring": true|false}]}
+                """, truncated);
+
+        try {
+            String response = chatModel.generate(dev.langchain4j.data.message.UserMessage.from(
+                    legalSystemConfig.localize("You are a legal obligation extraction specialist. Extract ALL actionable obligations with precision.")
+                    + "\n\n" + prompt)).content().text();
+            com.fasterxml.jackson.databind.JsonNode node = parseJsonResponse(response);
+            List<Map<String, Object>> obligations = new java.util.ArrayList<>();
+            node.path("obligations").forEach(o -> obligations.add(Map.of(
+                    "type", o.path("type").asText("OTHER"),
+                    "description", o.path("description").asText(""),
+                    "date", o.path("date").asText(""),
+                    "party", o.path("party").asText(""),
+                    "sectionRef", o.path("section_ref").asText(""),
+                    "recurring", o.path("recurring").asBoolean(false)
+            )));
+            return Map.of("obligations", obligations, "status", "COMPLETED");
+        } catch (Exception e) {
+            log.warn("Obligation extraction failed: {}", e.getMessage());
+            return Map.of("obligations", List.of(), "status", "FAILED", "error", e.getMessage());
+        }
     }
 
     // ── Workflow: Draft clause step ───────────────────────────────────────────

@@ -4,17 +4,19 @@ import {
   CheckCircle2, XCircle, Loader2, Clock, ChevronDown, ChevronUp,
   ArrowLeft, ShieldAlert, Key, ClipboardList, Workflow, FileText,
   Sparkles, Download, Briefcase, SkipForward, RefreshCw, PenLine,
-  Globe, Mail, Zap, AlertTriangle, MessageSquare
+  Globe, Mail, Zap, AlertTriangle, MessageSquare, CheckSquare, Calendar, UserCheck,
 } from 'lucide-react';
 import api from '../api/client';
 
 const STEP_ICONS = {
   EXTRACT_KEY_TERMS: Key,
   RISK_ASSESSMENT: ShieldAlert,
-  CLAUSE_CHECKLIST: ClipboardList,
+  COMPLIANCE_CHECK: CheckSquare,
   GENERATE_SUMMARY: FileText,
   REDLINE_SUGGESTIONS: Sparkles,
   DRAFT_CLAUSE: PenLine,
+  OBLIGATION_EXTRACT: Calendar,
+  APPROVAL_GATE: UserCheck,
 };
 
 const RISK_COLOR = { HIGH: 'danger', MEDIUM: 'warning', LOW: 'success' };
@@ -118,24 +120,57 @@ function ResultPreview({ type, result }) {
     );
   }
 
-  if (type === 'CLAUSE_CHECKLIST') {
-    const present = result.clauses?.filter(c => c.status === 'PRESENT').length || 0;
-    const weak = result.clauses?.filter(c => c.status === 'WEAK').length || 0;
-    const missing = result.clauses?.filter(c => c.status === 'MISSING').length || 0;
+  if (type === 'COMPLIANCE_CHECK') {
+    const violations = result.violations?.length || 0;
+    const matches = result.matches || 0;
+    const total = result.totalChecked || 0;
     return (
       <div>
         <div className="flex gap-4 mb-2">
-          <span className="text-success text-sm font-medium">{present} Present</span>
-          <span className="text-warning text-sm font-medium">{weak} Weak</span>
-          <span className="text-danger text-sm font-medium">{missing} Missing</span>
+          <span className="text-success text-sm font-medium">{matches} Compliant</span>
+          <span className="text-danger text-sm font-medium">{violations} Violation{violations !== 1 ? 's' : ''}</span>
+          <span className="text-text-muted text-sm">{total} checked</span>
         </div>
-        {result.criticalMissingClauses?.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {result.criticalMissingClauses.map(c => (
-              <span key={c} className="text-xs bg-danger/10 text-danger border border-danger/20 px-2 py-0.5 rounded-full">{c}</span>
-            ))}
+        {result.violations?.slice(0, 5).map((v, i) => (
+          <div key={i} className="flex items-start gap-2 mb-1">
+            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${v.severity === 'HIGH' ? 'bg-danger/10 text-danger' : 'bg-warning/10 text-warning'}`}>{v.severity}</span>
+            <span className="text-xs text-text-secondary">{v.clauseType}: {v.explanation}</span>
           </div>
-        )}
+        ))}
+      </div>
+    );
+  }
+
+  if (type === 'OBLIGATION_EXTRACT') {
+    const obligations = result.obligations || [];
+    const byType = {};
+    obligations.forEach(o => { byType[o.type] = (byType[o.type] || 0) + 1; });
+    return (
+      <div>
+        <div className="flex gap-3 mb-2 flex-wrap">
+          {Object.entries(byType).map(([t, n]) => (
+            <span key={t} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">{t}: {n}</span>
+          ))}
+        </div>
+        {obligations.slice(0, 5).map((o, i) => (
+          <div key={i} className="text-xs text-text-secondary mb-1 flex gap-2">
+            <span className="font-medium text-text-primary shrink-0">{o.type}</span>
+            <span>{o.description}{o.date ? ` — ${o.date}` : ''}</span>
+          </div>
+        ))}
+        {obligations.length > 5 && <p className="text-xs text-text-muted">+{obligations.length - 5} more</p>}
+      </div>
+    );
+  }
+
+  if (type === 'APPROVAL_GATE') {
+    return (
+      <div className="flex items-center gap-3">
+        <UserCheck className="w-5 h-5 text-warning" />
+        <div>
+          <p className="text-sm font-medium text-warning">Awaiting Approval</p>
+          {result.assignee && <p className="text-xs text-text-muted">Assigned to: {result.assignee}</p>}
+        </div>
       </div>
     );
   }

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
+import SendForSignatureModal from '../components/SendForSignatureModal';
 
 /* ── Shared helpers ──────────────────────────────────────────────── */
 
@@ -132,10 +133,7 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
       const res = await api.post(`/ai/risk-assessment/${docId}${regenerate ? '?regenerate=true' : ''}`);
       setResult(res.data);
       setCached(!!res.data.cached);
-      const initialExpanded = {};
-      (res.data.categories || []).forEach(c => { if (c.rating === 'HIGH') initialExpanded[c.name] = true; });
-      setExpanded(initialExpanded);
-      (res.data.categories || []).filter(c => c.rating === 'HIGH').forEach(cat => fireDrilldown(cat));
+      setExpanded({});
     } catch (e) {
       setError(e.response?.data?.message || 'Assessment failed');
     } finally { setLoading(false); }
@@ -150,11 +148,7 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
         if (r.data?.cached) {
           setResult(r.data);
           setCached(true);
-          // Auto-expand HIGH categories
-          const initialExpanded = {};
-          (r.data.categories || []).forEach(c => { if (c.rating === 'HIGH') initialExpanded[c.name] = true; });
-          setExpanded(initialExpanded);
-          (r.data.categories || []).filter(c => c.rating === 'HIGH').forEach(cat => fireDrilldown(cat));
+          setExpanded({});
         }
       })
       .catch(() => {});
@@ -250,11 +244,13 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
               const isOpen = !!expanded[cat.name];
               const kind = cat.rating?.toLowerCase() === 'high' ? 'high' : cat.rating?.toLowerCase() === 'medium' ? 'med' : 'low';
               const clauseResult = result.clauseResults?.find(cr => cr.clauseType === cat.name);
+              const hasQuestions = clauseResult?.questions?.length > 0;
+              const expandable = canDrilldown || hasQuestions;
 
               return (
                 <div key={i} className="card">
-                  <div style={{ padding: 14, cursor: canDrilldown ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 10 }} onClick={() => canDrilldown && toggleExpand(cat)}>
-                    {canDrilldown && (
+                  <div style={{ padding: 14, cursor: expandable ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: 10 }} onClick={() => expandable && toggleExpand(cat)}>
+                    {expandable && (
                       <ChevronRight size={14} style={{ color: 'var(--text-3)', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
                     )}
                     <div style={{ fontWeight: 600, fontSize: 14, flex: 1 }}>{cat.name}</div>
@@ -263,7 +259,7 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
                   {cat.justification && (
                     <div style={{ padding: '0 14px 12px', fontSize: 12, color: 'var(--text-2)' }}>{cat.justification}</div>
                   )}
-                  {cat.clauseReference && !/^see contract$/i.test(cat.clauseReference.trim()) && (
+                  {isOpen && cat.clauseReference && !/^see contract$/i.test(cat.clauseReference.trim()) && (
                     <div style={{ padding: '0 14px 12px' }}>
                       <span className="mono tiny" style={{ color: 'var(--brand-400)' }}>{cat.clauseReference}</span>
                     </div>
@@ -632,6 +628,7 @@ export default function ContractReviewPage() {
   const [summaryResult, setSummaryResult] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState('');
+  const [showSignModal, setShowSignModal] = useState(false);
 
   // Risk tab state
   const [riskResult, setRiskResult] = useState(null);
@@ -753,8 +750,27 @@ export default function ContractReviewPage() {
             )}
           </select>
           {selectedDoc && <SourceBadge source={selectedDoc.source} />}
+          {docId && (
+            <button className="btn primary" onClick={() => setShowSignModal(true)} style={{ marginLeft: 8 }}>
+              <Send size={14} /> Send for Signature
+            </button>
+          )}
         </div>
       </div>
+
+      {showSignModal && (
+        <SendForSignatureModal
+          docId={docId}
+          docName={selectedDoc?.fileName}
+          matterId={selectedDoc?.matterId}
+          parties={{
+            partyA: checklistResult?.partyA || riskResult?.partyA,
+            partyB: checklistResult?.partyB || riskResult?.partyB,
+          }}
+          onClose={() => setShowSignModal(false)}
+          onSent={() => {}}
+        />
+      )}
 
       {/* Tab bar */}
       <div className="tabs">

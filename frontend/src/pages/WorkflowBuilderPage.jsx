@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Trash2, GripVertical, Save, ShieldAlert, Key,
-  ClipboardList, ArrowDown, FileText, Sparkles, Users, Zap, Mail, Globe, ChevronDown, ChevronUp, PenLine,
+  ClipboardList, ArrowDown, FileText, Sparkles, Users, Zap, Mail, Globe,
+  ChevronDown, ChevronUp, PenLine, CheckSquare, Calendar, UserCheck,
 } from 'lucide-react';
 import api from '../api/client';
 
@@ -18,18 +19,42 @@ const STEP_DEFS = [
   {
     type: 'RISK_ASSESSMENT',
     label: 'Risk Assessment',
-    description: 'Identifies and rates risk categories: liability, IP, termination, etc.',
+    description: '104-question structured analysis — identifies and rates risk per clause category',
     icon: ShieldAlert,
     color: 'text-warning',
     bg: 'bg-warning/10',
   },
   {
-    type: 'CLAUSE_CHECKLIST',
-    label: 'Clause Checklist',
-    description: 'Audits 12 standard clauses — present, weak, or missing with recommendations',
-    icon: ClipboardList,
+    type: 'COMPLIANCE_CHECK',
+    label: 'Compliance Check',
+    description: 'Validates contract against firm playbook rules — flags deviations and non-negotiable violations',
+    icon: CheckSquare,
     color: 'text-success',
     bg: 'bg-success/10',
+  },
+  {
+    type: 'REDLINE_SUGGESTIONS',
+    label: 'Redline Suggestions',
+    description: 'Generates improved clause language for high-risk areas, grounded in firm golden clause library',
+    icon: Sparkles,
+    color: 'text-primary',
+    bg: 'bg-primary/10',
+  },
+  {
+    type: 'DRAFT_CLAUSE',
+    label: 'Draft',
+    description: 'Draft a single clause or a full agreement using deterministic-first rendering',
+    icon: PenLine,
+    color: 'text-gold',
+    bg: 'bg-gold/10',
+  },
+  {
+    type: 'OBLIGATION_EXTRACT',
+    label: 'Extract Obligations',
+    description: 'Extracts deadlines, payments, renewals, notice periods — structured for tracking',
+    icon: Calendar,
+    color: 'text-primary',
+    bg: 'bg-primary/10',
   },
   {
     type: 'GENERATE_SUMMARY',
@@ -40,20 +65,12 @@ const STEP_DEFS = [
     bg: 'bg-gold/10',
   },
   {
-    type: 'REDLINE_SUGGESTIONS',
-    label: 'Redline Suggestions',
-    description: 'Generates specific improved clause language for weak/missing clauses, grounded in firm clause library',
-    icon: Sparkles,
-    color: 'text-primary',
-    bg: 'bg-primary/10',
-  },
-  {
-    type: 'DRAFT_CLAUSE',
-    label: 'Draft',
-    description: 'Draft a single clause or a full agreement. Choose mode below.',
-    icon: PenLine,
-    color: 'text-gold',
-    bg: 'bg-gold/10',
+    type: 'APPROVAL_GATE',
+    label: 'Approval Gate',
+    description: 'Pauses the workflow for human review — assign to a partner or team lead for sign-off',
+    icon: UserCheck,
+    color: 'text-warning',
+    bg: 'bg-warning/10',
   },
 ];
 
@@ -332,7 +349,7 @@ export default function WorkflowBuilderPage() {
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState([]);
   const [isTeam, setIsTeam] = useState(false);
-  const [autoTrigger, setAutoTrigger] = useState(false);
+  const [triggers, setTriggers] = useState([]);
   const [connectors, setConnectors] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -360,7 +377,7 @@ export default function WorkflowBuilderPage() {
 
     setSaving(true); setError('');
     try {
-      await api.post('/workflows/definitions', { name, description, steps, connectors, autoTrigger, team: isTeam });
+      await api.post('/workflows/definitions', { name, description, steps, connectors, triggers, autoTrigger: triggers.some(t => t.event === 'DOCUMENT_INDEXED'), team: isTeam });
       navigate('/workflows');
     } catch (e) {
       setError(e.response?.data?.message || 'Failed to save workflow');
@@ -413,22 +430,39 @@ export default function WorkflowBuilderPage() {
                 <Users className="w-4 h-4 text-text-muted" />
                 <span className="text-xs text-text-secondary">Share with team</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={autoTrigger}
-                  onChange={e => setAutoTrigger(e.target.checked)}
-                  className="w-4 h-4 accent-primary"
-                />
-                <Zap className="w-4 h-4 text-warning" />
-                <span className="text-xs text-text-secondary">Auto-run on document upload</span>
-              </label>
             </div>
-            {autoTrigger && (
-              <p className="text-[10px] text-warning bg-warning/10 rounded-lg px-3 py-2">
-                This workflow will automatically run in the background whenever a new document is uploaded and indexed.
-              </p>
-            )}
+            <div className="pt-1">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="w-4 h-4 text-warning" />
+                <span className="text-xs font-medium text-text-secondary">Proactive Triggers</span>
+                <span className="text-[10px] text-text-muted">(auto-run this agent when events occur)</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { event: 'DOCUMENT_INDEXED', label: 'Document uploaded', desc: 'Runs when a new document is indexed' },
+                  { event: 'DRAFT_COMPLETED', label: 'Draft generated', desc: 'Runs when a draft contract is completed' },
+                  { event: 'RISK_HIGH_DETECTED', label: 'High risk detected', desc: 'Runs when risk assessment rates HIGH' },
+                  { event: 'MATTER_CREATED', label: 'Matter created', desc: 'Runs when a new matter is opened' },
+                ].map(t => {
+                  const active = triggers.some(tr => tr.event === t.event);
+                  return (
+                    <button key={t.event} type="button" title={t.desc}
+                      onClick={() => setTriggers(prev => active
+                        ? prev.filter(tr => tr.event !== t.event)
+                        : [...prev, { event: t.event }]
+                      )}
+                      className={`text-[11px] px-3 py-1.5 rounded-full border transition-colors ${
+                        active
+                          ? 'bg-warning/15 border-warning/40 text-warning font-medium'
+                          : 'bg-surface-el border-border text-text-muted hover:border-warning/30 hover:text-text-secondary'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           <div className="card min-h-[300px]">

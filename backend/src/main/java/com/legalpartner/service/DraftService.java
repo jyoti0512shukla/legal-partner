@@ -71,6 +71,7 @@ public class DraftService {
     private final DraftNormalizer draftNormalizer;
     private final IndustryRegulationRegistry industryRegulationRegistry;
     private final PartyNameVariantsConfig partyNameVariantsConfig;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
     private final String defaultJurisdiction;
     private final String storagePath;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -98,6 +99,7 @@ public class DraftService {
                         DraftNormalizer draftNormalizer,
                         IndustryRegulationRegistry industryRegulationRegistry,
                         PartyNameVariantsConfig partyNameVariantsConfig,
+                        org.springframework.context.ApplicationEventPublisher eventPublisher,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent,
                         @Value("${legalpartner.defaults.jurisdiction:United States (Delaware)}") String defaultJurisdiction,
                         @Value("${legalpartner.storage.path:/data/documents}") String storagePath) {
@@ -122,6 +124,7 @@ public class DraftService {
         this.draftNormalizer = draftNormalizer;
         this.industryRegulationRegistry = industryRegulationRegistry;
         this.partyNameVariantsConfig = partyNameVariantsConfig;
+        this.eventPublisher = eventPublisher;
         this.fileStorageService = fileStorageService;
         this.defaultJurisdiction = defaultJurisdiction;
         this.storagePath = storagePath;
@@ -487,6 +490,14 @@ public class DraftService {
         documentRepository.save(doc);
         log.info("Async draft {} completed ({} clauses, {} qa warnings)",
                  docId, plannedSections.size(), allQaWarnings.size());
+
+        // Publish event for proactive agent triggers
+        try {
+            eventPublisher.publishEvent(new com.legalpartner.event.DraftCompletedEvent(
+                    docId, doc.getUploadedBy(), doc.getDocumentType() != null ? doc.getDocumentType().name() : "UNKNOWN"));
+        } catch (Exception e) {
+            log.warn("Failed to publish DraftCompletedEvent for {}: {}", docId, e.getMessage());
+        }
     }
 
     private void storeHtml(DocumentMetadata doc, String html) {

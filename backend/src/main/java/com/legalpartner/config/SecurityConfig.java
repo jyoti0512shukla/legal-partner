@@ -74,6 +74,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/auth/logout").permitAll()
                         .requestMatchers("/api/v1/cloud-storage/callback").permitAll()
                         .requestMatchers("/api/v1/integrations/callback").permitAll()
+                        .requestMatchers("/api/v1/integrations/docusign/webhook").permitAll()
                         // ONLYOFFICE server-to-server: file fetch + save callback (UUID is unguessable)
                         .requestMatchers("/api/v1/editor/*/file").permitAll()
                         .requestMatchers("/api/v1/editor/*/callback").permitAll()

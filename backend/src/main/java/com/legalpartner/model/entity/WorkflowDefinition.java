@@ -32,10 +32,16 @@ public class WorkflowDefinition {
     @Builder.Default
     private boolean team = false;
 
-    /** Auto-run this workflow whenever a new document is indexed */
+    /** Legacy: auto-run on document indexed. Superceded by triggers JSONB. */
     @Column(nullable = false)
     @Builder.Default
     private boolean autoTrigger = false;
+
+    /** JSON array of trigger configs: [{"event":"DOCUMENT_INDEXED"}, {"event":"DRAFT_COMPLETED"}] */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb", nullable = false)
+    @Builder.Default
+    private String triggers = "[]";
 
     /** JSON array of WorkflowConnector — fires on workflow completion */
     @JdbcTypeCode(SqlTypes.JSON)

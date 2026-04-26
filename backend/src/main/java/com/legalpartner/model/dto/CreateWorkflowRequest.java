@@ -14,6 +14,7 @@ public class CreateWorkflowRequest {
     @NotEmpty
     private List<WorkflowStepConfig> steps;
     private List<WorkflowConnector> connectors;
+    private List<WorkflowTrigger> triggers;
     private boolean autoTrigger;
     private boolean team;
 }

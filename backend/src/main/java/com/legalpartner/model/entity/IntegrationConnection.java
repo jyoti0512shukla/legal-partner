@@ -27,6 +27,11 @@ public class IntegrationConnection {
     @Column(nullable = false, length = 50)
     private String provider;
 
+    /** USER = personal connection, ORGANIZATION = shared firm-wide */
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private String scope = "USER";
+
     @Column(name = "access_token", length = 4000)
     private String accessToken;
 
