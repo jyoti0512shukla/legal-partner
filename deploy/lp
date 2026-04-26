@@ -179,12 +179,11 @@ cmd_deploy() {
 
   bold "Deploying $name ($SSH_TARGET)..."
 
-  # Show config diff before pushing
+  # Show config diff (local snapshot — no SSH needed)
+  local last_deployed="$CUSTOMERS_DIR/$name/.env.deployed"
   echo "  Config changes:"
-  local remote_env
-  remote_env=$(remote "cat $REMOTE_DIR/.env 2>/dev/null" 2>/dev/null || echo "")
-  if [[ -n "$remote_env" ]]; then
-    diff_output=$(diff <(echo "$remote_env" | grep -v '^#' | grep -v '^$' | sort) \
+  if [[ -f "$last_deployed" ]]; then
+    diff_output=$(diff <(grep -v '^#' "$last_deployed" | grep -v '^$' | sort) \
                        <(grep -v '^#' "$CUSTOMER_ENV" | grep -v '^$' | sort) 2>/dev/null || true)
     if [[ -n "$diff_output" ]]; then
       echo "$diff_output" | while IFS= read -r line; do
@@ -197,7 +196,7 @@ cmd_deploy() {
       echo "    (no changes)"
     fi
   else
-    echo "    (first deploy — no existing config)"
+    echo "    (first deploy — no previous snapshot)"
   fi
 
   # Push files
@@ -234,6 +233,9 @@ cmd_deploy() {
   # Only runs after health check passes — the new images are in-use and safe.
   echo "  Pruning unreferenced images and build cache..."
   remote "docker image prune -af 2>&1 | grep -E 'Total reclaimed|deleted:' | tail -2; docker builder prune -af 2>&1 | grep -E 'Total|reclaimed' | tail -2" || true
+
+  # Save snapshot of deployed config for future diffs
+  cp "$CUSTOMER_ENV" "$CUSTOMERS_DIR/$name/.env.deployed"
 
   green "Deployed $name successfully!"
   cmd_status "$name"
@@ -320,6 +322,32 @@ cmd_ssh() {
   fi
 }
 
+cmd_diff() {
+  local name="${1:?Usage: lp diff <customer>}"
+  load_customer "$name"
+  local last_deployed="$CUSTOMERS_DIR/$name/.env.deployed"
+  bold "Config diff: $name"
+  if [[ ! -f "$last_deployed" ]]; then
+    yellow "No previous deploy snapshot. All values are new."
+    grep -v '^#' "$CUSTOMER_ENV" | grep -v '^$' | while IFS= read -r line; do
+      echo "  $(printf '\033[0;32m')+ $line$(printf '\033[0m')"
+    done
+    return
+  fi
+  diff_output=$(diff <(grep -v '^#' "$last_deployed" | grep -v '^$' | sort) \
+                     <(grep -v '^#' "$CUSTOMER_ENV" | grep -v '^$' | sort) 2>/dev/null || true)
+  if [[ -z "$diff_output" ]]; then
+    green "No changes since last deploy."
+  else
+    echo "$diff_output" | while IFS= read -r line; do
+      case "$line" in
+        \<*) echo "  $(printf '\033[0;31m')- ${line:2}$(printf '\033[0m')" ;;
+        \>*) echo "  $(printf '\033[0;32m')+ ${line:2}$(printf '\033[0m')" ;;
+      esac
+    done
+  fi
+}
+
 cmd_list() {
   bold "Customers:"
   for name in $(list_customers); do
@@ -338,6 +366,7 @@ case "$cmd" in
   provision)  cmd_provision "$@" ;;
   deploy)     cmd_deploy "$@" ;;
   deploy-all) cmd_deploy_all "$@" ;;
+  diff)       cmd_diff "$@" ;;
   rollback)   cmd_rollback "$@" ;;
   status)     cmd_status "$@" ;;
   status-all) cmd_status_all "$@" ;;
