@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Serve SaulLM-54B-Instruct-AWQ via vLLM on 1x A100 80GB.
+# Serve SaulLM-54B-Instruct-AWQ via vLLM on 1x A6000 48GB.
 #
 # Prerequisites:
 #   - AWQ model uploaded to HuggingFace (jyoti0512shukla/SaulLM-54B-Instruct-AWQ)
@@ -9,8 +9,9 @@
 #   export HF_TOKEN=hf_xxx NGROK_TOKEN=xxx
 #   ./deploy/saullm-vllm-serve.sh [existing-pod-id]
 #
-# Performance: ~35-50 tok/s on 1x A100 with AWQ Marlin kernels.
-# Cost: ~$1.50/hr (A100 SXM4).
+# VRAM: ~31 GB (23GB model + 5GB KV cache + 3GB overhead) — fits in 48GB with headroom.
+# Performance: ~35-40 tok/s on A6000 with AWQ Marlin kernels.
+# Cost: ~$0.76/hr (A6000 48GB). Override: GPU_TYPE="NVIDIA A100-SXM4-80GB" for ~62 tok/s.
 
 set -euo pipefail
 
@@ -19,7 +20,7 @@ set -euo pipefail
 command -v runpodctl >/dev/null || { echo "runpodctl missing"; exit 1; }
 
 MODEL="${MODEL:-jyoti0512shukla/SaulLM-54B-Instruct-AWQ}"
-GPU_TYPE="${GPU_TYPE:-NVIDIA A100-SXM4-80GB}"
+GPU_TYPE="${GPU_TYPE:-NVIDIA RTX A6000}"
 SSH_KEY="${SSH_KEY:-$HOME/.runpod/ssh/RunPod-Key-Go}"
 
 echo "============================================================"

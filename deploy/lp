@@ -184,6 +184,14 @@ cmd_deploy() {
   remote_scp "$COMPOSE_FILE" "$SSH_TARGET:$REMOTE_DIR/docker-compose.yml"
   remote_scp "$CUSTOMER_ENV" "$SSH_TARGET:$REMOTE_DIR/.env"
 
+  # Push Caddyfile if present
+  local caddyfile="$CUSTOMERS_DIR/$name/Caddyfile"
+  if [[ -f "$caddyfile" ]]; then
+    echo "  Pushing Caddyfile..."
+    remote_scp "$caddyfile" "$SSH_TARGET:/etc/caddy/Caddyfile"
+    remote "command -v caddy >/dev/null 2>&1 && sudo caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true"
+  fi
+
   # Pull + restart
   echo "  Pulling images..."
   remote "cd $REMOTE_DIR && docker-compose pull"
