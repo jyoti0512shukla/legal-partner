@@ -148,7 +148,10 @@ legalpartner:
       app-key: ${LEGALPARTNER_DROPBOX_APP_KEY:}
       app-secret: ${LEGALPARTNER_DROPBOX_APP_SECRET:}
   rate-limit:
-    ai-requests-per-minute: 15   # per authenticated user; adjust based on Ollama capacity
+    ai-requests-per-minute: ${LEGALPARTNER_RATE_LIMIT_AI:15}          # per authenticated user per minute
+    login-per-minute: ${LEGALPARTNER_RATE_LIMIT_LOGIN:5}              # per IP per minute
+    register-per-minute: ${LEGALPARTNER_RATE_LIMIT_REGISTER:3}        # per IP per minute
+    reset-per-hour: ${LEGALPARTNER_RATE_LIMIT_RESET:3}                # per IP per hour
   draft:
     retrieval:
       candidate-count: 30

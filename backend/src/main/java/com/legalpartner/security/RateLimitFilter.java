@@ -35,7 +35,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
     @Value("${legalpartner.rate-limit.ai-requests-per-minute:15}")
     private int aiRequestsPerMinute;
 
-    // Separate bucket maps for different endpoint types
+    @Value("${legalpartner.rate-limit.login-per-minute:5}")
+    private int loginPerMinute;
+
+    @Value("${legalpartner.rate-limit.register-per-minute:3}")
+    private int registerPerMinute;
+
+    @Value("${legalpartner.rate-limit.reset-per-hour:3}")
+    private int resetPerHour;
+
     private final Map<String, Bucket> aiBuckets = new ConcurrentHashMap<>();
     private final Map<String, Bucket> loginBuckets = new ConcurrentHashMap<>();
     private final Map<String, Bucket> registerBuckets = new ConcurrentHashMap<>();
@@ -53,11 +61,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
             String ip = request.getRemoteAddr(); // Direct connection only — no X-Forwarded-For trust
 
             if (path.equals("/api/v1/auth/login")) {
-                if (!checkLimit(loginBuckets, ip, 5, Duration.ofMinutes(1), response, "login")) return;
+                if (!checkLimit(loginBuckets, ip, loginPerMinute, Duration.ofMinutes(1), response, "login")) return;
             } else if (path.equals("/api/v1/auth/register")) {
-                if (!checkLimit(registerBuckets, ip, 3, Duration.ofMinutes(1), response, "register")) return;
+                if (!checkLimit(registerBuckets, ip, registerPerMinute, Duration.ofMinutes(1), response, "register")) return;
             } else if (path.equals("/api/v1/auth/reset-password") || path.equals("/api/v1/auth/forgot-password")) {
-                if (!checkLimit(resetBuckets, ip, 3, Duration.ofHours(1), response, "password reset")) return;
+                if (!checkLimit(resetBuckets, ip, resetPerHour, Duration.ofHours(1), response, "password reset")) return;
             }
         }
 
