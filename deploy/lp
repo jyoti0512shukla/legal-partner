@@ -179,6 +179,27 @@ cmd_deploy() {
 
   bold "Deploying $name ($SSH_TARGET)..."
 
+  # Show config diff before pushing
+  echo "  Config changes:"
+  local remote_env
+  remote_env=$(remote "cat $REMOTE_DIR/.env 2>/dev/null" 2>/dev/null || echo "")
+  if [[ -n "$remote_env" ]]; then
+    diff_output=$(diff <(echo "$remote_env" | grep -v '^#' | grep -v '^$' | sort) \
+                       <(grep -v '^#' "$CUSTOMER_ENV" | grep -v '^$' | sort) 2>/dev/null || true)
+    if [[ -n "$diff_output" ]]; then
+      echo "$diff_output" | while IFS= read -r line; do
+        case "$line" in
+          \<*) echo "    $(printf '\033[0;31m')- ${line:2}$(printf '\033[0m')" ;;
+          \>*) echo "    $(printf '\033[0;32m')+ ${line:2}$(printf '\033[0m')" ;;
+        esac
+      done
+    else
+      echo "    (no changes)"
+    fi
+  else
+    echo "    (first deploy — no existing config)"
+  fi
+
   # Push files
   echo "  Pushing compose + config..."
   remote_scp "$COMPOSE_FILE" "$SSH_TARGET:$REMOTE_DIR/docker-compose.yml"
@@ -188,8 +209,8 @@ cmd_deploy() {
   local caddyfile="$CUSTOMERS_DIR/$name/Caddyfile"
   if [[ -f "$caddyfile" ]]; then
     echo "  Pushing Caddyfile..."
-    remote_scp "$caddyfile" "$SSH_TARGET:/etc/caddy/Caddyfile"
-    remote "command -v caddy >/dev/null 2>&1 && sudo caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true"
+    remote_scp "$caddyfile" "$SSH_TARGET:$REMOTE_DIR/Caddyfile"
+    remote "sudo cp $REMOTE_DIR/Caddyfile /etc/caddy/Caddyfile && command -v caddy >/dev/null 2>&1 && sudo systemctl reload caddy 2>/dev/null || true"
   fi
 
   # Pull + restart
