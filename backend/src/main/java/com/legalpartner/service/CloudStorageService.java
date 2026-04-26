@@ -48,13 +48,13 @@ public class CloudStorageService {
         CloudStorageProvider provider = getProvider(providerId);
         if (provider == null) throw new IllegalArgumentException("Unknown provider: " + providerId);
         String redirectUri = properties.getBackendUrl() + "/api/v1/cloud-storage/callback";
-        String state = userId.toString() + "|" + providerId;
+        String state = userId.toString() + "::" + providerId;
         return provider.buildAuthorizationUrl(redirectUri, state);
     }
 
     @Transactional
     public void handleOAuthCallback(String code, String state) {
-        String[] parts = state.split("\\|");
+        String[] parts = state.split("::");
         if (parts.length != 2) throw new IllegalArgumentException("Invalid state");
         UUID userId = UUID.fromString(parts[0]);
         String providerId = parts[1];

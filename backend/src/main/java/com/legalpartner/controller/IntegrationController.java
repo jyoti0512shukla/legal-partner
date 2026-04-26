@@ -44,7 +44,7 @@ public class IntegrationController {
             @RequestParam String state
     ) {
         integrationService.handleOAuthCallback(code, state);
-        String providerId = state.contains("|") ? state.split("\\|")[1] : "";
+        String providerId = state.contains("::") ? state.split("::")[1] : "";
         return new RedirectView(integrationProperties.getFrontendUrl() + "/settings?tab=integrations&connected=" + providerId);
     }
 
