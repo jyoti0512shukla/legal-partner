@@ -380,13 +380,17 @@ public class AiService {
             }
         }
 
-        // Cache the result on the entity
-        try {
-            doc.setRiskAssessmentJson(objectMapper.writeValueAsString(result));
-            doc.setRiskAssessmentAt(java.time.Instant.now());
-            documentRepository.save(doc);
-        } catch (Exception e) {
-            log.warn("Failed to cache risk assessment for doc {}: {}", documentId, e.getMessage());
+        // Cache only if result has meaningful content — don't cache empty/failed results
+        if (result != null && !result.categories().isEmpty()) {
+            try {
+                doc.setRiskAssessmentJson(objectMapper.writeValueAsString(result));
+                doc.setRiskAssessmentAt(java.time.Instant.now());
+                documentRepository.save(doc);
+            } catch (Exception e) {
+                log.warn("Failed to cache risk assessment for doc {}: {}", documentId, e.getMessage());
+            }
+        } else {
+            log.warn("Risk assessment returned empty for doc {} — not caching", documentId);
         }
 
         return result;
@@ -847,13 +851,22 @@ public class AiService {
         AiMessage response = shortChatModel.generate(UserMessage.from(prompt)).content();
         String summary = response.text().trim();
 
-        doc.setSummaryText(summary);
-        doc.setSummaryGeneratedAt(java.time.Instant.now());
-        documentRepository.save(doc);
+        // Don't cache obviously bad responses (truncated, echo of input, too short)
+        boolean isValid = summary.length() > 100
+                && (summary.contains("##") || summary.contains("Summary") || summary.contains("Key Terms"))
+                && !summary.startsWith("This ") || summary.length() > 300;
+        if (isValid) {
+            doc.setSummaryText(summary);
+            doc.setSummaryGeneratedAt(java.time.Instant.now());
+            documentRepository.save(doc);
+        } else {
+            log.warn("Summary quality check failed for doc {} — not caching. Length={}, preview={}",
+                    documentId, summary.length(), summary.substring(0, Math.min(80, summary.length())));
+        }
 
         return java.util.Map.of(
                 "summary", summary,
-                "generatedAt", doc.getSummaryGeneratedAt().toString(),
+                "generatedAt", java.time.Instant.now().toString(),
                 "cached", false);
     }
 
