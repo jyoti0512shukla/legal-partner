@@ -48,11 +48,69 @@ public class DocumentService {
 
     private final Tika tika = new Tika();
 
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".html", ".htm", ".rtf", ".odt", ".csv"
+    );
+    private static final Map<String, byte[]> MAGIC_BYTES = Map.of(
+            "PDF",  new byte[]{0x25, 0x50, 0x44, 0x46},         // %PDF
+            "DOCX", new byte[]{0x50, 0x4B, 0x03, 0x04},         // PK (ZIP)
+            "DOC",  new byte[]{(byte)0xD0, (byte)0xCF, 0x11, (byte)0xE0}  // OLE2
+    );
+
+    private void validateUpload(MultipartFile file) {
+        String name = file.getOriginalFilename();
+        if (name == null || name.isBlank()) throw new IllegalArgumentException("File name is required");
+
+        // Path traversal protection
+        if (name.contains("..") || name.contains("/") || name.contains("\\")) {
+            throw new IllegalArgumentException("Invalid file name");
+        }
+
+        // Extension whitelist
+        String lower = name.toLowerCase();
+        boolean validExt = ALLOWED_EXTENSIONS.stream().anyMatch(lower::endsWith);
+        if (!validExt) {
+            throw new IllegalArgumentException("File type not allowed. Accepted: " + ALLOWED_EXTENSIONS);
+        }
+
+        // Magic byte validation for binary formats
+        try {
+            byte[] header = new byte[4];
+            try (var is = file.getInputStream()) { is.read(header); }
+
+            if (lower.endsWith(".pdf") && !startsWith(header, MAGIC_BYTES.get("PDF"))) {
+                throw new IllegalArgumentException("File claims to be PDF but has invalid header");
+            }
+            if ((lower.endsWith(".docx") || lower.endsWith(".xlsx") || lower.endsWith(".odt"))
+                    && !startsWith(header, MAGIC_BYTES.get("DOCX"))) {
+                throw new IllegalArgumentException("File claims to be Office document but has invalid header");
+            }
+            if (lower.endsWith(".doc") && !startsWith(header, MAGIC_BYTES.get("DOC"))
+                    && !startsWith(header, MAGIC_BYTES.get("DOCX"))) {
+                throw new IllegalArgumentException("File claims to be DOC but has invalid header");
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("Could not validate magic bytes: {}", e.getMessage());
+        }
+    }
+
+    private boolean startsWith(byte[] data, byte[] prefix) {
+        if (data.length < prefix.length) return false;
+        for (int i = 0; i < prefix.length; i++) {
+            if (data[i] != prefix[i]) return false;
+        }
+        return true;
+    }
+
     public DocumentMetadata ingestDocument(
             MultipartFile file, String jurisdiction, Integer year,
             boolean confidential, String documentType, String practiceArea,
             String clientName, String matterId, String industry, String username
     ) {
+        validateUpload(file);
+
         DocumentMetadata doc = DocumentMetadata.builder()
                 .fileName(file.getOriginalFilename())
                 .contentType(file.getContentType())

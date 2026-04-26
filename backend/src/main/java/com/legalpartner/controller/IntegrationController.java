@@ -151,10 +151,34 @@ public class IntegrationController {
         return envelopeRepository.findByDocumentIdOrderBySentAtDesc(docId);
     }
 
-    /** DocuSign Connect webhook — receives envelope status updates */
+    /** DocuSign Connect webhook — receives envelope status updates. Validates HMAC signature. */
     @PostMapping("/docusign/webhook")
     @ResponseStatus(HttpStatus.OK)
-    public void docuSignWebhook(@RequestBody String payload) {
+    public void docuSignWebhook(
+            @RequestBody String payload,
+            @RequestHeader(value = "X-DocuSign-Signature-1", required = false) String signature
+    ) {
+        // Verify HMAC signature if webhook secret is configured
+        String webhookSecret = integrationProperties.getDocusign().getWebhookSecret();
+        if (webhookSecret != null && !webhookSecret.isBlank()) {
+            if (signature == null || signature.isBlank()) {
+                log.warn("DocuSign webhook: missing signature header — rejecting");
+                return;
+            }
+            try {
+                javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+                mac.init(new javax.crypto.spec.SecretKeySpec(webhookSecret.getBytes(), "HmacSHA256"));
+                String computed = Base64.getEncoder().encodeToString(mac.doFinal(payload.getBytes()));
+                if (!computed.equals(signature)) {
+                    log.warn("DocuSign webhook: invalid signature — rejecting");
+                    return;
+                }
+            } catch (Exception e) {
+                log.error("DocuSign webhook HMAC verification failed: {}", e.getMessage());
+                return;
+            }
+        }
+
         try {
             var node = objectMapper.readTree(payload);
             String envelopeId = node.path("envelopeId").asText(node.path("EnvelopeID").asText(""));

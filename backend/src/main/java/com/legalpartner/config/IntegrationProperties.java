@@ -25,6 +25,8 @@ public class IntegrationProperties {
         private String clientSecret = "";
         /** demo or production */
         private String environment = "demo";
+        /** HMAC secret for webhook signature verification (from DocuSign Connect settings) */
+        private String webhookSecret = "";
     }
 
     @Data

@@ -3,6 +3,7 @@ package com.legalpartner.controller;
 import com.legalpartner.model.dto.auth.*;
 import com.legalpartner.security.LegalPartnerUserDetails;
 import com.legalpartner.service.AuthService;
+import com.legalpartner.service.JwtService;
 import com.legalpartner.service.MfaService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -24,6 +25,7 @@ import java.util.UUID;
 public class AuthController {
 
     private final AuthService authService;
+    private final JwtService jwtService;
     private final MfaService mfaService;
     private final com.legalpartner.service.InviteService inviteService;
 
@@ -121,7 +123,12 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout(HttpServletResponse response) {
+    public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+        // Revoke the JWT so it can't be reused
+        String authHeader = request.getHeader("Authorization");
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            jwtService.revokeToken(authHeader.substring(7));
+        }
         clearJwtCookie(response);
         return ResponseEntity.ok().build();
     }

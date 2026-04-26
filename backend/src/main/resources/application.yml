@@ -56,7 +56,7 @@ management:
 
 jasypt:
   encryptor:
-    password: ${JASYPT_ENCRYPTOR_PASSWORD:demo-encryption-key-change-in-prod}
+    password: ${JASYPT_ENCRYPTOR_PASSWORD:${ENCRYPTION_KEY:}}
 
 langchain4j:
   ollama:

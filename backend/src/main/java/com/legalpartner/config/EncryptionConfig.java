@@ -3,6 +3,7 @@ package com.legalpartner.config;
 import org.jasypt.encryption.StringEncryptor;
 import org.jasypt.encryption.pbe.PooledPBEStringEncryptor;
 import org.jasypt.encryption.pbe.config.SimpleStringPBEConfig;
+import org.jasypt.iv.RandomIvGenerator;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -10,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class EncryptionConfig {
 
-    @Value("${jasypt.encryptor.password:demo-encryption-key-change-in-prod}")
+    @Value("${jasypt.encryptor.password:}")
     private String encryptorPassword;
 
     @Bean("jasyptStringEncryptor")
@@ -18,11 +19,11 @@ public class EncryptionConfig {
         PooledPBEStringEncryptor encryptor = new PooledPBEStringEncryptor();
         SimpleStringPBEConfig config = new SimpleStringPBEConfig();
         config.setPassword(encryptorPassword);
-        config.setAlgorithm("PBEWithMD5AndTripleDES");
-        config.setKeyObtentionIterations("1000");
+        config.setAlgorithm("PBEWITHHMACSHA512ANDAES_256");
+        config.setKeyObtentionIterations("310000");
         config.setPoolSize("1");
-        config.setProviderName("SunJCE");
         config.setSaltGeneratorClassName("org.jasypt.salt.RandomSaltGenerator");
+        config.setIvGenerator(new RandomIvGenerator());
         config.setStringOutputType("base64");
         encryptor.setConfig(config);
         return encryptor;

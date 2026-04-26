@@ -57,13 +57,13 @@ services:
       # Database
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/legalpartner
       SPRING_DATASOURCE_USERNAME: legalpartner
-      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-localdev123}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       # Flyway — production-safe defaults
       FLYWAY_CLEAN_ON_VALIDATION_ERROR: "false"
       FLYWAY_CLEAN_DISABLED: "true"
       # Security
-      JASYPT_ENCRYPTOR_PASSWORD: ${ENCRYPTION_KEY:-change-in-prod}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production-min-256-bits-required-for-hs256}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       # LLM — Ollama (embeddings)
       LEGALPARTNER_OLLAMA_BASE_URL: http://ollama:11434
       LEGALPARTNER_OLLAMA_MODEL: ${LEGALPARTNER_OLLAMA_MODEL:-all-minilm}
@@ -74,7 +74,7 @@ services:
       LEGALPARTNER_GEMINI_API_KEY: ${LEGALPARTNER_GEMINI_API_KEY:-}
       LEGALPARTNER_GEMINI_MODEL: ${LEGALPARTNER_GEMINI_MODEL:-gemini-2.5-flash}
       # URLs
-      LEGALPARTNER_CLOUD_FRONTEND_URL: ${LEGALPARTNER_CLOUD_FRONTEND_URL:-http://*:80}
+      LEGALPARTNER_CLOUD_FRONTEND_URL: ${LEGALPARTNER_CLOUD_FRONTEND_URL:?LEGALPARTNER_CLOUD_FRONTEND_URL is required}
       LEGALPARTNER_CLOUD_BACKEND_URL: ${LEGALPARTNER_CLOUD_BACKEND_URL:-http://localhost:8080}
       LEGALPARTNER_APP_URL: ${LEGALPARTNER_APP_URL:-http://localhost}
       # Document editor

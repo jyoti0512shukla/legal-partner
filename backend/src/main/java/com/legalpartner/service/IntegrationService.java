@@ -27,6 +27,7 @@ public class IntegrationService {
     private final IntegrationProperties properties;
     private final List<IntegrationProvider> providers;
     private final DocuSignProvider docuSignProvider;
+    private final EncryptionService encryptionService;
     private final ObjectMapper objectMapper;
 
     public record IntegrationStatus(String provider, String displayName, String category,
@@ -77,11 +78,10 @@ public class IntegrationService {
                         .userId(userId)
                         .provider(providerId)
                         .build());
-        conn.setAccessToken(tr.getAccessToken());
-        conn.setRefreshToken(tr.getRefreshToken());
+        conn.setAccessToken(encryptionService.encrypt(tr.getAccessToken()));
+        conn.setRefreshToken(tr.getRefreshToken() != null ? encryptionService.encrypt(tr.getRefreshToken()) : null);
         conn.setTokenExpiresAt(tr.getTokenExpiresAt());
         conn.setConfig(config);
-        // DocuSign connections are org-level — one connection serves the whole firm
         if ("DOCUSIGN".equals(providerId)) {
             conn.setScope("ORGANIZATION");
         }
@@ -123,15 +123,28 @@ public class IntegrationService {
         if (conn.getTokenExpiresAt() != null && conn.getTokenExpiresAt().isBefore(Instant.now().plusSeconds(60))) {
             if (conn.getRefreshToken() != null) {
                 IntegrationProvider provider = getProvider(providerId);
-                String newAccess = provider.refreshAccessToken(conn.getRefreshToken());
+                String decryptedRefresh = decryptToken(conn.getRefreshToken());
+                String newAccess = provider.refreshAccessToken(decryptedRefresh);
                 if (newAccess != null) {
-                    conn.setAccessToken(newAccess);
+                    conn.setAccessToken(encryptionService.encrypt(newAccess));
                     conn.setTokenExpiresAt(Instant.now().plusSeconds(3600));
                     connectionRepository.save(conn);
+                    return newAccess;
                 }
             }
         }
-        return conn.getAccessToken();
+        return decryptToken(conn.getAccessToken());
+    }
+
+    /** Decrypt a token — handles both encrypted and legacy plaintext tokens */
+    private String decryptToken(String token) {
+        if (token == null) return null;
+        try {
+            return encryptionService.decrypt(token);
+        } catch (Exception e) {
+            // Legacy unencrypted token — return as-is
+            return token;
+        }
     }
 
     public IntegrationConnection getConnection(UUID userId, String providerId) {
