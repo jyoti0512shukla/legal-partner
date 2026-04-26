@@ -1,4 +1,4 @@
-# Legal Partner — Deployment & Operations Guide
+# ContractIQ — Deployment & Operations Guide
 
 ## Architecture
 
@@ -11,25 +11,106 @@ Images pushed to ghcr.io/jyoti0512shukla/
   - legal-partner-backend:latest, :SHA, :DATE
   - legal-partner-frontend:latest, :SHA, :DATE
         ↓
-Operator runs: bash deploy/lp deploy <customer>
+Operator runs: lp deploy <customer>
         ↓
-Customer VM pulls images, restarts services
+Encrypted config (.env.sops) pushed to VM
+        ↓
+VM decrypts with age key, pulls images, restarts services
+        ↓
+Caddy serves HTTPS with auto-renewed Let's Encrypt cert
 ```
 
-**No source code on production VMs.** Each VM has only a `docker-compose.yml` and `.env` file at `/opt/legalpartner/`.
+**No source code on production VMs.** Each VM has only `docker-compose.yml`, `.env`, and an age decryption key at `/opt/legalpartner/`.
+
+---
+
+## Directory Layout
+
+### In git (committed)
+
+```
+deploy/
+  docker-compose.yml          # Universal prod compose (same for all customers)
+  .env.template               # Config reference with all variables documented
+  .sops.yaml                  # SOPS config — maps customers to their age public keys
+  lp                          # CLI tool
+  README.md                   # This file
+  saullm-vllm-serve.sh        # GPU pod launcher (SaulLM-54B AWQ on RunPod)
+  customers/
+    test-vm/
+      .env.sops               # Encrypted secrets + config (safe in git)
+      metadata.sh             # SSH host, user, GCP VM details
+      Caddyfile               # HTTPS reverse proxy config
+    firm-a/
+      .env.sops
+      metadata.sh
+      Caddyfile
+```
+
+### On each customer VM
+
+```
+/opt/legalpartner/
+  docker-compose.yml          # Pushed by lp deploy
+  .env                        # Decrypted from .env.sops during deploy
+  .age-key                    # Private key (generated on VM, never leaves)
+```
+
+Docker volumes (persistent):
+- `pgdata` — PostgreSQL database + pgvector embeddings
+- `ollama_models` — Embedding model (all-minilm, auto-pulled)
+- `document_storage` — Uploaded contracts, drafts, signed PDFs
+- `onlyoffice_data` — Document editor config (if enabled)
 
 ---
 
 ## Prerequisites
 
-Before any deployment, ensure you have:
+1. **gcloud CLI** — `gcloud auth login`
+2. **sops** — `brew install sops` (for encrypting customer configs)
+3. **ghcr.io token** — `echo "github_pat_xxx" > deploy/.ghcr-token`
 
-1. **gcloud CLI** installed and authenticated (`gcloud auth login`)
-2. **ghcr.io token** saved at `deploy/.ghcr-token` (one-time setup):
-   - GitHub → Settings → Developer settings → Personal access tokens → Fine-grained
-   - Repository: `legal-partner`, Permission: Packages → Read
-   - Save: `echo "github_pat_xxx..." > deploy/.ghcr-token`
-3. **SSH access** to the customer VM (via gcloud for GCP VMs, or direct SSH key)
+---
+
+## Secret Management (SOPS + age)
+
+Secrets are encrypted with [SOPS](https://github.com/getsops/sops) + [age](https://github.com/FiloSottile/age). Each customer VM has a unique age private key that never leaves the VM.
+
+### How it works
+
+```
+Your machine                              Customer VM
+────────────                              ────────────
+.env.sops (encrypted, in git)
+        │
+        │ lp deploy
+        │ scp .env.sops → VM
+        ▼
+                                    age private key at /opt/legalpartner/.age-key
+                                            │
+                                    sops decrypt .env.sops → .env
+                                            │
+                                    docker-compose reads .env
+```
+
+### Commands
+
+| Command | What it does | When to use |
+|---------|-------------|-------------|
+| `lp encrypt <customer>` | `.env` → `.env.sops` | After editing config locally |
+| `lp decrypt <customer>` | `.env.sops` → `.env` | To edit config locally |
+| `lp deploy <customer>` | Pushes `.env.sops`, decrypts on VM | Every deploy |
+
+### Adding a new customer's key to SOPS
+
+After `lp provision`, the VM's public key is printed. Add it to `deploy/.sops.yaml`:
+
+```yaml
+creation_rules:
+  - path_regex: customers/firm-a/\.env\.sops$
+    age: >-
+      age1ql3z7hjy54pw3hyww5ayf...   # from lp provision output
+```
 
 ---
 
@@ -38,14 +119,10 @@ Before any deployment, ensure you have:
 ### Step 1: Create customer config
 
 ```bash
-bash deploy/lp init acme-legal
+lp init acme-legal
 ```
 
-This will:
-- Create `deploy/customers/acme-legal/` directory
-- Copy `.env.template` to `.env`
-- Auto-generate DB_PASSWORD, JWT_SECRET, ENCRYPTION_KEY
-- Prompt for SSH host, user, and domain
+Creates `deploy/customers/acme-legal/` with `.env` template, `metadata.sh`, prompts for SSH details.
 
 ### Step 2: Edit the config
 
@@ -53,343 +130,270 @@ This will:
 vi deploy/customers/acme-legal/.env
 ```
 
-**Required — fill these in:**
+**Required:**
 
-| Variable | What to set |
-|----------|-------------|
-| `LEGALPARTNER_APP_URL` | Customer's URL, e.g., `http://acme.legal-ai.studio` |
-| `LEGALPARTNER_CLOUD_FRONTEND_URL` | Same as above |
-| `LEGALPARTNER_CLOUD_BACKEND_URL` | Same + `/api`, e.g., `http://acme.legal-ai.studio/api` |
-| `LEGALPARTNER_CHAT_PROVIDER` | `gemini` or `vllm` |
-| `LEGALPARTNER_GEMINI_API_KEY` | Gemini API key (if using gemini) |
-
-**Optional — configure if needed:**
-
-| Variable | Purpose |
+| Variable | Example |
 |----------|---------|
-| `FRONTEND_PORT` | Default 80. Set to 3000 if 80 is taken |
-| `LEGALPARTNER_MAIL_ENABLED` | Set `true` + fill SMTP vars to enable email |
-| `COMPOSE_PROFILES=onlyoffice` | Enable ONLYOFFICE document editor |
-| `LEGALPARTNER_ONLYOFFICE_URL` | `http://<VM-IP>:8443` (if OnlyOffice enabled) |
-| Google Drive / OneDrive / Dropbox vars | Enable cloud storage integrations |
+| `LEGALPARTNER_APP_URL` | `https://legal.cognita-ai.com` |
+| `LEGALPARTNER_CLOUD_FRONTEND_URL` | `https://legal.cognita-ai.com` |
+| `LEGALPARTNER_CLOUD_BACKEND_URL` | `https://legal.cognita-ai.com` |
+| `LEGALPARTNER_ORGANIZATION_NAME` | `Sharma & Associates` |
+| `LEGALPARTNER_CHAT_PROVIDER` | `vllm` |
+| `LEGALPARTNER_CHAT_API_URL` | `https://xxx.ngrok-free.dev/v1` (GPU endpoint) |
+| `LEGALPARTNER_CHAT_API_MODEL` | `saullm-54b` |
+| `LEGALPARTNER_GEMINI_API_KEY` | Gemini key (fallback / embeddings) |
 
-**For GCP VMs**, edit `metadata.sh` to add:
+**Auto-generated during init:** `DB_PASSWORD`, `JWT_SECRET`, `ENCRYPTION_KEY`
+
+### Step 3: Create Caddyfile
+
 ```bash
-GCP_VM="your-vm-name"
-GCP_ZONE="us-central1-a"
+cat > deploy/customers/acme-legal/Caddyfile << 'EOF'
+acme.cognita-ai.com {
+    reverse_proxy /api/* localhost:8080
+    reverse_proxy /* localhost:3000
+}
+EOF
 ```
 
-### Step 3: Provision the VM
+### Step 4: Provision the VM
 
 ```bash
-bash deploy/lp provision acme-legal
-```
-
-This will SSH into the VM and:
-- Install Docker (if not present)
-- Create `/opt/legalpartner/` directory
-- Log in to ghcr.io (so the VM can pull private images)
-
-**One-time per VM.** You don't need to run this again unless the VM is recreated.
-
-### Step 4: Deploy
-
-```bash
-bash deploy/lp deploy acme-legal
+lp provision acme-legal
 ```
 
 This will:
-1. Push `docker-compose.yml` and `.env` to the VM
-2. Pull latest Docker images from ghcr.io
-3. Start all services (postgres, ollama, backend, frontend, onlyoffice)
-4. Wait for backend health check
-5. Print status
+- Install Docker, age, sops, Caddy on the VM
+- Generate age key pair (private stays on VM)
+- Print the public key — **add it to `.sops.yaml`**
+- Log in to ghcr.io
 
-### Step 5: Verify
+### Step 5: Encrypt & commit
 
-- Open `http://<domain>:<port>` in browser
-- Default admin login: `admin@legalpartner.local` / `Admin123!`
-- **Note:** Backend takes 30-60 seconds to start. If you see a blank page, wait and refresh.
+```bash
+lp encrypt acme-legal
+git add deploy/customers/acme-legal/ deploy/.sops.yaml
+git commit -m "feat: add acme-legal customer config"
+git push
+```
+
+### Step 6: Deploy
+
+```bash
+lp deploy acme-legal
+```
+
+### Step 7: Add DNS
+
+Point `acme.cognita-ai.com` → VM's external IP (A record). Caddy auto-obtains Let's Encrypt cert.
+
+### Step 8: Verify
+
+- Open `https://acme.cognita-ai.com`
+- Default admin: `admin@legalpartner.local` / `Admin123!`
 
 ---
 
-## Existing Customer — Deploying Updates
-
-After pushing code to `main`, GitHub Actions automatically builds new images. To deploy:
+## Deploying Updates
 
 ### Deploy to one customer
 
 ```bash
-bash deploy/lp deploy acme-legal
+lp deploy acme-legal
 ```
+
+Shows config diff, pushes encrypted config, pulls latest images, restarts.
 
 ### Deploy to all customers
 
 ```bash
-bash deploy/lp deploy-all
+lp deploy-all
 ```
 
 ### Deploy a specific version
 
 ```bash
-# Find the SHA from git log or GitHub Actions
-bash deploy/lp deploy acme-legal abc1234
+lp deploy acme-legal abc1234    # pin to git SHA
+lp deploy acme-legal latest     # back to latest
 ```
 
-### Update customer config (e.g., enable a new integration)
+### Check what changed before deploying
 
 ```bash
-# 1. Edit the config locally
-vi deploy/customers/acme-legal/.env
+lp diff acme-legal              # no VM needed, compares against last deploy
+```
 
-# 2. Push config and restart
-bash deploy/lp deploy acme-legal
+---
+
+## GPU Setup (SaulLM-54B)
+
+The LLM runs on a separate RunPod GPU pod, connected to the app VM via ngrok tunnel.
+
+### Recommended GPU: A6000 48GB ($0.76/hr)
+
+- SaulLM-54B AWQ: ~23 GB model + ~8 GB KV cache = ~31 GB VRAM
+- ~35-40 tok/s with AWQ Marlin kernels
+- Handles 5-10 concurrent requests
+
+### Launch GPU
+
+```bash
+export HF_TOKEN=hf_xxx NGROK_TOKEN=xxx
+./deploy/saullm-vllm-serve.sh
+```
+
+Prints the ngrok URL — set it as `LEGALPARTNER_CHAT_API_URL` in customer config.
+
+### Override GPU type
+
+```bash
+GPU_TYPE="NVIDIA A100-SXM4-80GB" ./deploy/saullm-vllm-serve.sh    # ~62 tok/s, $2.49/hr
+```
+
+### Stop/delete GPU
+
+```bash
+runpodctl pod stop <POD_ID>       # pause ($0.10/hr for disk)
+runpodctl pod delete <POD_ID>     # full cleanup ($0)
+```
+
+---
+
+## Integrations
+
+### DocuSign (E-Signature)
+
+**Setup:**
+1. Create app at developers.docusign.com
+2. Add redirect URI: `https://<customer-domain>/api/v1/integrations/callback`
+3. Set in customer `.env`:
+   ```
+   LEGALPARTNER_DOCUSIGN_ENABLED=true
+   LEGALPARTNER_DOCUSIGN_CLIENT_ID=<integration-key>
+   LEGALPARTNER_DOCUSIGN_CLIENT_SECRET=<secret-key>
+   LEGALPARTNER_DOCUSIGN_ENV=demo    # or production
+   ```
+4. Deploy, then connect in Settings → Integrations
+
+**Features:**
+- Organization-scoped: admin connects once, all firm users can send
+- Multi-recipient: signers, reviewers, CC with routing order
+- Webhook at `/api/v1/integrations/docusign/webhook` for status tracking
+- Signed PDF auto-downloaded on completion
+
+### Google Drive
+
+```
+LEGALPARTNER_GOOGLE_DRIVE_ENABLED=true
+LEGALPARTNER_GOOGLE_DRIVE_CLIENT_ID=xxx
+LEGALPARTNER_GOOGLE_DRIVE_CLIENT_SECRET=xxx
+```
+
+### OnlyOffice (Document Editor)
+
+```
+COMPOSE_PROFILES=onlyoffice
+LEGALPARTNER_ONLYOFFICE_URL=http://<VM-IP>:8443
 ```
 
 ---
 
 ## Rollback
 
-Every push to `main` creates tagged images. To roll back:
-
-### Find the version to roll back to
-
 ```bash
-# Check GitHub Actions — each run shows the version in the summary
-# e.g., v2026.03.29-1, v2026.03.28-3, v2026.03.27-1
-
-# Or check ghcr.io packages page for available tags
+lp rollback acme-legal v2026.04.25-3
 ```
 
-### Roll back
-
-```bash
-bash deploy/lp rollback acme-legal v2026.03.28-3
-```
-
-This pins `IMAGE_TAG=v2026.03.28-3` in the customer's `.env` and redeploys. The VM will pull that specific version instead of `:latest`.
-
-### Roll forward (back to latest)
-
-```bash
-bash deploy/lp deploy acme-legal latest
-```
-
-Or edit `.env` and set `IMAGE_TAG=latest`, then deploy.
+Pins `IMAGE_TAG` and redeploys. Roll forward with `lp deploy acme-legal latest`.
 
 ---
 
 ## Day-to-Day Operations
 
-### Check status
-
-```bash
-bash deploy/lp status acme-legal      # one customer
-bash deploy/lp status-all             # all customers
-```
-
-Shows container status and health checks for backend + frontend.
-
-### View logs
-
-```bash
-bash deploy/lp logs acme-legal            # all services
-bash deploy/lp logs acme-legal backend    # backend only
-bash deploy/lp logs acme-legal frontend   # nginx logs
-bash deploy/lp logs acme-legal postgres   # database logs
-```
-
-### SSH into VM
-
-```bash
-bash deploy/lp ssh acme-legal
-```
-
-### Backup database
-
-```bash
-bash deploy/lp backup acme-legal
-# Saves to: deploy/customers/acme-legal/legalpartner-acme-legal-20260329-143022.sql.gz
-```
-
-### Restore database
-
-```bash
-bash deploy/lp ssh acme-legal
-cd /opt/legalpartner
-gunzip -c /path/to/backup.sql.gz | docker-compose exec -T postgres psql -U legalpartner legalpartner
-```
-
-### List all customers
-
-```bash
-bash deploy/lp list
-```
+| Command | What |
+|---------|------|
+| `lp status acme-legal` | Container status + health checks |
+| `lp status-all` | All customers |
+| `lp logs acme-legal backend` | Tail backend logs |
+| `lp backup acme-legal` | pg_dump to local file |
+| `lp ssh acme-legal` | SSH into VM |
+| `lp list` | List all customers |
+| `lp diff acme-legal` | Config changes since last deploy |
 
 ---
 
-## Directory Layout
+## HTTPS (Caddy)
 
-### On your laptop (operator)
-
-```
-deploy/
-  docker-compose.yml      # Universal prod compose (same for all customers)
-  .env.template           # Config reference with all variables documented
-  .ghcr-token             # GitHub PAT for pulling private images (gitignored)
-  lp                      # CLI tool
-  README.md               # This file
-  customers/              # Per-customer configs (gitignored, never committed)
-    acme-legal/
-      .env                # Secrets + config
-      metadata.sh         # SSH host, user, GCP VM details
-      *.sql.gz            # Database backups (from lp backup)
-    sharma-law/
-      .env
-      metadata.sh
-```
-
-### On each customer VM
+Each customer VM runs Caddy as a reverse proxy. Caddy auto-obtains and renews Let's Encrypt certificates.
 
 ```
-/opt/legalpartner/
-  docker-compose.yml      # Pushed by lp deploy
-  .env                    # Pushed by lp deploy
+Internet → :443 (Caddy, HTTPS) → /api/* → :8080 (backend)
+                                → /*     → :3000 (frontend)
 ```
 
-Docker volumes (persistent data):
-- `pgdata` — PostgreSQL database
-- `ollama_models` — LLM model weights (auto-pulled on first start)
-- `document_storage` — uploaded contract files
-- `onlyoffice_data` — editor config (if enabled)
-
----
-
-## Image Tags
-
-Every push to `main` produces two tags per image:
-
-| Tag | Example | Use |
-|-----|---------|-----|
-| `:latest` | `legal-partner-backend:latest` | Normal deploys |
-| `:vDATE-N` | `legal-partner-backend:v2026.03.29-1` | Versioned release for rollback |
-
-The release number auto-increments per day (v2026.03.29-1, v2026.03.29-2, etc.). The version is also shown in the GitHub Actions run summary.
-
-Images are stored at `ghcr.io/jyoti0512shukla/legal-partner-backend` and `legal-partner-frontend`.
-
----
-
-## Enabling OnlyOffice (Document Editor)
-
-Add to customer's `.env`:
-
-```bash
-COMPOSE_PROFILES=onlyoffice
-LEGALPARTNER_ONLYOFFICE_URL=http://<VM-IP>:8443
-```
-
-Then redeploy: `bash deploy/lp deploy acme-legal`
+**Required:** DNS A record pointing the customer's subdomain to the VM IP. Port 80 + 443 open in firewall.
 
 ---
 
 ## Data Protection & Reliability
 
-### Strategy
-
-Single-VM deployment with automated disk snapshots. No secondary infrastructure needed.
-
 | Layer | What | Cost |
 |-------|------|------|
-| **Container recovery** | `restart: unless-stopped` — Docker auto-restarts crashed services | Free |
-| **VM reboot recovery** | Docker services start automatically on boot | Free |
-| **Data backup** | GCP disk snapshots — daily, incremental, 7-day retention | Free (5GB included) |
-| **Manual DB backup** | `lp backup <customer>` — on-demand pg_dump to operator laptop | Free |
-| **Uptime monitoring** | UptimeRobot (or similar) pings every 5 min, alerts on failure | Free tier |
+| Container recovery | `restart: unless-stopped` | Free |
+| VM reboot recovery | Docker auto-starts on boot | Free |
+| Disk snapshots | GCP daily incremental, 7-day retention | Free (5GB) |
+| Manual DB backup | `lp backup <customer>` | Free |
+| Uptime monitoring | UptimeRobot, 5-min checks | Free |
 
-### Downtime expectations
-
-| Failure | Downtime | Recovery |
-|---------|----------|----------|
-| Container crash | ~10 seconds | Docker auto-restarts |
-| VM reboot | ~2 minutes | Services auto-start |
-| VM disk failure | **30-60 minutes** | Create new VM from snapshot |
-| GCP zone outage | **Hours** | Wait for Google, or restore in another zone |
-
-### Setting up disk snapshots (per customer GCP VM)
+### Setting up disk snapshots
 
 ```bash
-# Create snapshot schedule — daily at 2 AM, keep 7 days
 gcloud compute resource-policies create snapshot-schedule lp-daily-backup \
-  --region=<REGION> \
-  --max-retention-days=7 \
-  --daily-schedule \
-  --start-time=02:00
+  --region=us-central1 --max-retention-days=7 --daily-schedule --start-time=02:00
 
-# Attach to the customer's VM disk
 gcloud compute disks add-resource-policies <VM-NAME> \
-  --resource-policies=lp-daily-backup \
-  --zone=<ZONE>
+  --resource-policies=lp-daily-backup --zone=us-central1-a
 ```
 
-This captures everything — database, documents, Docker volumes, config. Incremental snapshots mean only changes are stored.
-
-### Disaster recovery — VM dies completely
+### Disaster recovery
 
 ```bash
-# 1. Find latest snapshot
 gcloud compute snapshots list --filter="sourceDisk~<VM-NAME>"
-
-# 2. Create new disk from snapshot
-gcloud compute disks create lp-restored-disk \
-  --source-snapshot=<SNAPSHOT-NAME> \
-  --zone=<ZONE>
-
-# 3. Create new VM with the restored disk
-gcloud compute instances create <VM-NAME>-restored \
-  --disk=name=lp-restored-disk,boot=yes \
-  --zone=<ZONE> \
-  --machine-type=<SAME-TYPE>
-
-# 4. Docker starts automatically, all services come up
-# 5. Update DNS / firewall to point to new VM IP
+gcloud compute disks create lp-restored --source-snapshot=<SNAPSHOT> --zone=us-central1-a
+gcloud compute instances create <VM>-restored --disk=name=lp-restored,boot=yes --zone=us-central1-a
+# Docker starts automatically, update DNS to new IP
 ```
 
-**Total recovery time: ~30 minutes. Zero data loss (up to last snapshot).**
+---
 
-### Setting up uptime monitoring
+## Cost Reference
 
-1. Sign up at [UptimeRobot](https://uptimerobot.com) (free — 50 monitors)
-2. Add monitor: `http://<customer-domain>:<port>/api/v1/actuator/health`
-3. Alert contacts: your email + Slack webhook
-4. Check interval: 5 minutes
+### Per-customer (private deployment, 24/7)
 
-You get alerted within 5 minutes of any outage. Recovery starts immediately.
+| Component | Spec | Monthly |
+|-----------|------|---------|
+| App VM | e2-standard-2 (8 GB RAM, 100 GB SSD) | $55 |
+| GPU | RunPod A6000 48 GB | $547 |
+| **Total** | | **$602** |
 
-### For on-premise (non-GCP) VMs
+### Multi-tenant (shared infra, 5 firms)
 
-Disk snapshots are GCP-specific. For customer-owned hardware:
-- Use `lp backup <customer>` via cron on the operator laptop (or the VM itself)
-- Store backups on a separate disk / NAS / USB drive
-- Test restore monthly
+| Component | Spec | Monthly |
+|-----------|------|---------|
+| App VM | e2-standard-8 (32 GB RAM, 500 GB SSD) | $224 |
+| GPU | RunPod A6000 48 GB (shared) | $547 |
+| **Total** | | **$771 ($154/firm)** |
 
 ---
 
 ## Troubleshooting
 
-### Blank page after deploy
-Backend takes 30-60s to start. Frontend returns 502 on API calls until backend is healthy. Wait and refresh.
-
-### Images not pulling
-Run `bash deploy/lp provision <customer>` to re-authenticate with ghcr.io.
-
-### Database migration fails
-Backend logs will show Flyway errors. Check: `bash deploy/lp logs <customer> backend`
-Production compose has `FLYWAY_CLEAN_DISABLED=true` — it will never drop your database. Fix the migration and redeploy.
-
-### Port conflicts
-If port 80 or 3000 is taken, set `FRONTEND_PORT=<other>` in `.env`.
-If port 8443 is taken (OnlyOffice), stop the conflicting service first.
-
-### VM ran out of memory
-Ollama reserves 4GB. If the VM has <8GB RAM, reduce in compose or use external LLM via `LEGALPARTNER_CHAT_PROVIDER=gemini`.
+| Problem | Fix |
+|---------|-----|
+| Blank page after deploy | Backend takes 30-60s to start. Wait and refresh. |
+| Images not pulling | `lp provision <customer>` to re-auth ghcr.io |
+| SOPS decrypt fails | Check `.age-key` exists on VM: `lp ssh <customer>` then `ls /opt/legalpartner/.age-key` |
+| Caddy cert fails | Ensure DNS resolves + ports 80/443 open in firewall |
+| DocuSign "redirect URI not registered" | Exact match required in DocuSign dashboard: `https://<domain>/api/v1/integrations/callback` |
+| GPU OOM | Reduce `--max-model-len` in saullm-vllm-serve.sh |
+| DB migration fails | `lp logs <customer> backend` — Flyway errors shown there |
