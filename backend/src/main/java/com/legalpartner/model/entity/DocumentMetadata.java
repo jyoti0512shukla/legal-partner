@@ -160,6 +160,16 @@ public class DocumentMetadata {
     @Column(name = "extraction_at")
     private Instant extractionAt;
 
+    // ── AI extraction pipeline (key terms) ──
+    @Column(name = "key_terms_json", columnDefinition = "TEXT")
+    private String keyTermsJson;
+
+    @Column(name = "key_terms_at")
+    private Instant keyTermsAt;
+
+    @Column(name = "key_terms_corrections", columnDefinition = "TEXT")
+    private String keyTermsCorrections;
+
     // ── Anonymization (client-confidentiality layer) ──
     /** Raw→synthetic map of entities substituted at ingest, JSON-encoded. Encrypted at rest by the service layer. */
     @Column(name = "anonymization_map_json", columnDefinition = "TEXT")

@@ -1,0 +1,232 @@
+# Maps raw LLM field labels → canonical field IDs.
+# CanonicalMapper checks: exact match → alias match → fuzzy match (Levenshtein ≤2).
+# DB alias_overrides table layers on top (from user corrections, self-improving).
+
+aliases:
+  party_a:
+    - "first party"
+    - "party a"
+    - "party 1"
+    - "disclosing party"
+    - "licensor"
+    - "service provider"
+    - "employer"
+    - "supplier"
+    - "vendor"
+    - "company"
+    - "landlord"
+    - "seller"
+
+  party_b:
+    - "second party"
+    - "party b"
+    - "party 2"
+    - "receiving party"
+    - "licensee"
+    - "client"
+    - "customer"
+    - "employee"
+    - "buyer"
+    - "tenant"
+    - "purchaser"
+
+  effective_date:
+    - "commencement date"
+    - "start date"
+    - "execution date"
+    - "date of agreement"
+    - "agreement date"
+
+  expiry_date:
+    - "end date"
+    - "termination date"
+    - "expiration date"
+    - "term end"
+    - "contract end date"
+
+  term_duration:
+    - "initial term"
+    - "contract term"
+    - "agreement term"
+    - "duration"
+    - "period"
+
+  contract_value:
+    - "total value"
+    - "license fee"
+    - "subscription fee"
+    - "compensation"
+    - "total fees"
+    - "contract price"
+    - "agreement value"
+    - "consideration"
+    - "total consideration"
+    - "total contract value"
+    - "annual fee"
+    - "base fee"
+
+  liability_cap:
+    - "limitation of liability"
+    - "liability limitation"
+    - "aggregate liability"
+    - "maximum liability"
+    - "cap on liability"
+    - "liability cap"
+    - "total liability"
+
+  governing_law:
+    - "applicable law"
+    - "choice of law"
+    - "jurisdiction"
+    - "governing jurisdiction"
+
+  notice_period:
+    - "notice period days"
+    - "termination notice"
+    - "notice requirement"
+    - "notice period"
+    - "days notice"
+    - "written notice"
+
+  arbitration_venue:
+    - "arbitration seat"
+    - "dispute venue"
+    - "court venue"
+    - "dispute resolution"
+    - "arbitration"
+
+  payment_terms:
+    - "payment schedule"
+    - "payment due"
+    - "invoice terms"
+    - "net 30"
+    - "net 60"
+    - "billing terms"
+    - "payment frequency"
+
+  renewal_terms:
+    - "auto renewal"
+    - "automatic renewal"
+    - "renewal"
+    - "extension"
+    - "renewal period"
+
+  indemnity:
+    - "indemnification"
+    - "indemnity"
+    - "hold harmless"
+    - "indemnify"
+
+  confidentiality_term:
+    - "confidentiality period"
+    - "confidentiality duration"
+    - "nda term"
+    - "survival period"
+    - "confidentiality obligation term"
+
+  non_compete:
+    - "non competition"
+    - "non compete"
+    - "restrictive covenant"
+    - "competition restriction"
+
+  non_solicitation:
+    - "non solicitation"
+    - "no solicitation"
+    - "employee solicitation"
+
+  termination_clause:
+    - "termination for cause"
+    - "termination for convenience"
+    - "termination rights"
+    - "right to terminate"
+
+  uptime_sla:
+    - "service level"
+    - "sla"
+    - "uptime"
+    - "availability"
+    - "uptime commitment"
+
+  data_protection:
+    - "data privacy"
+    - "personal data"
+    - "gdpr"
+    - "dpdp"
+    - "data processing"
+
+  insurance_requirement:
+    - "insurance"
+    - "professional indemnity"
+    - "errors and omissions"
+
+  ip_ownership:
+    - "intellectual property"
+    - "ip rights"
+    - "work product"
+    - "work for hire"
+
+  warranty:
+    - "warranties"
+    - "representations and warranties"
+    - "warranty period"
+
+  force_majeure:
+    - "force majeure"
+    - "act of god"
+    - "unforeseeable events"
+
+  salary:
+    - "base salary"
+    - "annual salary"
+    - "compensation"
+    - "remuneration"
+    - "base pay"
+
+  probation_period:
+    - "probation"
+    - "trial period"
+    - "probationary period"
+
+  delivery_terms:
+    - "delivery"
+    - "shipping terms"
+    - "incoterms"
+
+  price_escalation:
+    - "price increase"
+    - "cpi adjustment"
+    - "annual increase"
+    - "escalation"
+    - "fee adjustment"
+
+  late_payment_interest:
+    - "late payment"
+    - "interest on overdue"
+    - "penalty interest"
+
+  assignment:
+    - "assignment rights"
+    - "transfer of agreement"
+    - "novation"
+
+  audit_rights:
+    - "audit"
+    - "right to audit"
+    - "inspection rights"
+
+  service_credits:
+    - "service credits"
+    - "sla credits"
+    - "performance credits"
+
+  data_residency:
+    - "data location"
+    - "data storage location"
+    - "data residency"
+    - "data sovereignty"
+
+  export_control:
+    - "export restrictions"
+    - "export control"
+    - "trade compliance"

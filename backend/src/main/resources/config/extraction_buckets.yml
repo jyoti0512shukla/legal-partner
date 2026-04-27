@@ -1,0 +1,84 @@
+# 6 deterministic category buckets for consistency checks.
+# Each canonical field maps to exactly one bucket.
+# Consistency checks are programmatic (no LLM) — fast and reliable.
+
+buckets:
+  PARTIES:
+    fields:
+      - party_a
+      - party_b
+      - party_a_address
+      - party_b_address
+    intra_checks:
+      - type: not_equal
+        fields: [party_a, party_b]
+        message: "Party A and Party B must be different entities"
+
+  TERM:
+    fields:
+      - effective_date
+      - expiry_date
+      - renewal_terms
+      - term_duration
+      - notice_period
+      - termination_clause
+    intra_checks:
+      - type: date_order
+        before: effective_date
+        after: expiry_date
+        message: "Effective date must be before expiry date"
+
+  COMMERCIAL:
+    fields:
+      - contract_value
+      - liability_cap
+      - payment_terms
+      - late_payment_interest
+      - price_escalation
+      - salary
+      - service_credits
+    intra_checks:
+      - type: amount_relationship
+        smaller: liability_cap
+        larger: contract_value
+        message: "Liability cap should not exceed contract value"
+
+  LEGAL:
+    fields:
+      - governing_law
+      - arbitration_venue
+      - indemnity
+      - warranty
+      - force_majeure
+      - assignment
+    intra_checks: []
+
+  OPERATIONAL:
+    fields:
+      - uptime_sla
+      - delivery_terms
+      - audit_rights
+      - insurance_requirement
+      - ip_ownership
+    intra_checks: []
+
+  REGULATORY:
+    fields:
+      - data_protection
+      - confidentiality_term
+      - non_compete
+      - non_solicitation
+      - data_residency
+      - export_control
+      - probation_period
+    intra_checks: []
+
+# Fields that always rank HIGH importance regardless of LLM assessment
+critical_fields:
+  - liability_cap
+  - termination_clause
+  - payment_terms
+  - indemnity
+  - governing_law
+  - contract_value
+  - ip_ownership
