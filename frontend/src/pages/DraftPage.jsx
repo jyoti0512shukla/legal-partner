@@ -22,7 +22,24 @@ function extractBodyContent(html) {
   return m ? m[1] : html;
 }
 
-const JURISDICTIONS = ['California', 'New York', 'Delaware', 'Texas', 'Illinois', 'Florida', 'Massachusetts'];
+const JURISDICTIONS = [
+  // US States (most common for contracts first)
+  'Delaware', 'New York', 'California', 'Texas', 'Illinois', 'Florida', 'Massachusetts',
+  'Nevada', 'Georgia', 'Virginia', 'Pennsylvania', 'New Jersey', 'North Carolina', 'Ohio',
+  'Washington', 'Colorado', 'Maryland', 'Connecticut', 'Arizona', 'Minnesota', 'Oregon',
+  'Tennessee', 'Michigan', 'Indiana', 'Missouri', 'Wisconsin', 'South Carolina', 'Alabama',
+  'Louisiana', 'Kentucky', 'Oklahoma', 'Iowa', 'Utah', 'Kansas', 'Arkansas', 'Mississippi',
+  'Nebraska', 'New Mexico', 'Idaho', 'Hawaii', 'New Hampshire', 'Maine', 'Rhode Island',
+  'Montana', 'West Virginia', 'North Dakota', 'South Dakota', 'Alaska', 'Vermont', 'Wyoming',
+  'District of Columbia',
+  // India
+  'India — Maharashtra', 'India — Delhi', 'India — Karnataka', 'India — Tamil Nadu',
+  'India — Gujarat', 'India — Telangana', 'India — West Bengal', 'India — Rajasthan',
+  'India — Uttar Pradesh', 'India — Madhya Pradesh',
+  // International
+  'England and Wales', 'Singapore', 'Hong Kong', 'Dubai (DIFC)', 'Ontario, Canada',
+  'New South Wales, Australia', 'Germany', 'France', 'Switzerland', 'Netherlands',
+];
 
 const CLAUSE_SPECS_LABELS = {
   DEFINITIONS: 'Definitions',
