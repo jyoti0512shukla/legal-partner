@@ -51,6 +51,7 @@ public class AiService {
     private final RiskQuestionEngine riskQuestionEngine;
     private final com.legalpartner.rag.Bm25SearchService bm25SearchService;
     private final AuditService auditService;
+    private final TokenBudgetService tokenBudget;
     private final EthicalWallService ethicalWallService;
     private final com.legalpartner.repository.PlaybookRepository playbookRepository;
     private final com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository;
@@ -99,39 +100,20 @@ public class AiService {
      * given a specific output token budget.
      * Formula: (modelWindow - outputTokens - systemPromptTokens - questionOverhead) * charsPerToken
      */
-    private int computeContextBudgetChars(int outputTokens) {
-        // Conservative: 500 tokens for system prompt + question template + safety margin
-        int inputBudgetTokens = modelWindowTokens - outputTokens - 500;
-        // Use 3 chars/token (conservative for legal text with special chars, section numbers)
-        return Math.max(1000, inputBudgetTokens * 3);
-    }
-
     /**
-     * Intelligently truncate document text to fit context budget.
-     * If a question/topic is provided, centers the window on the relevant section.
+     * Fit document text to token budget using exact tokenizer.
+     * Replaces all hardcoded character caps — uses vLLM's /tokenize endpoint.
+     *
+     * @param systemPrompt the system prompt (cached token count)
+     * @param documentText the document text to fit
+     * @param outputTokens the output token budget for this call
+     * @param relevanceHint optional question/topic to center the window on
+     * @return truncated document text that fits within the model's context window
      */
-    private String fitToContextBudget(String text, int maxChars, String relevanceHint) {
-        if (text.length() <= maxChars) return text;
-
-        if (relevanceHint != null && !relevanceHint.isBlank()) {
-            // Find the most relevant section based on hint keywords
-            String lower = text.toLowerCase();
-            int bestIdx = -1;
-            for (String word : relevanceHint.toLowerCase().split("\\s+")) {
-                if (word.length() < 4) continue;
-                int idx = lower.indexOf(word);
-                if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) bestIdx = idx;
-            }
-            if (bestIdx >= 0) {
-                int start = Math.max(0, bestIdx - maxChars / 3);
-                int end = Math.min(text.length(), start + maxChars);
-                return text.substring(start, end);
-            }
-        }
-
-        // No hint or no match — take beginning (preamble) + end (signatures/general)
-        int half = maxChars / 2;
-        return text.substring(0, half) + "\n\n[...]\n\n" + text.substring(text.length() - half);
+    private String fitToTokenBudget(String systemPrompt, String documentText, int outputTokens, String relevanceHint) {
+        int systemTokens = tokenBudget.countTokensCached("sys:" + systemPrompt.hashCode(), systemPrompt);
+        int available = tokenBudget.availableContentTokens(systemTokens, outputTokens, 50);
+        return tokenBudget.fitToTokenBudget(documentText, available, relevanceHint);
     }
 
     @Value("${legalpartner.text.extraction-cap-chars:3000}")
@@ -162,6 +144,7 @@ public class AiService {
             RiskQuestionEngine riskQuestionEngine,
             com.legalpartner.rag.Bm25SearchService bm25SearchService,
             AuditService auditService,
+            TokenBudgetService tokenBudget,
             EthicalWallService ethicalWallService,
             com.legalpartner.repository.PlaybookRepository playbookRepository,
             com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository) {
@@ -186,6 +169,7 @@ public class AiService {
         this.riskQuestionEngine = riskQuestionEngine;
         this.bm25SearchService = bm25SearchService;
         this.auditService = auditService;
+        this.tokenBudget = tokenBudget;
         this.ethicalWallService = ethicalWallService;
         this.playbookRepository = playbookRepository;
         this.playbookPositionRepository = playbookPositionRepository;
@@ -992,11 +976,11 @@ public class AiService {
         if (contractText.isBlank()) {
             throw new IllegalStateException("No text available for document " + documentId);
         }
-        // summaryChatModel: 800 output tokens
-        String capped = fitToContextBudget(contractText, computeContextBudgetChars(800), null);
+        // Token-aware budgeting
+        String sysPrompt = legalSystemConfig.localize(PromptTemplates.DOCUMENT_SUMMARY_SYSTEM);
+        String capped = fitToTokenBudget(sysPrompt, contractText, 800, null);
 
-        String prompt = legalSystemConfig.localize(PromptTemplates.DOCUMENT_SUMMARY_SYSTEM)
-                + "\n\n" + String.format(PromptTemplates.DOCUMENT_SUMMARY_USER, capped);
+        String prompt = sysPrompt + "\n\n" + String.format(PromptTemplates.DOCUMENT_SUMMARY_USER, capped);
         AiMessage response = summaryChatModel.generate(UserMessage.from(prompt)).content();
         String summary = response.text().trim();
 
@@ -1034,11 +1018,11 @@ public class AiService {
         if (contractText.isBlank()) {
             return java.util.Map.of("answer", "No text is available for this document yet. It may still be processing.");
         }
-        // qaChatModel: 500 output tokens → max context = (8192 - 500 - 500) * 3 = 21,576 chars
-        String capped = fitToContextBudget(contractText, computeContextBudgetChars(500), question);
+        // Token-aware budgeting — uses vLLM /tokenize for exact counts
+        String sysPrompt = legalSystemConfig.localize(PromptTemplates.ASK_CONTRACT_SYSTEM);
+        String capped = fitToTokenBudget(sysPrompt, contractText, 500, question);
 
-        String prompt = legalSystemConfig.localize(PromptTemplates.ASK_CONTRACT_SYSTEM)
-                + "\n\n" + String.format(PromptTemplates.ASK_CONTRACT_USER, question, capped);
+        String prompt = sysPrompt + "\n\n" + String.format(PromptTemplates.ASK_CONTRACT_USER, question, capped);
         AiMessage response = qaChatModel.generate(UserMessage.from(prompt)).content();
 
         return java.util.Map.of("answer", response.text().trim());
@@ -1455,11 +1439,9 @@ public class AiService {
             return new RiskDrilldownResult(request.categoryName(), request.rating(),
                     "Document has not been indexed yet.", null, null, null);
         }
-        // Dynamic context budget — drilldown uses 800 output tokens
-        int drilldownBudget = computeContextBudgetChars(800);
-        if (context.length() > drilldownBudget) {
-            context = extractRelevantSection(context, request.categoryName(), drilldownBudget);
-        }
+        // Token-aware budgeting for drilldown
+        String drilldownSys = legalSystemConfig.localize(PromptTemplates.RISK_DRILLDOWN_SYSTEM);
+        context = fitToTokenBudget(drilldownSys, context, 800, request.categoryName());
 
         String prompt = String.format(PromptTemplates.RISK_DRILLDOWN_USER,
                 context,
