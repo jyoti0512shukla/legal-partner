@@ -177,6 +177,9 @@ legalpartner:
   text:
     section-cap-chars: 4000               # max chars when extracting a single section
     extraction-cap-chars: 3000            # cap for extraction prompts (preamble, per-section)
+  extraction:
+    full-text-cap-chars: 12000           # window size for vLLM discovery pass (Gemini uses full doc)
+    overlap-chars: 2000                  # overlap between chunked windows
     refine-context-cap-chars: 3000        # cap for clause-refine surrounding context
     contextual-summary-cap-chars: 4000    # cap for contextual retrieval document summaries
   # ── Full-text retriever ──────────────────────────────────────────────────

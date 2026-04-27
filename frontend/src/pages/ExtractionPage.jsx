@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Key, Copy, CheckCircle, FileText } from 'lucide-react';
+import { Key, Loader2, RefreshCw, AlertTriangle, CheckCircle2, ShieldAlert, Info } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
+import BucketSection, { BUCKET_ORDER } from '../components/extraction/BucketSection';
 
 export default function ExtractionPage() {
   const [docs, setDocs] = useState([]);
@@ -9,7 +10,6 @@ export default function ExtractionPage() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     api.get('/documents?size=100&sort=uploadDate,desc')
@@ -17,57 +17,66 @@ export default function ExtractionPage() {
       .catch(() => {});
   }, []);
 
-  const handleExtract = async () => {
+  const handleExtract = async (regenerate = false) => {
     if (!docId) return;
-    setLoading(true); setError(''); setResult(null);
+    setLoading(true); setError(''); if (regenerate) setResult(null);
     try {
-      const res = await api.post(`/ai/extract/${docId}`);
+      const res = await api.post(`/ai/extract/${docId}${regenerate ? '?regenerate=true' : ''}`);
       setResult(res.data);
     } catch (e) {
       setError(e.response?.data?.message || 'Extraction failed');
     } finally { setLoading(false); }
   };
 
-  // Build display fields from the result — show whatever the backend returns
-  const fields = result ? Object.entries(result)
-    .filter(([k]) => !['cached', 'generatedAt', 'documentType', 'contractType'].includes(k))
-    .filter(([, v]) => v !== null && v !== undefined && v !== '')
-    .map(([k, v]) => ({
-      key: k,
-      label: k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()).trim(),
-      value: String(v),
-    })) : [];
-
-  const notFound = result ? Object.entries(result)
-    .filter(([k]) => !['cached', 'generatedAt', 'documentType', 'contractType'].includes(k))
-    .filter(([, v]) => v === null || v === undefined || v === '' || v === 'N/A' || v === 'null')
-    .map(([k]) => k.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()).trim())
-    : [];
-
-  const handleCopy = () => {
-    if (!fields.length) return;
-    const text = fields.map(f => `${f.label}: ${f.value}`).join('\n');
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
+  const handleCorrect = async (field, value) => {
+    try {
+      const res = await api.post(`/ai/extract/${docId}/correct`, { field, value });
+      setResult(res.data);
+    } catch (e) {
+      setError(e.response?.data?.message || 'Correction failed');
+    }
   };
 
+  // Auto-load cached result when document changes
+  useEffect(() => {
+    if (!docId) { setResult(null); return; }
+    setResult(null); setError('');
+    api.post(`/ai/extract/${docId}`)
+      .then(r => { if (r.data?.entries) setResult(r.data); })
+      .catch(() => {});
+  }, [docId]);
+
+  // Group entries by bucket
+  const bucketGroups = {};
+  if (result?.entries) {
+    for (const entry of result.entries) {
+      const bucket = entry.bucket || 'OTHER';
+      if (!bucketGroups[bucket]) bucketGroups[bucket] = [];
+      bucketGroups[bucket].push(entry);
+    }
+  }
+  const sortedBuckets = BUCKET_ORDER.filter(b => bucketGroups[b]?.length > 0);
+  // Add any extra buckets not in the predefined order
+  Object.keys(bucketGroups).filter(b => !sortedBuckets.includes(b)).forEach(b => sortedBuckets.push(b));
+
   const selectedDoc = docs.find(d => d.id === docId);
-  const contractType = selectedDoc?.documentType || result?.contractType || result?.documentType;
+  const ct = result?.contractTypeDetection;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-2">Key Terms Extraction</h1>
-      <p className="text-text-muted text-sm mb-6">
-        Extracts parties, dates, values, and clause-specific terms based on the detected contract type.
-      </p>
+    <div className="page">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Key Terms Extraction</h1>
+          <p className="page-sub">AI discovers material terms, validates with evidence, scores confidence.</p>
+        </div>
+      </div>
 
-      <div className="card mb-6">
-        <div className="flex items-end gap-4">
-          <div className="flex-1">
-            <label className="text-xs text-text-muted mb-1 block">Select Document</label>
-            <select value={docId} onChange={e => { setDocId(e.target.value); setResult(null); }} className="input-field w-full text-sm">
+      {/* Document selector + actions */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'end', gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <label className="tiny muted" style={{ display: 'block', marginBottom: 4 }}>Select Document</label>
+            <select value={docId} onChange={e => setDocId(e.target.value)} className="select" style={{ width: '100%' }}>
               <option value="">Choose a contract...</option>
               {docs.map(d => (
                 <option key={d.id} value={d.id}>
@@ -76,54 +85,121 @@ export default function ExtractionPage() {
               ))}
             </select>
           </div>
-          <button onClick={handleExtract} disabled={loading || !docId} className="btn-primary flex items-center gap-2">
-            {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Key className="w-4 h-4" />}
-            Extract Terms
-          </button>
+          {result && (
+            <button className="btn" onClick={() => handleExtract(true)} disabled={loading}>
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Re-extract
+            </button>
+          )}
+          {!result && docId && (
+            <button className="btn primary" onClick={() => handleExtract(false)} disabled={loading}>
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />}
+              {loading ? 'Extracting...' : 'Extract Key Terms'}
+            </button>
+          )}
         </div>
       </div>
 
-      {error && <div className="card border-l-4 border-danger bg-danger/5 mb-4"><p className="text-danger text-sm">{error}</p></div>}
-      {loading && <LoadingSkeleton rows={10} />}
-
-      {result && (
-        <div className="card">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-lg font-semibold">Extracted Key Terms</h2>
-              {contractType && (
-                <span className="text-xs text-text-muted">
-                  Contract type: <span className="font-medium text-primary">{contractType}</span> — showing relevant fields
-                </span>
-              )}
-            </div>
-            <button onClick={handleCopy} className="flex items-center gap-1.5 text-sm text-text-muted hover:text-primary transition-colors">
-              {copied ? <CheckCircle className="w-4 h-4 text-success" /> : <Copy className="w-4 h-4" />}
-              {copied ? 'Copied' : 'Copy all'}
-            </button>
-          </div>
-          <div className="grid grid-cols-1 divide-y divide-border">
-            {fields.map(f => (
-              <div key={f.key} className="flex items-start py-3 gap-4">
-                <span className="text-sm text-text-muted w-48 shrink-0">{f.label}</span>
-                <span className="text-sm font-medium text-text-primary">{f.value}</span>
-              </div>
-            ))}
-          </div>
-          {notFound.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-border">
-              <span className="text-xs text-text-muted">Not found in document: </span>
-              <span className="text-xs text-text-muted italic">{notFound.join(', ')}</span>
-            </div>
-          )}
+      {error && (
+        <div className="card" style={{ borderColor: 'rgba(217,83,78,0.3)', background: 'var(--danger-bg)', padding: 14, marginBottom: 14 }}>
+          <span className="small" style={{ color: 'var(--danger-400)' }}>{error}</span>
         </div>
       )}
 
-      {!result && !loading && !error && (
-        <div className="card text-center py-12">
-          <Key className="w-12 h-12 text-text-muted mx-auto mb-4" />
-          <p className="text-text-muted">Select a document to extract key commercial terms</p>
-          <p className="text-xs text-text-muted mt-2">Fields adapt based on contract type — NDA, SaaS, Employment, etc.</p>
+      {loading && !result && <LoadingSkeleton rows={12} />}
+
+      {result && (
+        <>
+          {/* Stats bar */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16 }}>
+            <div className="card" style={{ padding: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--font-doc)' }}>{result.totalFieldsDiscovered || 0}</div>
+              <div className="tiny muted" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>Discovered</div>
+            </div>
+            <div className="card" style={{ padding: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--font-doc)', color: 'var(--success-400)' }}>{result.totalFieldsValidated || 0}</div>
+              <div className="tiny muted" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>Validated</div>
+            </div>
+            <div className="card" style={{ padding: 14, textAlign: 'center' }}>
+              <div style={{ fontSize: 22, fontWeight: 600, fontFamily: 'var(--font-doc)', color: 'var(--warn-400)' }}>{result.totalGaps || 0}</div>
+              <div className="tiny muted" style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>Gaps</div>
+            </div>
+            <div className="card" style={{ padding: 14, textAlign: 'center' }}>
+              {ct && (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--brand-400)' }}>
+                    {ct.contractType?.replace('_', ' ')}
+                  </div>
+                  <div className="tiny muted">
+                    {Math.round(ct.confidence * 100)}% confidence
+                    {ct.signals?.length > 0 && (
+                      <span style={{ display: 'block', fontSize: 9, marginTop: 2 }}>
+                        {ct.signals.slice(0, 3).join(', ')}
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Top risks */}
+          {result.topRisks?.length > 0 && (
+            <div className="card" style={{ marginBottom: 16, padding: 14, borderLeft: '3px solid var(--danger-400)' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ShieldAlert size={14} style={{ color: 'var(--danger-400)' }} /> Top Risks
+              </div>
+              {result.topRisks.map((risk, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 6 }}>
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 999, flexShrink: 0,
+                    background: risk.severity === 'HIGH' ? 'var(--danger-bg)' : risk.severity === 'MEDIUM' ? 'var(--warn-bg)' : 'var(--bg-3)',
+                    color: risk.severity === 'HIGH' ? 'var(--danger-400)' : risk.severity === 'MEDIUM' ? 'var(--warn-400)' : 'var(--text-4)',
+                  }}>
+                    {risk.severity}
+                  </span>
+                  <div>
+                    <span className="small" style={{ fontWeight: 500 }}>{risk.risk}</span>
+                    {risk.explanation && (
+                      <span className="small muted" style={{ marginLeft: 6 }}>— {risk.explanation}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Consistency issues */}
+          {result.consistencyIssues?.length > 0 && (
+            <div className="card" style={{ marginBottom: 16, padding: 14, borderLeft: '3px solid var(--warn-400)', background: 'var(--warn-bg)' }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <AlertTriangle size={14} style={{ color: 'var(--warn-400)' }} /> Consistency Issues
+              </div>
+              {result.consistencyIssues.map((issue, i) => (
+                <div key={i} className="small" style={{ color: 'var(--warn-400)', marginBottom: 4 }}>• {issue}</div>
+              ))}
+            </div>
+          )}
+
+          {/* Bucket sections */}
+          {sortedBuckets.map(bucket => (
+            <BucketSection
+              key={bucket}
+              bucket={bucket}
+              entries={bucketGroups[bucket]}
+              onCorrect={handleCorrect}
+            />
+          ))}
+        </>
+      )}
+
+      {!result && !loading && !error && !docId && (
+        <div className="card" style={{ textAlign: 'center', padding: '48px 24px' }}>
+          <Key size={40} style={{ color: 'var(--text-4)', margin: '0 auto 16px' }} />
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>Select a document to extract key terms</div>
+          <div className="small muted">
+            AI discovers all material terms — parties, dates, amounts, obligations, restrictions — with evidence and confidence scoring.
+          </div>
         </div>
       )}
     </div>

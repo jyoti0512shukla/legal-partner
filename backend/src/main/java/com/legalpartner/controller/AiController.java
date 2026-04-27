@@ -46,6 +46,8 @@ public class AiController {
     private final MatterAccessService matterAccessService;
     private final MatterRepository matterRepository;
     private final DocumentMetadataRepository documentRepository;
+    private final com.legalpartner.service.extraction.ExtractionPipeline extractionPipeline;
+    private final com.legalpartner.repository.UserRepository userRepository;
     private final FileStorageService fileStorageService;
 
     @GetMapping("/templates")
@@ -438,8 +440,21 @@ public class AiController {
     }
 
     @PostMapping("/extract/{docId}")
-    public ExtractionResult extract(@PathVariable UUID docId, Authentication auth) {
-        return aiService.extractKeyTerms(docId, auth.getName());
+    public com.legalpartner.model.dto.extraction.ExtractionPipelineResult extract(
+            @PathVariable UUID docId,
+            @RequestParam(value = "regenerate", defaultValue = "false") boolean regenerate,
+            Authentication auth) {
+        return extractionPipeline.extract(docId, auth.getName(), regenerate);
+    }
+
+    @PostMapping("/extract/{docId}/correct")
+    public com.legalpartner.model.dto.extraction.ExtractionPipelineResult correctExtraction(
+            @PathVariable UUID docId,
+            @RequestBody java.util.Map<String, String> body,
+            Authentication auth) {
+        UUID userId = userRepository.findByEmail(auth.getName())
+                .orElseThrow(() -> new IllegalArgumentException("User not found")).getId();
+        return extractionPipeline.applyCorrection(docId, body.get("field"), body.get("value"), auth.getName(), userId);
     }
 
     /**
