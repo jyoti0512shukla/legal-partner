@@ -37,14 +37,70 @@ export default function IntelligencePage() {
     if (!docId || !question.trim()) return;
     const q = question.trim();
     setLoading(true); setError(''); setAnswer('');
+    setQuestion('');
+
     try {
-      const res = await api.post(`/ai/ask/${docId}`, { question: q });
-      const a = res.data?.answer || 'No answer returned.';
-      setAnswer(a);
-      setHistory(h => [{ question: q, answer: a }, ...h].slice(0, 10));
-      setQuestion('');
+      // Try streaming first
+      const response = await fetch(`/api/v1/ai/ask/${docId}/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ question: q }),
+      });
+
+      if (!response.ok) throw new Error('Stream failed');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let accumulated = '';
+      let fullResult = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        // Parse SSE events
+        for (const line of text.split('\n')) {
+          if (line.startsWith('data:')) {
+            const data = line.slice(5).trim();
+            // Check for event type from previous line
+            if (fullResult === null && !data.startsWith('{')) {
+              accumulated += data;
+              setAnswer(accumulated);
+            }
+          }
+          if (line.startsWith('event:complete')) {
+            // Next data line is the full result JSON
+            fullResult = 'pending';
+          }
+          if (fullResult === 'pending' && line.startsWith('data:')) {
+            try {
+              const result = JSON.parse(line.slice(5).trim());
+              const a = result.answer || accumulated;
+              setAnswer(a);
+              setHistory(h => [{ question: q, answer: a }, ...h].slice(0, 10));
+            } catch (e) { /* parse error, use accumulated */ }
+            fullResult = 'done';
+          }
+        }
+      }
+
+      if (!fullResult) {
+        // Stream ended without complete event — use accumulated text
+        if (accumulated) {
+          setHistory(h => [{ question: q, answer: accumulated }, ...h].slice(0, 10));
+        }
+      }
     } catch (e) {
-      setError(e.response?.data?.message || e.message || 'Ask failed');
+      // Fallback to non-streaming
+      try {
+        const res = await api.post(`/ai/ask/${docId}`, { question: q });
+        const a = res.data?.answer || 'No answer returned.';
+        setAnswer(a);
+        setHistory(h => [{ question: q, answer: a }, ...h].slice(0, 10));
+      } catch (e2) {
+        setError(e2.response?.data?.message || e2.message || 'Ask failed');
+      }
     } finally {
       setLoading(false);
     }

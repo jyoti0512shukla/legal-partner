@@ -396,6 +396,34 @@ public class AiController {
         return aiService.query(request, auth.getName());
     }
 
+    @PostMapping(value = "/query/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter queryStream(@Valid @RequestBody QueryRequest request, Authentication auth) {
+        SseEmitter emitter = new SseEmitter(120_000L);
+        String username = auth.getName();
+        Thread.ofVirtual().start(() -> {
+            try {
+                emitter.send(SseEmitter.event().name("status").data("{\"status\":\"thinking\"}"));
+                QueryResult result = aiService.query(request, username);
+                // Stream answer in chunks for progressive rendering
+                String answer = result.answer();
+                int chunkSize = 50;
+                for (int i = 0; i < answer.length(); i += chunkSize) {
+                    String chunk = answer.substring(i, Math.min(i + chunkSize, answer.length()));
+                    emitter.send(SseEmitter.event().name("token").data(chunk));
+                    Thread.sleep(20); // Simulate streaming cadence
+                }
+                // Send full result at the end
+                emitter.send(SseEmitter.event().name("complete").data(
+                        new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result)));
+                emitter.complete();
+            } catch (Exception e) {
+                try { emitter.send(SseEmitter.event().name("error").data(e.getMessage())); } catch (Exception ignored) {}
+                emitter.completeWithError(e);
+            }
+        });
+        return emitter;
+    }
+
     @PostMapping("/compare")
     public CompareResult compare(@Valid @RequestBody CompareRequest request, Authentication auth) {
         return aiService.compare(request, auth.getName());
@@ -476,6 +504,36 @@ public class AiController {
             @RequestBody java.util.Map<String, String> body,
             Authentication auth) {
         return aiService.askContract(docId, body != null ? body.get("question") : null, auth.getName());
+    }
+
+    @PostMapping(value = "/ask/{docId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter askContractStream(
+            @PathVariable UUID docId,
+            @RequestBody java.util.Map<String, String> body,
+            Authentication auth) {
+        SseEmitter emitter = new SseEmitter(120_000L);
+        String username = auth.getName();
+        String question = body != null ? body.get("question") : null;
+        Thread.ofVirtual().start(() -> {
+            try {
+                emitter.send(SseEmitter.event().name("status").data("{\"status\":\"thinking\"}"));
+                var result = aiService.askContract(docId, question, username);
+                String answer = (String) result.getOrDefault("answer", "");
+                int chunkSize = 50;
+                for (int i = 0; i < answer.length(); i += chunkSize) {
+                    String chunk = answer.substring(i, Math.min(i + chunkSize, answer.length()));
+                    emitter.send(SseEmitter.event().name("token").data(chunk));
+                    Thread.sleep(20);
+                }
+                emitter.send(SseEmitter.event().name("complete").data(
+                        new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result)));
+                emitter.complete();
+            } catch (Exception e) {
+                try { emitter.send(SseEmitter.event().name("error").data(e.getMessage())); } catch (Exception ignored) {}
+                emitter.completeWithError(e);
+            }
+        });
+        return emitter;
     }
 
     @PostMapping("/refine-clause")
