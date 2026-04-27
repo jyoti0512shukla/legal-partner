@@ -30,6 +30,8 @@ public class MatterController {
     private final MatterService matterService;
     private final MatterAccessService matterAccessService;
     private final DocumentMetadataRepository documentMetadataRepository;
+    private final com.legalpartner.service.EthicalWallService ethicalWallService;
+    private final com.legalpartner.repository.UserRepository userRepository;
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
@@ -131,5 +133,33 @@ public class MatterController {
             Authentication auth) {
         User user = matterAccessService.resolveUser(auth);
         matterService.removeMember(id, memberId, user.getId(), user.getRole());
+    }
+
+    // ── Ethical Walls ────────────────────────────────────────────────────
+
+    @GetMapping("/{id}/walls")
+    public List<String> getWalls(@PathVariable UUID id) {
+        return ethicalWallService.getWallAuditDetails(id);
+    }
+
+    public record CreateWallRequest(UUID otherMatterId, String reason) {}
+
+    @PostMapping("/{id}/walls")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAnyRole('ADMIN','PARTNER')")
+    public com.legalpartner.model.entity.EthicalWall createWall(
+            @PathVariable UUID id,
+            @RequestBody CreateWallRequest req,
+            Authentication auth) {
+        UUID userId = userRepository.findByEmail(auth.getName())
+                .orElseThrow(() -> new IllegalArgumentException("User not found")).getId();
+        return ethicalWallService.createWall(id, req.otherMatterId(), req.reason(), userId);
+    }
+
+    @DeleteMapping("/walls/{wallId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('ADMIN','PARTNER')")
+    public void deactivateWall(@PathVariable UUID wallId) {
+        ethicalWallService.deactivateWall(wallId);
     }
 }

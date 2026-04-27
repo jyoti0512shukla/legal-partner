@@ -48,6 +48,7 @@ public class AiService {
     private final RiskQuestionEngine riskQuestionEngine;
     private final com.legalpartner.rag.Bm25SearchService bm25SearchService;
     private final AuditService auditService;
+    private final EthicalWallService ethicalWallService;
     private final com.legalpartner.repository.PlaybookRepository playbookRepository;
     private final com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -115,6 +116,7 @@ public class AiService {
             RiskQuestionEngine riskQuestionEngine,
             com.legalpartner.rag.Bm25SearchService bm25SearchService,
             AuditService auditService,
+            EthicalWallService ethicalWallService,
             com.legalpartner.repository.PlaybookRepository playbookRepository,
             com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository) {
         this.embeddingModel = embeddingModel;
@@ -135,6 +137,7 @@ public class AiService {
         this.riskQuestionEngine = riskQuestionEngine;
         this.bm25SearchService = bm25SearchService;
         this.auditService = auditService;
+        this.ethicalWallService = ethicalWallService;
         this.playbookRepository = playbookRepository;
         this.playbookPositionRepository = playbookPositionRepository;
     }
@@ -189,14 +192,28 @@ public class AiService {
 
         // Matter-scoped filter: if matterId provided, keep only chunks from that matter's documents
         List<EmbeddingMatch<TextSegment>> scoped = merged;
+        Set<String> ethicalWallExcluded = Set.of();
         if (request.matterId() != null && !request.matterId().isBlank()) {
+            UUID matterId = UUID.fromString(request.matterId());
             Set<String> matterDocIds = new HashSet<>(
-                    documentRepository.findIdStringsByMatterUuid(UUID.fromString(request.matterId())));
+                    documentRepository.findIdStringsByMatterUuid(matterId));
             if (!matterDocIds.isEmpty()) {
                 scoped = merged.stream()
                         .filter(m -> matterDocIds.contains(m.embedded().metadata().getString("document_id")))
                         .toList();
                 log.debug("Matter filter: {} → {} chunks from {} docs", merged.size(), scoped.size(), matterDocIds.size());
+            }
+
+            // Ethical wall enforcement: exclude documents from walled-off matters
+            ethicalWallExcluded = ethicalWallService.getBlockedDocumentIds(matterId);
+            if (!ethicalWallExcluded.isEmpty()) {
+                Set<String> blocked = ethicalWallExcluded;
+                int beforeWall = scoped.size();
+                scoped = scoped.stream()
+                        .filter(m -> !blocked.contains(m.embedded().metadata().getString("document_id")))
+                        .toList();
+                log.info("Ethical wall: excluded {} chunks ({} blocked docs) for matter {}",
+                        beforeWall - scoped.size(), blocked.size(), matterId);
             }
         }
         List<EmbeddingMatch<TextSegment>> ranked = reRanker.rerank(scoped, request.query(), topK);
@@ -243,19 +260,20 @@ public class AiService {
         conversationStore.add(conversationId, request.query(), answer, queryEmbedding.vector());
         maybeCompressHistory(conversationId);
 
-        // Step 9: Audit — log which documents were retrieved for this query
+        // Step 9: Audit — log which documents were retrieved + ethical wall enforcement
         try {
             String retrievedIds = ranked.stream()
                     .map(m -> m.embedded().metadata().getString("document_id"))
                     .filter(java.util.Objects::nonNull)
                     .distinct()
                     .collect(java.util.stream.Collectors.joining(","));
+            String wallInfo = ethicalWallExcluded.isEmpty() ? "" : " | WALLED_OUT:" + String.join(",", ethicalWallExcluded);
             auditService.publish(com.legalpartner.audit.AuditEvent.builder()
                     .username(username)
                     .action(com.legalpartner.model.enums.AuditActionType.AI_QUERY)
                     .endpoint("ai/query")
                     .queryText(request.query())
-                    .retrievedDocIds(retrievedIds)
+                    .retrievedDocIds(retrievedIds + wallInfo)
                     .documentId(request.matterId() != null ? UUID.fromString(request.matterId()) : null)
                     .success(true)
                     .build());
