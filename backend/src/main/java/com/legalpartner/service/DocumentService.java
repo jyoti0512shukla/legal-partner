@@ -45,6 +45,7 @@ public class DocumentService {
     private final ContextualRetrievalService contextualRetrieval;
     private final AnonymizationService anonymizationService;
     private final DynamicEntityDenylistService dynamicDenylist;
+    private final com.legalpartner.rag.Bm25SearchService bm25SearchService;
 
     private final Tika tika = new Tika();
 
@@ -340,6 +341,18 @@ public class DocumentService {
             }
 
             embeddingStore.addAll(embeddings, segments);
+
+            // Index chunks for BM25 keyword search (hybrid retrieval)
+            for (int i = 0; i < chunks.size(); i++) {
+                LegalChunk chunk = chunks.get(i);
+                UUID chunkId = UUID.nameUUIDFromBytes((doc.getId() + ":" + i).getBytes());
+                try {
+                    bm25SearchService.upsertChunk(chunkId, doc.getId(), chunk.text());
+                } catch (Exception e) {
+                    log.debug("BM25 upsert failed for chunk {}: {}", i, e.getMessage());
+                }
+            }
+            log.info("Document {} BM25 indexed: {} chunks", doc.getFileName(), chunks.size());
 
             doc.setSegmentCount(chunks.size());
             doc.setProcessingStatus(ProcessingStatus.INDEXED);

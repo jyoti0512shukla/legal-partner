@@ -46,6 +46,8 @@ public class AiService {
     private final VllmGuidedClient vllmClient;
     private final LegalSystemConfig legalSystemConfig;
     private final RiskQuestionEngine riskQuestionEngine;
+    private final com.legalpartner.rag.Bm25SearchService bm25SearchService;
+    private final AuditService auditService;
     private final com.legalpartner.repository.PlaybookRepository playbookRepository;
     private final com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -111,6 +113,8 @@ public class AiService {
             VllmGuidedClient vllmClient,
             LegalSystemConfig legalSystemConfig,
             RiskQuestionEngine riskQuestionEngine,
+            com.legalpartner.rag.Bm25SearchService bm25SearchService,
+            AuditService auditService,
             com.legalpartner.repository.PlaybookRepository playbookRepository,
             com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository) {
         this.embeddingModel = embeddingModel;
@@ -129,6 +133,8 @@ public class AiService {
         this.vllmClient = vllmClient;
         this.legalSystemConfig = legalSystemConfig;
         this.riskQuestionEngine = riskQuestionEngine;
+        this.bm25SearchService = bm25SearchService;
+        this.auditService = auditService;
         this.playbookRepository = playbookRepository;
         this.playbookPositionRepository = playbookPositionRepository;
     }
@@ -150,7 +156,7 @@ public class AiService {
         log.debug("Context budget: {}t history, {}t query, {}t system → {}t remaining → {} chars for RAG",
                 historyTokens, queryTokens, systemPromptTokens, remainingTokens, contextBudgetChars);
 
-        // Step 4: Multi-query retrieval with deduplication
+        // Step 4: Hybrid retrieval — dense vector + BM25 keyword search with RRF fusion
         String expanded = queryExpander.expand(request.query());
         List<EmbeddingMatch<TextSegment>> primaryCandidates =
                 embeddingStore.findRelevant(queryEmbedding, candidateCount);
@@ -158,6 +164,28 @@ public class AiService {
                 ? List.of()
                 : embeddingStore.findRelevant(embeddingModel.embed(expanded).content(), candidateCount / 2);
         List<EmbeddingMatch<TextSegment>> merged = mergeAndDeduplicate(primaryCandidates, expandedCandidates);
+
+        // BM25 boost: fetch keyword matches and promote any that also appear in vector results
+        try {
+            List<com.legalpartner.rag.Bm25SearchService.Bm25Hit> bm25Hits = bm25SearchService.search(request.query(), candidateCount);
+            Set<String> bm25DocIds = new java.util.HashSet<>();
+            bm25Hits.forEach(h -> bm25DocIds.add(h.documentId().toString()));
+            // RRF-style boost: chunks found by BOTH vector + BM25 get a score boost
+            merged = merged.stream()
+                    .sorted((a, b) -> {
+                        boolean aInBm25 = bm25DocIds.contains(a.embedded().metadata().getString("document_id"));
+                        boolean bInBm25 = bm25DocIds.contains(b.embedded().metadata().getString("document_id"));
+                        if (aInBm25 && !bInBm25) return -1;
+                        if (!aInBm25 && bInBm25) return 1;
+                        return Double.compare(b.score(), a.score());
+                    })
+                    .toList();
+            log.debug("Hybrid retrieval: {} vector, {} BM25 hits, {} BM25-boosted",
+                    primaryCandidates.size(), bm25Hits.size(),
+                    merged.stream().filter(m -> bm25DocIds.contains(m.embedded().metadata().getString("document_id"))).count());
+        } catch (Exception e) {
+            log.debug("BM25 search failed, using vector-only: {}", e.getMessage());
+        }
 
         // Matter-scoped filter: if matterId provided, keep only chunks from that matter's documents
         List<EmbeddingMatch<TextSegment>> scoped = merged;
@@ -214,6 +242,26 @@ public class AiService {
                 : UUID.randomUUID().toString();
         conversationStore.add(conversationId, request.query(), answer, queryEmbedding.vector());
         maybeCompressHistory(conversationId);
+
+        // Step 9: Audit — log which documents were retrieved for this query
+        try {
+            String retrievedIds = ranked.stream()
+                    .map(m -> m.embedded().metadata().getString("document_id"))
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .collect(java.util.stream.Collectors.joining(","));
+            auditService.publish(com.legalpartner.audit.AuditEvent.builder()
+                    .username(username)
+                    .action(com.legalpartner.model.enums.AuditActionType.AI_QUERY)
+                    .endpoint("ai/query")
+                    .queryText(request.query())
+                    .retrievedDocIds(retrievedIds)
+                    .documentId(request.matterId() != null ? UUID.fromString(request.matterId()) : null)
+                    .success(true)
+                    .build());
+        } catch (Exception e) {
+            log.debug("Failed to publish RAG audit event: {}", e.getMessage());
+        }
 
         return new QueryResult(answer, confidence, keyClauses, citations, warnings, conversationId);
     }
@@ -391,6 +439,21 @@ public class AiService {
             }
         } else {
             log.warn("Risk assessment returned empty for doc {} — not caching", documentId);
+        }
+
+        // Audit: log risk assessment with document reference
+        try {
+            auditService.publish(com.legalpartner.audit.AuditEvent.builder()
+                    .username(username)
+                    .action(com.legalpartner.model.enums.AuditActionType.RISK_ASSESSMENT)
+                    .endpoint("ai/risk-assessment/" + documentId)
+                    .documentId(documentId)
+                    .queryText("Risk assessment: " + (result != null ? result.categories().size() + " categories" : "failed"))
+                    .retrievedDocIds(documentId.toString())
+                    .success(result != null && !result.categories().isEmpty())
+                    .build());
+        } catch (Exception e) {
+            log.debug("Failed to publish risk audit event: {}", e.getMessage());
         }
 
         return result;

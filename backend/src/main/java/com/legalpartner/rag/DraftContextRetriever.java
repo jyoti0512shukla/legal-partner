@@ -43,6 +43,7 @@ public class DraftContextRetriever {
     private final ReRanker reRanker;
     private final EncryptionService encryptionService;
     private final ClauseLibraryService clauseLibraryService;
+    private final Bm25SearchService bm25SearchService;
     private final ClauseTypeRegistry clauseRegistry;
     private final ContractTypeRegistry contractRegistry;
 
@@ -141,6 +142,22 @@ public class DraftContextRetriever {
                     bestScore.put(key, weighted);
                 }
             }
+        }
+
+        // BM25 hybrid boost: chunks also found by keyword search get a 1.3× score multiplier
+        try {
+            String combinedQuery = String.join(" ", queries);
+            List<Bm25SearchService.Bm25Hit> bm25Hits = bm25SearchService.search(combinedQuery, candidateCount);
+            Set<String> bm25DocIds = new HashSet<>();
+            bm25Hits.forEach(h -> bm25DocIds.add(h.documentId().toString()));
+            for (var entry : best.entrySet()) {
+                String docId = entry.getValue().embedded().metadata().getString("document_id");
+                if (bm25DocIds.contains(docId)) {
+                    bestScore.merge(entry.getKey(), 0.0, (old, v) -> old * 1.3);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("BM25 boost failed in draft context: {}", e.getMessage());
         }
 
         return best.entrySet().stream()
