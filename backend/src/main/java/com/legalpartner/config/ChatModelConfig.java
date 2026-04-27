@@ -59,7 +59,7 @@ public class ChatModelConfig {
     @Value("${legalpartner.llm.chat.frequency-penalty:0.1}")
     private double chatFrequencyPenalty;
 
-    @Value("${legalpartner.llm.short.max-tokens:2000}")
+    @Value("${legalpartner.llm.short.max-tokens:800}")
     private int shortMaxTokens;
 
     @Value("${legalpartner.llm.short.temperature:0.3}")
@@ -67,6 +67,16 @@ public class ChatModelConfig {
 
     @Value("${legalpartner.llm.short.frequency-penalty:0.1}")
     private double shortFrequencyPenalty;
+
+    // Task-specific output budgets — allows more context for each use case
+    @Value("${legalpartner.llm.qa.max-tokens:500}")
+    private int qaMaxTokens;
+
+    @Value("${legalpartner.llm.summary.max-tokens:800}")
+    private int summaryMaxTokens;
+
+    @Value("${legalpartner.llm.risk.max-tokens:600}")
+    private int riskMaxTokens;
 
     @Value("${legalpartner.llm.json.max-tokens:2000}")
     private int jsonMaxTokens;
@@ -156,6 +166,44 @@ public class ChatModelConfig {
                     .maxTokens(shortMaxTokens)
                     .temperature(shortTemperature)
                     .frequencyPenalty(shortFrequencyPenalty)
+                    .build();
+        }
+        return null;
+    }
+
+    /** Q&A model — low output (500 tokens), maximizes context for document text */
+    @Bean("qaChatModel")
+    ChatLanguageModel qaChatModel() {
+        return buildModel(qaMaxTokens, shortTemperature, shortFrequencyPenalty);
+    }
+
+    /** Summary model — medium output (800 tokens) */
+    @Bean("summaryChatModel")
+    ChatLanguageModel summaryChatModel() {
+        return buildModel(summaryMaxTokens, shortTemperature, shortFrequencyPenalty);
+    }
+
+    /** Risk assessment model — medium output (600 tokens) for per-clause evaluation */
+    @Bean("riskChatModel")
+    ChatLanguageModel riskChatModel() {
+        return buildModel(riskMaxTokens, shortTemperature, shortFrequencyPenalty);
+    }
+
+    private ChatLanguageModel buildModel(int maxTokens, double temperature, double frequencyPenalty) {
+        if ("gemini".equalsIgnoreCase(provider)) {
+            return GoogleAiGeminiChatModel.builder()
+                    .apiKey(geminiApiKey).modelName(geminiModel)
+                    .timeout(Duration.ofSeconds(120))
+                    .maxOutputTokens(maxTokens).temperature(temperature)
+                    .build();
+        }
+        if (vllmBaseUrl != null && !vllmBaseUrl.isBlank()) {
+            String url = vllmBaseUrl.endsWith("/v1") ? vllmBaseUrl : vllmBaseUrl + "/v1";
+            return OpenAiChatModel.builder()
+                    .baseUrl(url).apiKey("no-op").modelName(vllmModel)
+                    .timeout(Duration.ofSeconds(llmTimeoutSeconds))
+                    .maxTokens(maxTokens).temperature(temperature)
+                    .frequencyPenalty(frequencyPenalty)
                     .build();
         }
         return null;

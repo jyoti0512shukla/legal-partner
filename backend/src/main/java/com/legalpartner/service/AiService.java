@@ -33,8 +33,11 @@ public class AiService {
     private final EmbeddingStore<TextSegment> embeddingStore;
     private final ChatLanguageModel chatModel;
     private final ChatLanguageModel jsonChatModel;
-    /** Smaller-budget model (2K tokens) for non-draft calls: risk, extract, summary, ask, query, compare. */
     private final ChatLanguageModel shortChatModel;
+    /** Task-specific models with tuned output budgets */
+    private final ChatLanguageModel qaChatModel;
+    private final ChatLanguageModel summaryChatModel;
+    private final ChatLanguageModel riskChatModel;
     private final QueryExpander queryExpander;
     private final ReRanker reRanker;
     private final CitationExtractor citationExtractor;
@@ -143,6 +146,9 @@ public class AiService {
             ChatLanguageModel openAiChatModel,
             @Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
             @Qualifier("shortChatModel") ChatLanguageModel shortChatModel,
+            @Qualifier("qaChatModel") ChatLanguageModel qaChatModel,
+            @Qualifier("summaryChatModel") ChatLanguageModel summaryChatModel,
+            @Qualifier("riskChatModel") ChatLanguageModel riskChatModel,
             QueryExpander queryExpander,
             ReRanker reRanker,
             CitationExtractor citationExtractor,
@@ -164,6 +170,9 @@ public class AiService {
         this.chatModel = openAiChatModel;
         this.jsonChatModel = jsonChatModel;
         this.shortChatModel = shortChatModel;
+        this.qaChatModel = qaChatModel;
+        this.summaryChatModel = summaryChatModel;
+        this.riskChatModel = riskChatModel;
         this.queryExpander = queryExpander;
         this.reRanker = reRanker;
         this.citationExtractor = citationExtractor;
@@ -983,12 +992,12 @@ public class AiService {
         if (contractText.isBlank()) {
             throw new IllegalStateException("No text available for document " + documentId);
         }
-        // Dynamic context budget — summary output ~500 tokens, rest for document
+        // summaryChatModel: 800 output tokens
         String capped = fitToContextBudget(contractText, computeContextBudgetChars(800), null);
 
         String prompt = legalSystemConfig.localize(PromptTemplates.DOCUMENT_SUMMARY_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.DOCUMENT_SUMMARY_USER, capped);
-        AiMessage response = shortChatModel.generate(UserMessage.from(prompt)).content();
+        AiMessage response = summaryChatModel.generate(UserMessage.from(prompt)).content();
         String summary = response.text().trim();
 
         // Don't cache obviously bad responses (truncated, echo of input, too short)
@@ -1025,12 +1034,12 @@ public class AiService {
         if (contractText.isBlank()) {
             return java.util.Map.of("answer", "No text is available for this document yet. It may still be processing.");
         }
-        // Dynamic context budget — Q&A output ~400 tokens, rest for document
-        String capped = fitToContextBudget(contractText, computeContextBudgetChars(600), question);
+        // qaChatModel: 500 output tokens → max context = (8192 - 500 - 500) * 3 = 21,576 chars
+        String capped = fitToContextBudget(contractText, computeContextBudgetChars(500), question);
 
         String prompt = legalSystemConfig.localize(PromptTemplates.ASK_CONTRACT_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.ASK_CONTRACT_USER, question, capped);
-        AiMessage response = shortChatModel.generate(UserMessage.from(prompt)).content();
+        AiMessage response = qaChatModel.generate(UserMessage.from(prompt)).content();
 
         return java.util.Map.of("answer", response.text().trim());
     }

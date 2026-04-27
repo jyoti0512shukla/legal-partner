@@ -166,7 +166,7 @@ legalpartner:
       max-tokens: 4000
       frequency-penalty: 0.1
     short:
-      max-tokens: 2000
+      max-tokens: 800     # Q&A, summary, risk drilldown — 800 tokens ≈ 600 words, leaves room for context
       temperature: 0.3
       frequency-penalty: 0.1
     json:
