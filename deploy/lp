@@ -422,6 +422,238 @@ cmd_list() {
   done
 }
 
+# ── GPU Management ──────────────────────────────────────────────────
+
+GPU_STATE_FILE="$DEPLOY_DIR/.gpu-state"
+GPU_SSH_KEY="${SSH_KEY:-$HOME/.runpod/ssh/RunPod-Key-Go}"
+
+gpu_save_state() {
+  cat > "$GPU_STATE_FILE" << EOF
+GPU_POD_ID="$1"
+GPU_SSH_IP="$2"
+GPU_SSH_PORT="$3"
+GPU_NGROK_URL="$4"
+GPU_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+EOF
+}
+
+gpu_load_state() {
+  [[ -f "$GPU_STATE_FILE" ]] || return 1
+  source "$GPU_STATE_FILE"
+  [[ -n "${GPU_POD_ID:-}" ]] || return 1
+}
+
+gpu_ssh() {
+  gpu_load_state || die "No GPU pod. Run: lp gpu start"
+  ssh -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no -o ConnectTimeout=10 "root@$GPU_SSH_IP" -p "$GPU_SSH_PORT" "$@"
+}
+
+cmd_gpu() {
+  local subcmd="${1:-help}"
+  shift || true
+  case "$subcmd" in
+    start)  cmd_gpu_start "$@" ;;
+    stop)   cmd_gpu_stop ;;
+    delete) cmd_gpu_delete ;;
+    status) cmd_gpu_status ;;
+    logs)   cmd_gpu_logs "$@" ;;
+    help|*)
+      echo "Usage: lp gpu <command>"
+      echo ""
+      echo "  start [--follow]   Spin up GPU, load model, get ngrok URL"
+      echo "  stop               Stop pod (keeps disk, ~\$0.10/hr)"
+      echo "  delete             Delete pod (zero cost)"
+      echo "  status             Pod status + model health check"
+      echo "  logs [--follow]    Show vLLM logs"
+      ;;
+  esac
+}
+
+cmd_gpu_start() {
+  local follow=false
+  [[ "${1:-}" == "--follow" ]] && follow=true
+
+  : "${HF_TOKEN:?Set HF_TOKEN — export HF_TOKEN=hf_xxx}"
+  : "${NGROK_TOKEN:?Set NGROK_TOKEN — export NGROK_TOKEN=xxx}"
+  command -v runpodctl >/dev/null || die "runpodctl missing. brew install runpod/runpodctl/runpodctl"
+
+  local gpu_type="${GPU_TYPE:-NVIDIA RTX A6000}"
+  local model="${MODEL:-jyoti0512shukla/SaulLM-54B-Instruct-AWQ}"
+
+  # Check if already running
+  if gpu_load_state 2>/dev/null; then
+    local existing
+    existing=$(runpodctl pod get "$GPU_POD_ID" -o json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','GONE'))" 2>/dev/null || echo "GONE")
+    if [[ "$existing" == "RUNNING" ]]; then
+      yellow "Pod $GPU_POD_ID already running."
+      cmd_gpu_status
+      return
+    fi
+  fi
+
+  bold "Starting GPU ($gpu_type)..."
+
+  # Create pod
+  echo "  [1/5] Creating pod..."
+  local pod_id
+  pod_id=$(runpodctl pod create \
+    --name "saullm-vllm" \
+    --gpu-id "$gpu_type" --gpu-count 1 \
+    --image "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04" \
+    --container-disk-in-gb 100 \
+    --volume-in-gb 200 \
+    --ports "8000/http,22/tcp" \
+    -o json | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+  echo "  Pod: $pod_id"
+
+  # Wait for SSH
+  echo "  [2/5] Waiting for SSH..."
+  local ssh_ip ssh_port
+  for i in {1..60}; do
+    if runpodctl pod get "$pod_id" -o json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('ssh',{}).get('port') else 1)" 2>/dev/null; then break; fi
+    sleep 5
+  done
+  ssh_ip=$(runpodctl pod get "$pod_id" -o json | python3 -c "import sys,json; print(json.load(sys.stdin)['ssh']['ip'])")
+  ssh_port=$(runpodctl pod get "$pod_id" -o json | python3 -c "import sys,json; print(json.load(sys.stdin)['ssh']['port'])")
+  echo "  SSH: root@$ssh_ip:$ssh_port"
+
+  # Install deps
+  echo "  [3/5] Installing vLLM 0.19.1..."
+  ssh -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no "root@$ssh_ip" -p "$ssh_port" 'bash -s' << 'REMOTE'
+set -e
+pip install -q vllm==0.19.1 pyngrok tiktoken sentencepiece protobuf 2>&1 | tail -3
+python3 -c "import vllm; print(f'vllm={vllm.__version__}')"
+cat > /workspace/mistral_template.jinja << 'TMPL'
+{{ bos_token }}{% for message in messages %}{% if message['role'] == 'user' %}[INST] {{ message['content'] }} [/INST]{% elif message['role'] == 'assistant' %} {{ message['content'] }}{{ eos_token }}{% elif message['role'] == 'system' %}[INST] {{ message['content'] }}
+
+{% endif %}{% endfor %}
+TMPL
+cat > /workspace/ngrok_serve.py << 'NGEOF'
+from pyngrok import ngrok, conf
+import os, time
+conf.get_default().auth_token = os.environ["NGROK_TOKEN"]
+url = ngrok.connect(8000, bind_tls=True).public_url
+print("NGROK_URL=" + url, flush=True)
+while True: time.sleep(3600)
+NGEOF
+echo "Ready"
+REMOTE
+
+  # Start vLLM
+  echo "  [4/5] Starting vLLM (model load ~5-10 min)..."
+  ssh -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no "root@$ssh_ip" -p "$ssh_port" \
+    "HF_TOKEN=$HF_TOKEN HF_HOME=/workspace/hf_cache nohup vllm serve $model \
+      --served-model-name saullm-54b \
+      --chat-template /workspace/mistral_template.jinja \
+      --quantization awq --dtype float16 \
+      --max-model-len 8192 --gpu-memory-utilization 0.92 \
+      --port 8000 --trust-remote-code \
+      > /workspace/vllm.log 2>&1 & echo 'PID:'\$!"
+
+  # Poll for ready
+  for i in $(seq 1 120); do
+    if ssh -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no "root@$ssh_ip" -p "$ssh_port" \
+      "grep -q 'Application startup complete' /workspace/vllm.log 2>/dev/null" 2>/dev/null; then
+      green "  vLLM UP!"
+      break
+    fi
+    if ssh -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no "root@$ssh_ip" -p "$ssh_port" \
+      "grep -qE 'Error.*fatal|OOM|FAILED' /workspace/vllm.log 2>/dev/null" 2>/dev/null; then
+      red "  FAILED:"
+      ssh -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no "root@$ssh_ip" -p "$ssh_port" "tail -5 /workspace/vllm.log"
+      gpu_save_state "$pod_id" "$ssh_ip" "$ssh_port" ""
+      return 1
+    fi
+    [[ $((i % 6)) -eq 0 ]] && ssh -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no "root@$ssh_ip" -p "$ssh_port" \
+      "tail -1 /workspace/vllm.log 2>/dev/null" 2>/dev/null | tr '\r' '\n' | tail -1
+    sleep 5
+  done
+
+  # Start ngrok
+  echo "  [5/5] Starting ngrok..."
+  ssh -f -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no "root@$ssh_ip" -p "$ssh_port" \
+    "NGROK_TOKEN=$NGROK_TOKEN python3 -u /workspace/ngrok_serve.py > /workspace/ngrok.log 2>&1"
+  sleep 8
+  local ngrok_url
+  ngrok_url=$(ssh -i "$GPU_SSH_KEY" -o StrictHostKeyChecking=no "root@$ssh_ip" -p "$ssh_port" \
+    "grep -oE 'https://[a-z0-9.-]+\.ngrok-free\.dev' /workspace/ngrok.log 2>/dev/null | tail -1")
+
+  gpu_save_state "$pod_id" "$ssh_ip" "$ssh_port" "$ngrok_url"
+
+  echo ""
+  bold "════════════════════════════════════════════"
+  bold " GPU Ready"
+  bold "════════════════════════════════════════════"
+  echo "  Pod:    $pod_id"
+  echo "  GPU:    $gpu_type"
+  echo "  Model:  saullm-54b (AWQ)"
+  echo "  URL:    ${ngrok_url:-check 'lp gpu logs'}"
+  echo ""
+  echo "  .env config:"
+  echo "    LEGALPARTNER_CHAT_API_URL=${ngrok_url:-<URL>}/v1"
+  echo "    LEGALPARTNER_CHAT_API_MODEL=saullm-54b"
+  echo ""
+  echo "  lp gpu status | logs | stop | delete"
+  bold "════════════════════════════════════════════"
+
+  if $follow; then
+    echo ""
+    bold "Tailing logs (Ctrl+C to stop)..."
+    gpu_ssh "tail -f /workspace/vllm.log"
+  fi
+}
+
+cmd_gpu_stop() {
+  gpu_load_state || die "No GPU pod. Run: lp gpu start"
+  bold "Stopping pod $GPU_POD_ID..."
+  runpodctl pod stop "$GPU_POD_ID" 2>/dev/null || yellow "May already be stopped"
+  green "Stopped. Disk preserved (~\$0.10/hr)."
+}
+
+cmd_gpu_delete() {
+  gpu_load_state || die "No GPU pod. Run: lp gpu start"
+  bold "Deleting pod $GPU_POD_ID..."
+  runpodctl pod delete "$GPU_POD_ID" 2>/dev/null || yellow "May already be deleted"
+  rm -f "$GPU_STATE_FILE"
+  green "Deleted. Zero cost."
+}
+
+cmd_gpu_status() {
+  if ! gpu_load_state 2>/dev/null; then
+    yellow "No GPU pod. Run: lp gpu start"
+    return
+  fi
+  bold "GPU Status"
+  echo "  Pod:     $GPU_POD_ID"
+  echo "  SSH:     root@$GPU_SSH_IP:$GPU_SSH_PORT"
+  echo "  ngrok:   ${GPU_NGROK_URL:-unknown}"
+  echo "  Started: ${GPU_STARTED_AT:-unknown}"
+
+  local pod_status
+  pod_status=$(runpodctl pod get "$GPU_POD_ID" -o json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','UNKNOWN'))" 2>/dev/null || echo "UNREACHABLE")
+  echo "  RunPod:  $pod_status"
+
+  if [[ -n "${GPU_NGROK_URL:-}" ]]; then
+    local model_check
+    model_check=$(curl -s --max-time 5 "$GPU_NGROK_URL/v1/models" 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["data"][0]["id"])' 2>/dev/null || echo "UNREACHABLE")
+    if [[ "$model_check" == "saullm-54b" ]]; then
+      green "  Model:   saullm-54b ✓"
+    else
+      red "  Model:   $model_check"
+    fi
+  fi
+}
+
+cmd_gpu_logs() {
+  gpu_load_state || die "No GPU pod. Run: lp gpu start"
+  if [[ "${1:-}" == "--follow" ]]; then
+    bold "Tailing vLLM logs (Ctrl+C to stop)..."
+    gpu_ssh "tail -f /workspace/vllm.log"
+  else
+    gpu_ssh "tail -50 /workspace/vllm.log"
+  fi
+}
+
 # ── Main ─────────────────────────────────────────────────────────────
 
 cmd="${1:-help}"
@@ -436,6 +668,7 @@ case "$cmd" in
   decrypt)    cmd_decrypt "$@" ;;
   diff)       cmd_diff "$@" ;;
   rollback)   cmd_rollback "$@" ;;
+  gpu)        cmd_gpu "$@" ;;
   status)     cmd_status "$@" ;;
   status-all) cmd_status_all "$@" ;;
   logs)       cmd_logs "$@" ;;
@@ -447,7 +680,7 @@ case "$cmd" in
     echo ""
     echo "Usage: lp <command> [args]"
     echo ""
-    echo "Commands:"
+    echo "Customer Commands:"
     echo "  init <customer>           Create customer config from template"
     echo "  provision <customer>      Install Docker + age key + Caddy on VM"
     echo "  deploy <customer> [tag]   Push config, decrypt on VM, start services"
@@ -462,6 +695,13 @@ case "$cmd" in
     echo "  backup <customer>         Dump database to local file"
     echo "  ssh <customer>            SSH into customer VM"
     echo "  list                      List all customers"
+    echo ""
+    echo "GPU Commands:"
+    echo "  gpu start [--follow]      Spin up GPU pod, load model, get URL"
+    echo "  gpu stop                  Stop pod (keeps disk)"
+    echo "  gpu delete                Delete pod (zero cost)"
+    echo "  gpu status                Pod status + model health"
+    echo "  gpu logs [--follow]       Show vLLM logs"
     echo ""
     ;;
 esac
