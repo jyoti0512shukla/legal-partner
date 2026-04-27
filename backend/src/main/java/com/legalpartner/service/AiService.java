@@ -97,8 +97,10 @@ public class AiService {
      * Formula: (modelWindow - outputTokens - systemPromptTokens - questionOverhead) * charsPerToken
      */
     private int computeContextBudgetChars(int outputTokens) {
-        int inputBudgetTokens = modelWindowTokens - outputTokens - systemPromptTokens - 100; // 100 token safety margin
-        return Math.max(1000, inputBudgetTokens * 4); // ~4 chars per token
+        // Conservative: 500 tokens for system prompt + question template + safety margin
+        int inputBudgetTokens = modelWindowTokens - outputTokens - 500;
+        // Use 3 chars/token (conservative for legal text with special chars, section numbers)
+        return Math.max(1000, inputBudgetTokens * 3);
     }
 
     /**
@@ -981,8 +983,8 @@ public class AiService {
         if (contractText.isBlank()) {
             throw new IllegalStateException("No text available for document " + documentId);
         }
-        // Dynamic context budget — adapts to model window size from config
-        String capped = fitToContextBudget(contractText, computeContextBudgetChars(2000), null);
+        // Dynamic context budget — summary output ~500 tokens, rest for document
+        String capped = fitToContextBudget(contractText, computeContextBudgetChars(800), null);
 
         String prompt = legalSystemConfig.localize(PromptTemplates.DOCUMENT_SUMMARY_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.DOCUMENT_SUMMARY_USER, capped);
@@ -1023,8 +1025,8 @@ public class AiService {
         if (contractText.isBlank()) {
             return java.util.Map.of("answer", "No text is available for this document yet. It may still be processing.");
         }
-        // Dynamic context budget — adapts to model window size from config
-        String capped = fitToContextBudget(contractText, computeContextBudgetChars(2000), question);
+        // Dynamic context budget — Q&A output ~400 tokens, rest for document
+        String capped = fitToContextBudget(contractText, computeContextBudgetChars(600), question);
 
         String prompt = legalSystemConfig.localize(PromptTemplates.ASK_CONTRACT_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.ASK_CONTRACT_USER, question, capped);

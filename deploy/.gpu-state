@@ -1,0 +1,5 @@
+GPU_POD_ID="4pcfcjmm2j4vie"
+GPU_SSH_IP="194.68.245.89"
+GPU_SSH_PORT="22178"
+GPU_NGROK_URL="https://circulable-chere-lucidly.ngrok-free.dev"
+GPU_STARTED_AT="2026-04-27T19:56:34Z"
