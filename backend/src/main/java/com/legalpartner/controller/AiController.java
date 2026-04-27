@@ -430,6 +430,12 @@ public class AiController {
         return aiService.compare(request, auth.getName());
     }
 
+    /** Streaming risk assessment — sends per-question results as they complete */
+    @PostMapping(value = "/risk-assessment/{docId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter riskAssessmentStream(@PathVariable UUID docId, Authentication auth) {
+        return aiService.assessRiskStreaming(docId, auth.getName());
+    }
+
     @PostMapping("/risk-assessment/{docId}")
     public java.util.Map<String, Object> riskAssessment(
             @PathVariable UUID docId,

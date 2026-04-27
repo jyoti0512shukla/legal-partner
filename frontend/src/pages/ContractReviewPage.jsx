@@ -127,15 +127,70 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
     }
   };
 
+  const [liveQuestions, setLiveQuestions] = useState([]);
+
   const run = async (regenerate = false) => {
     setLoading(true); setError(''); setResult(null); setDrilldowns({}); setExpanded({});
+    setLiveQuestions([]);
+
+    // If not regenerating, try sync first (may return cached)
+    if (!regenerate) {
+      try {
+        const res = await api.post(`/ai/risk-assessment/${docId}`);
+        if (res.data?.cached) {
+          setResult(res.data);
+          setCached(true);
+          setLoading(false);
+          return;
+        }
+        setResult(res.data);
+        setCached(false);
+        setLoading(false);
+        return;
+      } catch (e) {
+        // Fall through to streaming
+      }
+    }
+
+    // Stream per-question results
     try {
-      const res = await api.post(`/ai/risk-assessment/${docId}${regenerate ? '?regenerate=true' : ''}`);
-      setResult(res.data);
-      setCached(!!res.data.cached);
-      setExpanded({});
+      const response = await fetch(`/api/v1/ai/risk-assessment/${docId}/stream`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        for (const line of text.split('\n')) {
+          if (line.startsWith('data:') && line.includes('questionId')) {
+            try {
+              const data = JSON.parse(line.slice(5).trim());
+              setLiveQuestions(prev => [...prev, data]);
+            } catch (e) { /* skip unparseable */ }
+          }
+          if (line.startsWith('data:') && line.includes('overallRisk')) {
+            try {
+              const data = JSON.parse(line.slice(5).trim());
+              setResult(data);
+              setCached(false);
+              setLiveQuestions([]);
+            } catch (e) { /* skip */ }
+          }
+        }
+      }
     } catch (e) {
-      setError(e.response?.data?.message || 'Assessment failed');
+      // Fallback to sync
+      try {
+        const res = await api.post(`/ai/risk-assessment/${docId}?regenerate=true`);
+        setResult(res.data);
+        setCached(false);
+      } catch (e2) {
+        setError(e2.response?.data?.message || 'Assessment failed');
+      }
     } finally { setLoading(false); }
   };
 
@@ -186,7 +241,41 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
       </div>
 
       {error && <ErrorCard msg={error} />}
-      {loading && <LoadingSkeleton rows={8} />}
+
+      {/* Live streaming question results */}
+      {loading && liveQuestions.length > 0 && (
+        <div className="card" style={{ padding: 14, marginBottom: 16 }}>
+          <div className="small" style={{ fontWeight: 600, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Loader2 size={14} className="animate-spin" /> Analyzing... ({liveQuestions.length} questions evaluated)
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 300, overflow: 'auto' }}>
+            {liveQuestions.map((q, i) => (
+              <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12 }}>
+                <span style={{
+                  display: 'inline-grid', placeItems: 'center', width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                  background: q.answer === 'YES' ? 'var(--success-bg)' : 'var(--danger-bg)',
+                  color: q.answer === 'YES' ? 'var(--success-400)' : 'var(--danger-400)',
+                  fontSize: 10, fontWeight: 700,
+                }}>
+                  {q.answer === 'YES' ? '✓' : '✗'}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <span style={{ color: 'var(--text-2)' }}>{q.clauseType}</span>
+                  <span style={{ color: 'var(--text-4)', margin: '0 4px' }}>·</span>
+                  <span>{q.question}</span>
+                  {q.quote && (
+                    <div style={{ fontSize: 11, fontStyle: 'italic', color: 'var(--text-3)', marginTop: 2 }}>
+                      "{q.quote.substring(0, 80)}{q.quote.length > 80 ? '...' : ''}"
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading && liveQuestions.length === 0 && <LoadingSkeleton rows={8} />}
 
       {result && (
         <>
