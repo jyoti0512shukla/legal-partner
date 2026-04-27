@@ -34,7 +34,8 @@ public class DraftRequest {
     private String practiceArea;
     private String counterpartyType;
 
-    /** Free-text deal brief — injected verbatim into every clause prompt. */
+    /** Free-text deal brief — injected verbatim into every clause prompt. Required for quality drafts. */
+    @jakarta.validation.constraints.NotBlank(message = "Deal brief is required — describe the key deal terms")
     private String dealBrief;
 
     /**

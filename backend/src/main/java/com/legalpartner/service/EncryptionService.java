@@ -1,6 +1,5 @@
 package com.legalpartner.service;
 
-import lombok.RequiredArgsConstructor;
 import org.jasypt.encryption.StringEncryptor;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;

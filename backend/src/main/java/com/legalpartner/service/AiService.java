@@ -435,7 +435,8 @@ public class AiService {
         // Falls back to legacy single-call approach if batched approach fails.
         RiskAssessmentResult result = null;
         try {
-            RiskAssessmentResult batched = assessRiskBatched(context);
+            String docType = doc.getDocumentType() != null ? doc.getDocumentType().name() : null;
+            RiskAssessmentResult batched = assessRiskBatched(context, docType);
             if (!batched.categories().isEmpty()) {
                 log.info("[prompt={}] batched risk assessment succeeded with {} categories",
                         PromptTemplates.PROMPT_VERSION, batched.categories().size());
@@ -549,7 +550,7 @@ public class AiService {
      *   Step 4: Flag missing clauses (no LLM)
      *   Step 5: Aggregate into overall risk + per-clause breakdown
      */
-    private RiskAssessmentResult assessRiskBatched(String fullText) {
+    private RiskAssessmentResult assessRiskBatched(String fullText, String documentType) {
         // ── Step 1: Clause inventory (no LLM) ─────────────────────────────────
         java.util.Map<String, String> presentClauses = inventoryClauses(fullText);
         log.info("Risk structured: step 1 inventoried {} clauses: {}",
@@ -559,8 +560,16 @@ public class AiService {
             return new RiskAssessmentResult("UNKNOWN", List.of());
         }
 
-        // Detect contract type for question filtering (best-effort from clauses present)
-        String contractType = detectContractType(presentClauses);
+        // Detect contract type — use document metadata if available, fall back to clause heuristics
+        String contractType = documentType;
+        if (contractType == null || contractType.isBlank() || "OTHER".equals(contractType)) {
+            contractType = detectContractType(presentClauses);
+        }
+        // Also use text-based detection for better accuracy
+        if (contractType == null) {
+            contractType = detectContractType(fullText);
+        }
+        log.info("Risk assessment: detected contract type = {}", contractType);
 
         // ── Step 2+3: For each clause, ask questions and compute risk ──────────
         List<RiskQuestionEngine.ClauseRiskResult> clauseResults = new ArrayList<>();

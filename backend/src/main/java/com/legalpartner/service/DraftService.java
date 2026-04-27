@@ -275,9 +275,19 @@ public class DraftService {
                 if (request.getPartyBAddress() == null || request.getPartyBAddress().isBlank())
                     request.setPartyBAddress(dealSpec.getPartyB().getAddress());
             }
-            log.info("DealSpec extracted: partyA={}, partyB={}, fees={}, license={}",
+            // Overlay form fields onto DealSpec — form values take priority over brief extraction
+            if (request.getJurisdiction() != null && !request.getJurisdiction().isBlank()) {
+                if (dealSpec.getLegal() == null) dealSpec.setLegal(new com.legalpartner.model.dto.DealSpec.LegalTerms());
+                dealSpec.getLegal().setJurisdiction(request.getJurisdiction());
+            }
+            if (request.getNoticeDays() != null && !request.getNoticeDays().isBlank()) {
+                if (dealSpec.getLegal() == null) dealSpec.setLegal(new com.legalpartner.model.dto.DealSpec.LegalTerms());
+                try { dealSpec.getLegal().setNoticeDays(Integer.parseInt(request.getNoticeDays())); } catch (Exception ignored) {}
+            }
+            log.info("DealSpec extracted: partyA={}, partyB={}, jurisdiction={}, fees={}, license={}",
                     dealSpec.getPartyA() != null ? dealSpec.getPartyA().getName() : "?",
                     dealSpec.getPartyB() != null ? dealSpec.getPartyB().getName() : "?",
+                    dealSpec.getLegal() != null ? dealSpec.getLegal().getJurisdiction() : "?",
                     dealSpec.getFees() != null ? dealSpec.getFees().getLicenseFee() : "?",
                     dealSpec.getLicense() != null ? dealSpec.getLicense().getType() : "?");
         }
