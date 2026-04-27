@@ -655,10 +655,17 @@ public class AiService {
                     "\n\nOutput JSON: {\"answers\": [{\"id\": \"...\", \"answer\": \"YES/NO\", \"quote\": \"...\"}]}";
         }
 
+        log.info("Risk eval [{}]: clauseText preview ({} chars): {}",
+                clauseType, clauseText.length(),
+                clauseText.substring(0, Math.min(200, clauseText.length())).replace('\n', ' '));
+
         try {
             AiMessage response = jsonChatModel.generate(
                     UserMessage.from(systemPrompt + "\n\n" + userPrompt)
             ).content();
+
+            log.info("Risk eval [{}]: LLM response preview: {}",
+                    clauseType, response.text().substring(0, Math.min(300, response.text().length())).replace('\n', ' '));
 
             return parseQuestionAnswers(response.text(), questions);
         } catch (Exception e) {
