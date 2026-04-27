@@ -190,19 +190,32 @@ public class AiService {
             log.debug("BM25 search failed, using vector-only: {}", e.getMessage());
         }
 
-        // Matter-scoped filter: if matterId provided, keep only chunks from that matter's documents
+        // Dual-pool retrieval:
+        // - RAW pool: matter-scoped only (original text with real entity names)
+        // - ANONYMIZED pool: firm-wide (entity-stripped, for "what's market standard?" queries)
+        // Both filtered by ethical walls
         List<EmbeddingMatch<TextSegment>> scoped = merged;
         Set<String> ethicalWallExcluded = Set.of();
         if (request.matterId() != null && !request.matterId().isBlank()) {
             UUID matterId = UUID.fromString(request.matterId());
             Set<String> matterDocIds = new HashSet<>(
                     documentRepository.findIdStringsByMatterUuid(matterId));
-            if (!matterDocIds.isEmpty()) {
-                scoped = merged.stream()
-                        .filter(m -> matterDocIds.contains(m.embedded().metadata().getString("document_id")))
-                        .toList();
-                log.debug("Matter filter: {} → {} chunks from {} docs", merged.size(), scoped.size(), matterDocIds.size());
-            }
+
+            // RAW pool: only this matter's documents
+            // ANONYMIZED pool: any document (firm-wide precedent)
+            scoped = merged.stream()
+                    .filter(m -> {
+                        String pool = m.embedded().metadata().getString("pool");
+                        String docId = m.embedded().metadata().getString("document_id");
+                        if ("RAW".equals(pool)) {
+                            // RAW chunks: must belong to this matter
+                            return matterDocIds.contains(docId);
+                        }
+                        // ANONYMIZED chunks: firm-wide access (filtered by ethical walls below)
+                        return true;
+                    })
+                    .toList();
+            log.debug("Dual-pool filter: {} → {} chunks (RAW from matter + ANONYMIZED firm-wide)", merged.size(), scoped.size());
 
             // Ethical wall enforcement: exclude documents from walled-off matters
             ethicalWallExcluded = ethicalWallService.getBlockedDocumentIds(matterId);

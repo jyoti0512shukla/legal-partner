@@ -310,41 +310,56 @@ public class DocumentService {
             if (doc.getMatter() != null) docMeta.put("matter_id", doc.getMatter().getId().toString());
             else if (doc.getMatterId() != null && !doc.getMatterId().isBlank()) docMeta.put("matter_id", doc.getMatterId());
 
-            List<LegalChunk> chunks = chunker.chunk(text, docMeta);
+            // ── Dual-index: RAW pool (matter-scoped) + ANONYMIZED pool (firm-wide) ──
 
+            // Pool 1: ANONYMIZED chunks — firm-wide precedent pool
+            // Uses anonymized text so client names don't leak cross-matter
+            List<LegalChunk> anonChunks = chunker.chunk(text, docMeta);
             List<TextSegment> segments = new ArrayList<>();
             List<Embedding> embeddings = new ArrayList<>();
 
-            // Document-level summary to prepend to each chunk during embedding.
-            // Contextual Retrieval (Anthropic technique) — improves retrieval recall
-            // by ~49-67% vs plain chunk embedding. Pay one LLM call per chunk at
-            // ingest; free at query time.
             String docSummary = buildDocumentSummary(doc, text);
 
-            for (LegalChunk chunk : chunks) {
-                // Generate a contextualized version for embedding, but keep the raw
-                // chunk text for storage/display (we decrypt and show the raw text to
-                // the user; the context prefix is only for retrieval quality).
+            for (LegalChunk chunk : anonChunks) {
                 String rawChunkText = chunk.text();
                 String contextualText = contextualRetrieval.contextualise(docSummary, rawChunkText);
-                // all-minilm caps at ~256 tokens; truncate the contextualized text to fit
                 String embedText = contextualText.length() > 500
-                        ? contextualText.substring(0, 500)
-                        : contextualText;
+                        ? contextualText.substring(0, 500) : contextualText;
 
                 String encrypted = encryptionService.encrypt(rawChunkText);
-                TextSegment segment = TextSegment.from(encrypted, Metadata.from(chunk.metadata()));
+                Map<String, String> meta = new java.util.HashMap<>(chunk.metadata());
+                meta.put("pool", "ANONYMIZED");
+                TextSegment segment = TextSegment.from(encrypted, Metadata.from(meta));
                 segments.add(segment);
 
                 Embedding embedding = embeddingModel.embed(embedText).content();
                 embeddings.add(embedding);
             }
 
-            embeddingStore.addAll(embeddings, segments);
+            // Pool 2: RAW chunks — per-matter pool with original entity names
+            // Only retrievable by users working on this same matter
+            Map<String, String> rawMeta = new java.util.HashMap<>(docMeta);
+            rawMeta.put("pool", "RAW");
+            List<LegalChunk> rawChunks = chunker.chunk(rawText, rawMeta);
 
-            // Index chunks for BM25 keyword search (hybrid retrieval)
-            for (int i = 0; i < chunks.size(); i++) {
-                LegalChunk chunk = chunks.get(i);
+            for (LegalChunk chunk : rawChunks) {
+                String encrypted = encryptionService.encrypt(chunk.text());
+                TextSegment segment = TextSegment.from(encrypted, Metadata.from(chunk.metadata()));
+                segments.add(segment);
+
+                String embedText = chunk.text().length() > 500
+                        ? chunk.text().substring(0, 500) : chunk.text();
+                Embedding embedding = embeddingModel.embed(embedText).content();
+                embeddings.add(embedding);
+            }
+
+            embeddingStore.addAll(embeddings, segments);
+            log.info("Document {} dual-indexed: {} anonymized + {} raw chunks",
+                    doc.getFileName(), anonChunks.size(), rawChunks.size());
+
+            // BM25 index — uses raw text for keyword matching
+            for (int i = 0; i < rawChunks.size(); i++) {
+                LegalChunk chunk = rawChunks.get(i);
                 UUID chunkId = UUID.nameUUIDFromBytes((doc.getId() + ":" + i).getBytes());
                 try {
                     bm25SearchService.upsertChunk(chunkId, doc.getId(), chunk.text());
@@ -352,13 +367,12 @@ public class DocumentService {
                     log.debug("BM25 upsert failed for chunk {}: {}", i, e.getMessage());
                 }
             }
-            log.info("Document {} BM25 indexed: {} chunks", doc.getFileName(), chunks.size());
 
-            doc.setSegmentCount(chunks.size());
+            doc.setSegmentCount(anonChunks.size() + rawChunks.size());
             doc.setProcessingStatus(ProcessingStatus.INDEXED);
             repository.save(doc);
 
-            log.info("Document {} indexed: {} segments", doc.getFileName(), chunks.size());
+            log.info("Document {} indexed: {} total segments (dual-pool)", doc.getFileName(), anonChunks.size() + rawChunks.size());
             eventPublisher.publishEvent(new DocumentIndexedEvent(doc.getId(), doc.getUploadedBy(), doc.getFileName()));
 
             // Refresh the dynamic entity denylist — this doc's real entities
