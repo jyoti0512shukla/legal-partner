@@ -60,7 +60,7 @@ echo ">> [3/5] Installing vLLM + writing configs..."
 $RSH 'bash -s' << 'REMOTE'
 set -e
 echo "Installing deps..."
-pip install -q vllm pyngrok tiktoken sentencepiece protobuf 2>&1 | tail -3
+pip install -q vllm==0.19.1 pyngrok tiktoken sentencepiece protobuf 2>&1 | tail -3
 
 # Verify
 python3 -c "import vllm; print(f'vllm={vllm.__version__}')"
