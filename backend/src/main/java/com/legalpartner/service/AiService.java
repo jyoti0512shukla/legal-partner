@@ -91,6 +91,44 @@ public class AiService {
     @Value("${legalpartner.text.section-cap-chars:4000}")
     private int sectionCapChars;
 
+    /**
+     * Calculate max chars of document text that can fit in the model's context window,
+     * given a specific output token budget.
+     * Formula: (modelWindow - outputTokens - systemPromptTokens - questionOverhead) * charsPerToken
+     */
+    private int computeContextBudgetChars(int outputTokens) {
+        int inputBudgetTokens = modelWindowTokens - outputTokens - systemPromptTokens - 100; // 100 token safety margin
+        return Math.max(1000, inputBudgetTokens * 4); // ~4 chars per token
+    }
+
+    /**
+     * Intelligently truncate document text to fit context budget.
+     * If a question/topic is provided, centers the window on the relevant section.
+     */
+    private String fitToContextBudget(String text, int maxChars, String relevanceHint) {
+        if (text.length() <= maxChars) return text;
+
+        if (relevanceHint != null && !relevanceHint.isBlank()) {
+            // Find the most relevant section based on hint keywords
+            String lower = text.toLowerCase();
+            int bestIdx = -1;
+            for (String word : relevanceHint.toLowerCase().split("\\s+")) {
+                if (word.length() < 4) continue;
+                int idx = lower.indexOf(word);
+                if (idx >= 0 && (bestIdx < 0 || idx < bestIdx)) bestIdx = idx;
+            }
+            if (bestIdx >= 0) {
+                int start = Math.max(0, bestIdx - maxChars / 3);
+                int end = Math.min(text.length(), start + maxChars);
+                return text.substring(start, end);
+            }
+        }
+
+        // No hint or no match — take beginning (preamble) + end (signatures/general)
+        int half = maxChars / 2;
+        return text.substring(0, half) + "\n\n[...]\n\n" + text.substring(text.length() - half);
+    }
+
     @Value("${legalpartner.text.extraction-cap-chars:3000}")
     private int extractionCapChars;
 
@@ -943,9 +981,8 @@ public class AiService {
         if (contractText.isBlank()) {
             throw new IllegalStateException("No text available for document " + documentId);
         }
-        // Keep the prompt within the model's context window — summary doesn't need the
-        // entire doc verbatim; first 10K chars is enough for the headline terms.
-        String capped = contractText.length() > 10_000 ? contractText.substring(0, 10_000) : contractText;
+        // Dynamic context budget — adapts to model window size from config
+        String capped = fitToContextBudget(contractText, computeContextBudgetChars(2000), null);
 
         String prompt = legalSystemConfig.localize(PromptTemplates.DOCUMENT_SUMMARY_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.DOCUMENT_SUMMARY_USER, capped);
@@ -986,7 +1023,8 @@ public class AiService {
         if (contractText.isBlank()) {
             return java.util.Map.of("answer", "No text is available for this document yet. It may still be processing.");
         }
-        String capped = contractText.length() > 12_000 ? contractText.substring(0, 12_000) : contractText;
+        // Dynamic context budget — adapts to model window size from config
+        String capped = fitToContextBudget(contractText, computeContextBudgetChars(2000), question);
 
         String prompt = legalSystemConfig.localize(PromptTemplates.ASK_CONTRACT_SYSTEM)
                 + "\n\n" + String.format(PromptTemplates.ASK_CONTRACT_USER, question, capped);
@@ -1406,12 +1444,10 @@ public class AiService {
             return new RiskDrilldownResult(request.categoryName(), request.rating(),
                     "Document has not been indexed yet.", null, null, null);
         }
-        // Cap context to fit model window. Previous 5000-char cap caused false
-        // "missing clause" hallucinations because clauses past the cap weren't visible.
-        // 12000 chars ≈ 3000 tokens, leaving room for prompt + 800 token output.
-        if (context.length() > 12000) {
-            // Extract sections relevant to the category being drilled down on
-            context = extractRelevantSection(context, request.categoryName(), 12000);
+        // Dynamic context budget — drilldown uses 800 output tokens
+        int drilldownBudget = computeContextBudgetChars(800);
+        if (context.length() > drilldownBudget) {
+            context = extractRelevantSection(context, request.categoryName(), drilldownBudget);
         }
 
         String prompt = String.format(PromptTemplates.RISK_DRILLDOWN_USER,
