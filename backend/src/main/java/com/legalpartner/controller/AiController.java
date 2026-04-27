@@ -48,6 +48,7 @@ public class AiController {
     private final DocumentMetadataRepository documentRepository;
     private final com.legalpartner.service.extraction.ExtractionPipeline extractionPipeline;
     private final com.legalpartner.repository.UserRepository userRepository;
+    private final com.legalpartner.service.QaSuggestionService qaSuggestionService;
     private final FileStorageService fileStorageService;
 
     @GetMapping("/templates")
@@ -489,6 +490,16 @@ public class AiController {
      * AI summary of a document — returns cached result if present, otherwise
      * generates on demand. Pass ?regenerate=true to force a fresh run.
      */
+    /** Get suggested Q&A questions based on the document's contract type */
+    @GetMapping("/qa-suggestions/{docId}")
+    public java.util.Map<String, Object> getQaSuggestions(@PathVariable UUID docId) {
+        DocumentMetadata doc = documentRepository.findById(docId)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Document not found"));
+        String contractType = doc.getDocumentType() != null ? doc.getDocumentType().name() : "_default";
+        List<String> suggestions = qaSuggestionService.getSuggestions(contractType);
+        return java.util.Map.of("contractType", contractType, "suggestions", suggestions);
+    }
+
     @PostMapping("/summarize/{docId}")
     public java.util.Map<String, Object> summarize(
             @PathVariable UUID docId,

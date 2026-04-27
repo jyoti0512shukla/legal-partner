@@ -4,7 +4,7 @@ import { Brain, Send, FileText } from 'lucide-react';
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 
-const SUGGESTIONS = [
+const DEFAULT_SUGGESTIONS = [
   'What is the termination notice period?',
   'Is liability capped? If so, to what amount?',
   'What are the indemnification obligations?',
@@ -18,9 +18,10 @@ export default function IntelligencePage() {
   const [docId, setDocId] = useState(searchParams.get('docId') || '');
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
-  const [history, setHistory] = useState([]); // { question, answer }
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [suggestions, setSuggestions] = useState(DEFAULT_SUGGESTIONS);
 
   useEffect(() => {
     api.get('/documents?size=100&sort=uploadDate,desc')
@@ -28,9 +29,19 @@ export default function IntelligencePage() {
       .catch(() => setDocs([]));
   }, []);
 
-  // Clear Q&A when switching documents
+  // Clear Q&A and load contract-type-specific suggestions when switching documents
   useEffect(() => {
     setAnswer(''); setHistory([]); setError('');
+    if (docId) {
+      api.get(`/ai/qa-suggestions/${docId}`)
+        .then(r => {
+          if (r.data?.suggestions?.length > 0) setSuggestions(r.data.suggestions);
+          else setSuggestions(DEFAULT_SUGGESTIONS);
+        })
+        .catch(() => setSuggestions(DEFAULT_SUGGESTIONS));
+    } else {
+      setSuggestions(DEFAULT_SUGGESTIONS);
+    }
   }, [docId]);
 
   const ask = async () => {
@@ -141,7 +152,7 @@ export default function IntelligencePage() {
               />
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {SUGGESTIONS.map(s => (
+              {suggestions.map(s => (
                 <button key={s} type="button" onClick={() => setQuestion(s)}
                   className="text-xs bg-surface-el px-3 py-1 rounded-full text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors">
                   {s}

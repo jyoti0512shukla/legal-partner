@@ -1,0 +1,119 @@
+# Per-contract-type Q&A suggestions for Ask Cognita.
+# These are the questions a lawyer would actually ask during review.
+# Frontend loads the right set based on the selected document's contract type.
+# _default shown when contract type is unknown.
+
+suggestions:
+  _default:
+    - "Who are the parties to this agreement?"
+    - "What is the termination notice period?"
+    - "Is liability capped? If so, to what amount?"
+    - "What are the indemnification obligations?"
+    - "What is the governing law and dispute resolution mechanism?"
+    - "Does this contract auto-renew?"
+    - "What are the payment terms?"
+    - "Are there any non-compete or exclusivity restrictions?"
+
+  NDA:
+    - "Is the NDA mutual or one-way, and does that match the actual information flow?"
+    - "Does the definition of Confidential Information use a catch-all or require marking?"
+    - "What are the exceptions — public domain, independent development, prior knowledge, compelled disclosure?"
+    - "What is the confidentiality survival period — is it reasonable or indefinite?"
+    - "Does the compelled-disclosure exception require notice to the disclosing party?"
+    - "Is there a residuals clause allowing use of general knowledge retained in unaided memory?"
+    - "Does the NDA include hidden non-solicitation or non-compete provisions?"
+    - "What is the return/destruction obligation — does it allow retention for compliance?"
+
+  SAAS:
+    - "What is the uptime SLA commitment, and are maintenance windows excluded?"
+    - "Are service credits the sole remedy for SLA failures, or can the customer terminate?"
+    - "Who owns the customer data, and can the vendor use it for analytics or ML training?"
+    - "What is the data portability mechanism at termination — format, timeline, cost?"
+    - "Can the vendor unilaterally modify features, APIs, or pricing during the term?"
+    - "Does the auto-renewal require opt-in or just failure to cancel? What's the notice window?"
+    - "Are sub-processors disclosed with customer approval rights?"
+    - "Is the liability cap mutual and at a reasonable multiple of fees?"
+    - "Does the DPA address cross-border data transfers with standard contractual clauses?"
+
+  SOFTWARE_LICENSE:
+    - "Is the license perpetual or term-based, and does it survive termination of maintenance?"
+    - "Is the license scope clearly bounded — named users, concurrent, site, or enterprise?"
+    - "Does the licensor have audit rights? What's the notice period and who bears cost?"
+    - "Is there a source code escrow triggered by insolvency or product discontinuation?"
+    - "Who owns modifications and derivative works created by the licensee?"
+    - "Are sublicensing rights to affiliates and contractors explicitly granted?"
+    - "Is the IP infringement indemnity uncapped or under the general liability cap?"
+    - "Does the license include disaster recovery and testing environments at no extra fee?"
+
+  EMPLOYMENT:
+    - "Is the non-compete enforceable — reasonable scope, duration, and geographic limit?"
+    - "Does the IP assignment cover inventions during employment, with a prior-inventions carve-out?"
+    - "What triggers equity vesting acceleration — termination without cause, change of control, or both?"
+    - "Does severance require a release of claims, and is it tied to tenure?"
+    - "Is at-will status clearly stated, or are notice period and termination grounds defined?"
+    - "Are clawback provisions on bonuses tied to specific events or discretionary?"
+    - "Does the garden leave clause require continued salary during the restricted period?"
+    - "Is the arbitration clause enforceable, with a carve-out for IP/confidentiality injunctions?"
+
+  MSA:
+    - "Does the MSA establish order of precedence between master terms and SOWs?"
+    - "Is there a formal change order process requiring written agreement before work begins?"
+    - "Are acceptance criteria and testing periods defined for deliverables?"
+    - "Is IP in deliverables assigned to the client, or does the provider retain ownership?"
+    - "Does the provider carve out pre-existing IP with a perpetual license to the client?"
+    - "Is the liability cap per-SOW or aggregate — and does it reset annually?"
+    - "Can the client terminate an individual SOW without terminating the MSA?"
+    - "Does the MSA address subcontractor use with flow-down of confidentiality and IP?"
+    - "Is there a most-favored-customer clause to protect against pricing drift?"
+
+  SUPPLY:
+    - "Are delivery terms defined using Incoterms with a clear risk-of-loss transfer point?"
+    - "Is there a formal acceptance procedure with inspection period and right to cure?"
+    - "Does force majeure include supply chain disruptions with a termination cap on duration?"
+    - "Are price adjustment mechanisms defined — raw material indexing, CPI, or fixed?"
+    - "Is there a minimum purchase commitment with take-or-pay consequences?"
+    - "Does the buyer have audit rights over supplier facilities and quality controls?"
+    - "Are liquidated damages for late delivery a genuine pre-estimate of loss?"
+    - "Does the agreement address recall obligations and product liability allocation?"
+
+  IP_LICENSE:
+    - "Is the license exclusive or non-exclusive — and does exclusivity extend to the licensor?"
+    - "Is the field-of-use restriction clearly defined — markets, geographies, applications?"
+    - "Who owns improvements and derivative works — are grant-back licenses required?"
+    - "Are royalty calculations clearly defined with an audit right?"
+    - "Can the licensee sublicense, and do sublicenses terminate with the master license?"
+    - "Does the licensor warrant it owns all IP free of encumbrances?"
+    - "What happens to the license on change of control of the licensee?"
+    - "Is there an anti-shelving provision requiring commercialization within a period?"
+    - "Are patent prosecution and enforcement rights allocated?"
+
+  LEASE:
+    - "Is the rent escalation formula defined — fixed, CPI-linked, or market reset — with a cap?"
+    - "Who is responsible for structural repairs vs tenant interior maintenance?"
+    - "Are CAM charges defined, capped, and auditable?"
+    - "Can the tenant assign or sublease, and are landlord consent rights reasonable?"
+    - "Is there an early termination right, and what are the penalties?"
+    - "Does the tenant have a right of first refusal on adjacent space or renewal option?"
+    - "Does the lease address casualty — can the tenant terminate if restoration takes too long?"
+    - "Is there a non-disturbance agreement (SNDA) protecting the tenant from foreclosure?"
+
+  JV:
+    - "Is governance clear — board composition, voting thresholds, unanimous vs majority decisions?"
+    - "How are profits and losses allocated — proportional to capital or on a different basis?"
+    - "Who owns IP created by the JV, and do partners get a license back?"
+    - "Are capital call obligations defined with dilution consequences for non-funding?"
+    - "Is there a deadlock resolution mechanism — swing vote, mediation, or put/call?"
+    - "Are exit mechanisms clear — tag-along, drag-along, ROFR, and how is FMV determined?"
+    - "Are non-compete obligations on partners defined for the JV's field of activity?"
+    - "What triggers dissolution — fixed term, missed milestones, breach, or insolvency?"
+
+  MA:
+    - "Are seller reps and warranties comprehensive — financials, IP, litigation, tax, compliance?"
+    - "Is the indemnification cap reasonable — 10-20% for general reps, higher for fundamental reps?"
+    - "Is there a basket (deductible) before indemnification is payable?"
+    - "Are earnout metrics precisely defined with protections against buyer manipulation?"
+    - "What are the closing conditions — regulatory approvals, consents, no-MAC?"
+    - "Is the MAC definition carve-out list reasonable or overly broad favoring the buyer?"
+    - "Are sandbagging provisions addressed — can buyer claim for known pre-closing breaches?"
+    - "Is there a working capital true-up with clearly defined target and methodology?"
+    - "Does the agreement include R&W insurance, and does it replace or supplement seller indemnity?"
