@@ -1,0 +1,33 @@
+# Expected results for our system-generated Software License Agreement
+contract_type: SOFTWARE_LICENSE
+
+expected_extractions:
+  party_a: "Acme Technologies Inc."
+  party_b: "Beta Solutions LLC"
+  effective_date: "2026-05-01"
+  governing_law: "Delaware"
+  contract_value: "$120,000"
+  term_duration: "3 years"
+  notice_period: "60"
+
+expected_clauses_present:
+  - CONFIDENTIALITY
+  - LIABILITY
+  - TERMINATION
+  - IP_RIGHTS
+  - GOVERNING_LAW
+  - PAYMENT
+  - INDEMNIFICATION
+
+expected_clauses_missing:
+  - SLA
+  - DATA_PROTECTION
+  - FORCE_MAJEURE
+
+expected_risk_ratings:
+  CONFIDENTIALITY: LOW
+  LIABILITY: MEDIUM
+  TERMINATION: LOW
+  IP_RIGHTS: LOW
+  GOVERNING_LAW: LOW
+  PAYMENT: MEDIUM

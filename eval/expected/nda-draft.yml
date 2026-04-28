@@ -1,0 +1,28 @@
+# Expected results for our system-generated NDA
+contract_type: NDA
+
+expected_extractions:
+  party_a: "TestCorp"
+  party_b: "DemoCo"
+  governing_law: "Delaware"
+  confidentiality_term: "3 years"
+
+expected_clauses_present:
+  - CONFIDENTIALITY
+  - TERMINATION
+  - GOVERNING_LAW
+  - LIABILITY
+  - INDEMNIFICATION
+  - GENERAL_PROVISIONS
+
+expected_clauses_missing:
+  - PAYMENT
+  - SLA
+  - WARRANTIES
+  - FORCE_MAJEURE
+
+expected_risk_ratings:
+  CONFIDENTIALITY: LOW
+  TERMINATION: LOW
+  GOVERNING_LAW: LOW
+  LIABILITY: MEDIUM
