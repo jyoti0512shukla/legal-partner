@@ -138,7 +138,7 @@ public class CanonicalMapper {
 
     private String normalize(String input) {
         return input.toLowerCase()
-                .replaceAll("[^a-z0-9\\s]", "")
+                .replaceAll("[^a-z0-9_\\s]", "")  // keep underscores
                 .replaceAll("\\s+", "_")
                 .trim();
     }
