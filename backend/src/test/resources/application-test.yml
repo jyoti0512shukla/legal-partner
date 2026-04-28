@@ -1,18 +1,56 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
     driver-class-name: org.h2.Driver
   jpa:
     hibernate:
       ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
   flyway:
     enabled: false
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
 
-langchain4j:
-  ollama:
-    chat-model:
-      base-url: http://localhost:11434
-      model-name: tinyllama
-    embedding-model:
-      base-url: http://localhost:11434
-      model-name: all-minilm
+# Disable all external services for tests
+legalpartner:
+  chat:
+    provider: test
+  rate-limit:
+    ai-requests-per-minute: 100
+    login-per-minute: 100
+    register-per-minute: 100
+    reset-per-hour: 100
+  jwt:
+    secret: test-secret-key-min-256-bits-for-hs256-algorithm-testing
+    issuer: test
+    expiration-minutes: 60
+  llm:
+    chat:
+      max-tokens: 100
+    short:
+      max-tokens: 100
+    json:
+      max-tokens: 100
+    qa:
+      max-tokens: 100
+    summary:
+      max-tokens: 100
+    risk:
+      max-tokens: 100
+  context:
+    model-window-tokens: 8192
+  storage:
+    path: /tmp/lp-test-docs
+  mail:
+    enabled: false
+  password:
+    min-length: 8
+    max-length: 128
+
+jasypt:
+  encryptor:
+    password: test-encryption-key-for-unit-tests
