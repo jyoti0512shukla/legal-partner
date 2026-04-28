@@ -34,15 +34,17 @@ jobs:
         working-directory: backend
         run: ./gradlew test
 
-      - name: Test summary
+      - name: Test results
         if: always()
-        uses: dorny/test-reporter@v1
-        with:
-          name: Unit Tests
-          path: backend/build/test-results/test/*.xml
-          reporter: java-junit
-          fail-on-error: false
-          fail-on-empty: false
+        run: |
+          echo "### Test Results" >> $GITHUB_STEP_SUMMARY
+          if [ -d backend/build/test-results/test ]; then
+            TOTAL=$(find backend/build/test-results/test -name "*.xml" -exec grep -c 'testcase' {} + 2>/dev/null | awk -F: '{sum+=$2} END {print sum}')
+            FAILED=$(find backend/build/test-results/test -name "*.xml" -exec grep -c 'failure' {} + 2>/dev/null | awk -F: '{sum+=$2} END {print sum}')
+            echo "Tests: $TOTAL total, $FAILED failed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No test results found" >> $GITHUB_STEP_SUMMARY
+          fi
 
   build-and-push:
     needs: test
