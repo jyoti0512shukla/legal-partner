@@ -5,6 +5,8 @@ backend/bin/
 *.class
 *.jar
 *.war
+# Allow Gradle wrapper jar (needed for CI)
+!backend/gradle/wrapper/gradle-wrapper.jar
 
 # Node
 frontend/node_modules/
