@@ -1,7 +1,9 @@
-name: Build and Push Docker Images
+name: Test, Build and Push Docker Images
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
 
 env:
@@ -9,7 +11,40 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('backend/build.gradle.kts') }}
+
+      - name: Run tests
+        working-directory: backend
+        run: ./gradlew test
+
+      - name: Test summary
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Unit Tests
+          path: backend/build/test-results/test/*.xml
+          reporter: java-junit
+
   build-and-push:
+    needs: test
+    if: github.event_name == 'push'  # Only build images on push to main, not PRs
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -33,11 +68,9 @@ jobs:
           PREFIX="${{ env.IMAGE_PREFIX }}"
           DATE=$(date -u +%Y.%m.%d)
 
-          # Count today's releases by checking existing tags in ghcr.io
           EXISTING=$(docker manifest inspect "${PREFIX}/legal-partner-backend:v${DATE}-1" > /dev/null 2>&1 && echo "exists" || echo "")
           RELEASE=1
           if [[ -n "$EXISTING" ]]; then
-            # Find the highest release number for today
             for i in $(seq 1 50); do
               docker manifest inspect "${PREFIX}/legal-partner-backend:v${DATE}-${i}" > /dev/null 2>&1 && RELEASE=$((i + 1)) || break
             done
