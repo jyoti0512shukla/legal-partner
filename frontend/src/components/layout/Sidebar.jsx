@@ -93,24 +93,22 @@ export default function Sidebar() {
           <div className="name">{user?.displayName || user?.email}</div>
           <div className="role">{user?.role?.replace('ROLE_', '')}</div>
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
-          <button
-            onClick={toggleTheme}
-            className="icon-btn"
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            style={{ width: 28, height: 28 }}
-          >
-            {isDark ? <Sun size={14} /> : <Moon size={14} />}
-          </button>
-          <button
-            onClick={logout}
-            className="icon-btn"
-            title="Sign out"
-            style={{ width: 28, height: 28 }}
-          >
-            <LogOut size={14} />
-          </button>
-        </div>
+        <button
+          onClick={toggleTheme}
+          className="icon-btn"
+          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{ marginLeft: 'auto', width: 28, height: 28 }}
+        >
+          {isDark ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+        <button
+          onClick={logout}
+          className="icon-btn"
+          title="Sign out"
+          style={{ width: 28, height: 28 }}
+        >
+          <LogOut size={14} />
+        </button>
       </div>
     </aside>
   );
