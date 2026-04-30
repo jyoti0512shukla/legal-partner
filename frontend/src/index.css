@@ -63,15 +63,56 @@
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* ── Light Theme ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-0: #f8f9fb;
+  --bg-1: #ffffff;
+  --bg-2: #f1f3f6;
+  --bg-3: #e8ebf0;
+  --bg-4: #dde1e8;
+  --line-1: #e2e6ec;
+  --line-2: #d0d5de;
+  --line-3: #bcc3cf;
+
+  --text-1: #1a2130;
+  --text-2: #3d4a5c;
+  --text-3: #6b7a8d;
+  --text-4: #94a0b0;
+
+  --brand-600: #2563a8;
+  --brand-500: #2d74c4;
+  --brand-400: #3b82d6;
+  --brand-300: #6aa3e8;
+  --brand-50:  #e8f1fc;
+  --teal-500:  #1a8f89;
+  --teal-400:  #20a89f;
+
+  --success-500: #16a34a;
+  --success-400: #22c55e;
+  --success-bg:  #ecfdf5;
+  --warn-500:    #ca8a04;
+  --warn-400:    #eab308;
+  --warn-bg:     #fefce8;
+  --danger-500:  #dc2626;
+  --danger-400:  #ef4444;
+  --danger-bg:   #fef2f2;
+  --info-500:    #3b82d6;
+  --info-bg:     #eff6ff;
+
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-3: 0 10px 25px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.05);
+}
+
 @layer base {
   * { box-sizing: border-box; }
   html, body, #root { height: 100%; }
 
   *::-webkit-scrollbar { width: 10px; height: 10px; }
   *::-webkit-scrollbar-track { background: transparent; }
-  *::-webkit-scrollbar-thumb { background: #222b37; border-radius: 10px; border: 2px solid var(--bg-0); }
-  *::-webkit-scrollbar-thumb:hover { background: #2c3644; }
-  * { scrollbar-width: thin; scrollbar-color: #222b37 var(--bg-0); }
+  *::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 10px; border: 2px solid var(--bg-0); }
+  *::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+  * { scrollbar-width: thin; scrollbar-color: var(--line-2) var(--bg-0); }
 
   body {
     margin: 0;

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useTheme } from '../../hooks/useTheme';
 import api from '../../api/client';
 import {
   LayoutDashboard, Briefcase, FileText, Shield, Settings, LogOut,
   FileEdit, Wand2, Library, Users, Sparkles, Workflow, Brain,
-  GitCompare, ClipboardList, Key,
+  GitCompare, ClipboardList, Key, Sun, Moon,
 } from 'lucide-react';
 
 const NAV = [
@@ -31,6 +32,7 @@ const NAV = [
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
+  const { isDark, toggle: toggleTheme } = useTheme();
   const [orgName, setOrgName] = useState('');
   useEffect(() => {
     api.get('/ai/legal-system').then(r => {
@@ -91,14 +93,24 @@ export default function Sidebar() {
           <div className="name">{user?.displayName || user?.email}</div>
           <div className="role">{user?.role?.replace('ROLE_', '')}</div>
         </div>
-        <button
-          onClick={logout}
-          className="icon-btn"
-          title="Sign out"
-          style={{ marginLeft: 'auto', width: 28, height: 28 }}
-        >
-          <LogOut size={14} />
-        </button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+          <button
+            onClick={toggleTheme}
+            className="icon-btn"
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{ width: 28, height: 28 }}
+          >
+            {isDark ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+          <button
+            onClick={logout}
+            className="icon-btn"
+            title="Sign out"
+            style={{ width: 28, height: 28 }}
+          >
+            <LogOut size={14} />
+          </button>
+        </div>
       </div>
     </aside>
   );

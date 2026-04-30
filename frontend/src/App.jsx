@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
 import AppLayout from './components/layout/AppLayout';
@@ -29,6 +30,12 @@ import ResetPasswordPage from './pages/ResetPasswordPage';
 
 export default function App() {
   const { user, loading } = useAuth();
+
+  // Initialize theme on mount (before any render)
+  useEffect(() => {
+    const saved = localStorage.getItem('contractiq-theme') || 'light';
+    document.documentElement.setAttribute('data-theme', saved);
+  }, []);
 
   if (loading) {
     return (
