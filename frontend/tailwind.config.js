@@ -24,6 +24,7 @@ export default {
         'text-secondary': 'var(--text-2)',
         'text-muted': 'var(--text-3)',
         'surface-tint': 'var(--brand-500)',
+        gold: 'var(--warn-400)',
       },
       fontFamily: {
         sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],

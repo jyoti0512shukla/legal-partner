@@ -63,45 +63,50 @@
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-/* ── Light Theme ─────────────────────────────────────────────────── */
+/* ── Light Theme — professional, high-contrast, Notion/Linear inspired ── */
 [data-theme="light"] {
-  --bg-0: #f8f9fb;
+  /* Backgrounds — warm white with subtle gray depth */
+  --bg-0: #f5f6f8;
   --bg-1: #ffffff;
-  --bg-2: #f1f3f6;
-  --bg-3: #e8ebf0;
-  --bg-4: #dde1e8;
-  --line-1: #e2e6ec;
-  --line-2: #d0d5de;
-  --line-3: #bcc3cf;
+  --bg-2: #f0f1f4;
+  --bg-3: #e5e7ec;
+  --bg-4: #d8dbe3;
+  --line-1: #e0e3ea;
+  --line-2: #cdd2db;
+  --line-3: #b5bcc9;
 
-  --text-1: #1a2130;
-  --text-2: #3d4a5c;
-  --text-3: #6b7a8d;
-  --text-4: #94a0b0;
+  /* Text — strong contrast, not washed out */
+  --text-1: #111827;
+  --text-2: #374151;
+  --text-3: #6b7280;
+  --text-4: #9ca3af;
 
-  --brand-600: #2563a8;
-  --brand-500: #2d74c4;
-  --brand-400: #3b82d6;
-  --brand-300: #6aa3e8;
-  --brand-50:  #e8f1fc;
-  --teal-500:  #1a8f89;
-  --teal-400:  #20a89f;
+  /* Brand — deeper blue that pops on white */
+  --brand-600: #1d4ed8;
+  --brand-500: #2563eb;
+  --brand-400: #3b82f6;
+  --brand-300: #60a5fa;
+  --brand-50:  #eff6ff;
+  --teal-500:  #0d9488;
+  --teal-400:  #14b8a6;
 
+  /* Semantic — vivid on white */
   --success-500: #16a34a;
   --success-400: #22c55e;
-  --success-bg:  #ecfdf5;
-  --warn-500:    #ca8a04;
-  --warn-400:    #eab308;
-  --warn-bg:     #fefce8;
+  --success-bg:  #f0fdf4;
+  --warn-500:    #d97706;
+  --warn-400:    #f59e0b;
+  --warn-bg:     #fffbeb;
   --danger-500:  #dc2626;
   --danger-400:  #ef4444;
   --danger-bg:   #fef2f2;
-  --info-500:    #3b82d6;
+  --info-500:    #2563eb;
   --info-bg:     #eff6ff;
 
-  --shadow-1: 0 1px 2px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.08);
-  --shadow-2: 0 4px 12px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
-  --shadow-3: 0 10px 25px rgba(0,0,0,0.1), 0 2px 6px rgba(0,0,0,0.05);
+  /* Shadows — subtle depth, not flat */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-2: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+  --shadow-3: 0 4px 6px rgba(0,0,0,0.05), 0 12px 24px rgba(0,0,0,0.08);
 }
 
 @layer base {
@@ -252,10 +257,10 @@
   }
   .avatar {
     width: 30px; height: 30px; border-radius: 50%;
-    background: linear-gradient(135deg, #3a5a7a, #2a3f55);
+    background: linear-gradient(135deg, var(--brand-500), var(--teal-500));
     display: grid; place-items: center;
     font-weight: 600; font-size: 12px;
-    color: var(--text-1);
+    color: #fff;
     flex-shrink: 0;
   }
   .user-chip .meta { min-width: 0; flex: 1; }
@@ -711,10 +716,38 @@
 
   /* ── Glass (legacy modals) ────────────────────────────────────── */
   .glass {
-    background: rgba(17, 22, 29, 0.85);
+    background: color-mix(in srgb, var(--bg-1) 90%, transparent);
     backdrop-filter: blur(20px);
     border: 1px solid var(--line-1);
     box-shadow: var(--shadow-3);
+  }
+
+  /* ── Modal (theme-aware) ─────────────────────────────────────── */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+  }
+  [data-theme="light"] .modal-overlay { background: rgba(0,0,0,0.3); }
+  .modal-content {
+    background: var(--bg-1);
+    border: 1px solid var(--line-1);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-3);
+    width: 100%;
+    max-width: 520px;
+    max-height: 85vh;
+    overflow: auto;
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line-1);
+  }
+  .modal-footer {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--line-1);
   }
 
   /* ── Chip ──────────────────────────────────────────────────────── */

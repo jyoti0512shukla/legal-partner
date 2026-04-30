@@ -52,7 +52,7 @@ export default function Sidebar() {
                 fill="none" stroke="#3a86d8" strokeWidth="6" strokeLinejoin="miter" strokeLinecap="square"/>
           <path d="M46 12 L52 18 L46 18 Z" fill="#3a86d8" fillOpacity="0.45"/>
           <circle cx="48" cy="32" r="5" fill="#3a86d8"/>
-          <circle cx="48" cy="32" r="1.8" fill="#0b0f14"/>
+          <circle cx="48" cy="32" r="1.8" fill="var(--bg-1)"/>
           <path d="M43 32 L36 32" stroke="#3a86d8" strokeWidth="2.2" strokeLinecap="round"/>
         </svg>
         <div>

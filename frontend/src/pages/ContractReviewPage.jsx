@@ -576,9 +576,9 @@ export default function ContractReviewPage() {
       <div className="page-header" style={{ alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
           <div style={{
-            width: 44, height: 54, background: '#fafaf7', border: '1px solid var(--line-2)',
+            width: 44, height: 54, background: 'var(--bg-2)', border: '1px solid var(--line-2)',
             borderRadius: 4, display: 'grid', placeItems: 'center',
-            color: '#1a2330', fontFamily: 'var(--font-doc)', fontSize: 10, fontWeight: 700,
+            color: 'var(--text-1)', fontFamily: 'var(--font-doc)', fontSize: 10, fontWeight: 700,
           }}>
             {selectedDoc?.fileName?.endsWith('.pdf') ? 'PDF' : selectedDoc ? 'DOCX' : 'DOC'}
           </div>

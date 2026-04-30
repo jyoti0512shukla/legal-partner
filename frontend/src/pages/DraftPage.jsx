@@ -963,7 +963,7 @@ export default function DraftPage() {
           {loading && !draft?.draftHtml && (
             <div style={{
               maxWidth: 820, margin: '0 auto', padding: 60,
-              background: '#fafaf7', borderRadius: 8, minHeight: '60%',
+              background: 'var(--bg-1)', borderRadius: 8, minHeight: '60%',
               display: 'grid', placeItems: 'center', opacity: 0.6,
             }}>
               <div style={{ textAlign: 'center', color: 'var(--text-3)' }}>
@@ -977,7 +977,7 @@ export default function DraftPage() {
           {!draft && !loading && !validationResult && (
             <div style={{
               maxWidth: 820, margin: '0 auto', padding: 60,
-              background: '#fafaf7', borderRadius: 8, minHeight: '60%',
+              background: 'var(--bg-1)', borderRadius: 8, minHeight: '60%',
               display: 'grid', placeItems: 'center', opacity: 0.5,
               position: 'relative',
             }}>
