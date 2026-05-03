@@ -22,7 +22,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class MfaService {
 
-    private static final String ISSUER = "Legal Partner";
+    private static final String ISSUER = "ContractIQ";
 
     private final UserMfaSecretRepository mfaSecretRepository;
     private final UserRepository userRepository;
