@@ -38,6 +38,10 @@ public class User {
     @Builder.Default
     private boolean mfaEnabled = false;
 
+    @Column(name = "mfa_method", length = 20)
+    @Builder.Default
+    private String mfaMethod = "NONE";
+
     @Column(nullable = false)
     @Builder.Default
     private boolean enabled = true;

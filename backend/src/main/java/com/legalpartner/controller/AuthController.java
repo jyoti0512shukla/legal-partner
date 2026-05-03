@@ -17,6 +17,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -28,6 +29,7 @@ public class AuthController {
     private final JwtService jwtService;
     private final MfaService mfaService;
     private final com.legalpartner.service.InviteService inviteService;
+    private final com.legalpartner.repository.UserRepository userRepository;
 
     @Value("${legalpartner.jwt.expiration-minutes:60}")
     private int jwtExpirationMinutes;
@@ -133,31 +135,79 @@ public class AuthController {
         return ResponseEntity.ok().build();
     }
 
+    // ── MFA Setup ────────────────────────────────────────────────────
+
     @PostMapping("/mfa/setup")
     public MfaSetupResponse setupMfa(@AuthenticationPrincipal LegalPartnerUserDetails userDetails) {
-        if (userDetails == null) {
-            throw new IllegalArgumentException("Not authenticated");
-        }
-        return mfaService.setupMfa(userDetails.getUser().getId());
+        if (userDetails == null) throw new IllegalArgumentException("Not authenticated");
+        return mfaService.setupTotp(userDetails.getUser().getId());
     }
 
+    /** Verify TOTP code and enable MFA. Returns 10 backup codes. */
     @PostMapping("/mfa/verify")
-    public ResponseEntity<Void> verifyMfa(
+    public java.util.Map<String, Object> verifyMfa(
             @AuthenticationPrincipal LegalPartnerUserDetails userDetails,
             @Valid @RequestBody MfaVerifyRequest request) {
-        if (userDetails == null) {
-            throw new IllegalArgumentException("Not authenticated");
-        }
-        mfaService.enableMfa(userDetails.getUser().getId(), request.getCode());
+        if (userDetails == null) throw new IllegalArgumentException("Not authenticated");
+        List<String> backupCodes = mfaService.enableTotp(userDetails.getUser().getId(), request.getCode());
+        return java.util.Map.of("backupCodes", backupCodes, "message", "MFA enabled. Save your backup codes.");
+    }
+
+    /** Enable email OTP as MFA method. */
+    @PostMapping("/mfa/enable-email")
+    public ResponseEntity<Void> enableEmailMfa(@AuthenticationPrincipal LegalPartnerUserDetails userDetails) {
+        if (userDetails == null) throw new IllegalArgumentException("Not authenticated");
+        mfaService.enableEmailOtp(userDetails.getUser().getId());
         return ResponseEntity.ok().build();
+    }
+
+    /** Send email OTP during login (called after password verified, before full auth). */
+    @PostMapping("/mfa/send-email-otp")
+    public ResponseEntity<Void> sendEmailOtp(@RequestBody java.util.Map<String, String> body) {
+        String email = body.get("email");
+        if (email == null) throw new IllegalArgumentException("Email required");
+        userRepository.findByEmail(email).ifPresent(user ->
+                mfaService.sendEmailOtp(user.getId()));
+        return ResponseEntity.ok().build(); // Always 200 — don't reveal if email exists
     }
 
     @PostMapping("/mfa/disable")
     public ResponseEntity<Void> disableMfa(@AuthenticationPrincipal LegalPartnerUserDetails userDetails) {
-        if (userDetails == null) {
-            throw new IllegalArgumentException("Not authenticated");
-        }
+        if (userDetails == null) throw new IllegalArgumentException("Not authenticated");
         mfaService.disableMfa(userDetails.getUser().getId());
+        return ResponseEntity.ok().build();
+    }
+
+    /** Get backup code count. */
+    @GetMapping("/mfa/backup-codes/remaining")
+    public java.util.Map<String, Integer> backupCodesRemaining(
+            @AuthenticationPrincipal LegalPartnerUserDetails userDetails) {
+        if (userDetails == null) throw new IllegalArgumentException("Not authenticated");
+        return java.util.Map.of("remaining", mfaService.getRemainingBackupCodes(userDetails.getUser().getId()));
+    }
+
+    /** Regenerate backup codes. */
+    @PostMapping("/mfa/backup-codes/regenerate")
+    public java.util.Map<String, Object> regenerateBackupCodes(
+            @AuthenticationPrincipal LegalPartnerUserDetails userDetails) {
+        if (userDetails == null) throw new IllegalArgumentException("Not authenticated");
+        List<String> codes = mfaService.generateBackupCodes(userDetails.getUser().getId());
+        return java.util.Map.of("backupCodes", codes);
+    }
+
+    /** List trusted devices. */
+    @GetMapping("/mfa/trusted-devices")
+    public List<com.legalpartner.model.entity.TrustedDevice> trustedDevices(
+            @AuthenticationPrincipal LegalPartnerUserDetails userDetails) {
+        if (userDetails == null) throw new IllegalArgumentException("Not authenticated");
+        return mfaService.getTrustedDevices(userDetails.getUser().getId());
+    }
+
+    /** Revoke all trusted devices. */
+    @PostMapping("/mfa/trusted-devices/revoke")
+    public ResponseEntity<Void> revokeDevices(@AuthenticationPrincipal LegalPartnerUserDetails userDetails) {
+        if (userDetails == null) throw new IllegalArgumentException("Not authenticated");
+        mfaService.revokeAllDevices(userDetails.getUser().getId());
         return ResponseEntity.ok().build();
     }
 

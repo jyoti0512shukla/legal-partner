@@ -79,6 +79,8 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/v1/auth/register").permitAll()
                         .requestMatchers("/api/v1/auth/login").permitAll()
+                        .requestMatchers("/api/v1/auth/mfa/send-email-otp").permitAll()
+                        .requestMatchers("/api/v1/auth/mfa/validate").permitAll()
                         .requestMatchers("/api/v1/auth/mfa/validate").permitAll()
                         .requestMatchers("/api/v1/auth/change-password").permitAll()
                         .requestMatchers("/api/v1/auth/forgot-password").permitAll()
