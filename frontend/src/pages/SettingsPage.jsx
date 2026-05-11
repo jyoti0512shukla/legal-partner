@@ -31,7 +31,6 @@ export default function SettingsPage() {
       { id: 'integrations', label: 'Integrations' },
       { id: 'agent', label: 'AI Agent' },
       { id: 'pipelines', label: 'Review Pipelines' },
-      { id: 'deadlines', label: 'Deadline Alerts' },
       { id: 'audit', label: 'Audit Log' },
     ] : []),
     ...(isAdmin ? [{ id: 'users', label: 'Users' }] : []),
@@ -156,13 +155,17 @@ export default function SettingsPage() {
           {!isAdmin && (
             <p className="text-text-muted text-sm text-center py-4">Contact your administrator to change security settings.</p>
           )}
+
+          {/* Deadline Alerts — part of org settings */}
+          <section className="card p-6">
+            <DeadlineConfigTab />
+          </section>
         </div>
       )}
 
       {activeTab === 'integrations' && <IntegrationsTab />}
       {activeTab === 'agent' && <AgentConfigTab />}
       {activeTab === 'pipelines' && isPartnerOrAdmin && <ReviewPipelinesTab />}
-      {activeTab === 'deadlines' && isPartnerOrAdmin && <DeadlineConfigTab />}
 
       {activeTab === 'audit' && isPartnerOrAdmin && <AuditLogPage embedded />}
 
