@@ -477,7 +477,7 @@ export default function DraftPage() {
     }
   };
 
-  const genDone = draft && !loading && !generatingStatus;
+  const genDone = draft && !loading && (!generatingStatus || generatingStatus.done);
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', height: '100%' }}>
