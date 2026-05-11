@@ -13,6 +13,7 @@ const NAV = [
   { section: 'Workspace', items: [
     { to: '/',           label: 'Dashboard',       icon: LayoutDashboard, end: true },
     { to: '/matters',    label: 'Matters',         icon: Briefcase, end: true },
+    { to: '/clients',   label: 'Clients',         icon: Users },
     { to: '/documents',  label: 'Documents',       icon: FileText },
   ]},
   { section: 'CognitaAI', items: [

@@ -27,6 +27,8 @@ import DocumentEditorPage from './pages/DocumentEditorPage';
 import AcceptInvitePage from './pages/AcceptInvitePage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import ClientsPage from './pages/ClientsPage';
+import ClientProfilePage from './pages/ClientProfilePage';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -88,6 +90,8 @@ export default function App() {
         <Route path="/compare" element={<ComparePage />} />
         <Route path="/matters" element={<MattersPage />} />
         <Route path="/matters/:id" element={<MatterDetailPage />} />
+        <Route path="/clients" element={<ClientsPage />} />
+        <Route path="/clients/:name" element={<ClientProfilePage />} />
         <Route path="/extraction" element={<ExtractionPage />} />
         <Route path="/review" element={<ContractReviewPage />} />
         <Route path="/risk" element={<ContractReviewPage />} />

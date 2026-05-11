@@ -293,6 +293,123 @@ public class DocumentController {
         return Map.of("count", documentRepository.countActiveContracts());
     }
 
+    // ── Client Intelligence ──
+
+    @GetMapping("/clients/distinct")
+    public List<String> getDistinctClients() {
+        return documentRepository.findDistinctClientNames();
+    }
+
+    @GetMapping("/clients")
+    public List<Map<String, Object>> listClients() {
+        List<String> clientNames = documentRepository.findDistinctClientNames();
+        return clientNames.stream().map(name -> {
+            List<DocumentMetadata> docs = documentRepository.findByClientOrPartyFuzzy(name);
+            long activeCount = docs.stream().filter(d -> d.getContractStatus() != null
+                    && (d.getContractStatus().name().equals("ACTIVE") || d.getContractStatus().name().equals("EXPIRING"))).count();
+            String latestDate = docs.isEmpty() ? null : docs.get(0).getUploadDate().toString();
+            java.util.Set<String> types = new java.util.LinkedHashSet<>();
+            java.util.Set<String> matterNames = new java.util.LinkedHashSet<>();
+            for (DocumentMetadata d : docs) {
+                if (d.getDocumentType() != null) types.add(d.getDocumentType().name());
+                if (d.getMatter() != null) matterNames.add(d.getMatter().getName());
+            }
+            Map<String, Object> client = new LinkedHashMap<>();
+            client.put("clientName", name);
+            client.put("contractCount", docs.size());
+            client.put("activeCount", activeCount);
+            client.put("latestActivity", latestDate);
+            client.put("contractTypes", types);
+            client.put("matters", matterNames);
+            return client;
+        }).toList();
+    }
+
+    @GetMapping("/clients/{name}/profile")
+    public Map<String, Object> getClientProfile(@PathVariable String name) {
+        List<DocumentMetadata> docs = documentRepository.findByClientOrPartyFuzzy(name);
+        if (docs.isEmpty()) throw new IllegalArgumentException("No contracts found for client: " + name);
+
+        // Key terms history — track how terms evolved
+        Map<String, List<String>> termsHistory = new LinkedHashMap<>();
+        for (DocumentMetadata d : docs) {
+            String date = d.getUploadDate() != null ? d.getUploadDate().toString().substring(0, 10) : "?";
+            if (d.getLiabilityCap() != null) termsHistory.computeIfAbsent("liabilityCap", k -> new ArrayList<>()).add(d.getLiabilityCap() + " (" + date + ")");
+            if (d.getContractValue() != null) termsHistory.computeIfAbsent("contractValue", k -> new ArrayList<>()).add(d.getContractValue() + " (" + date + ")");
+            if (d.getGoverningLawJurisdiction() != null) termsHistory.computeIfAbsent("jurisdiction", k -> new ArrayList<>()).add(d.getGoverningLawJurisdiction() + " (" + date + ")");
+            if (d.getNoticePeriodDays() != null) termsHistory.computeIfAbsent("noticePeriod", k -> new ArrayList<>()).add(d.getNoticePeriodDays() + " days (" + date + ")");
+        }
+
+        // Matters
+        java.util.Set<Map<String, Object>> matters = new java.util.LinkedHashSet<>();
+        for (DocumentMetadata d : docs) {
+            if (d.getMatter() != null) {
+                matters.add(Map.of("id", d.getMatter().getId(), "name", d.getMatter().getName()));
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("clientName", name);
+        result.put("contractCount", docs.size());
+        result.put("contracts", docs);
+        result.put("matters", matters);
+        result.put("keyTermsHistory", termsHistory);
+        // Latest terms from most recent doc
+        if (!docs.isEmpty()) {
+            DocumentMetadata latest = docs.get(0);
+            Map<String, Object> lt = new LinkedHashMap<>();
+            lt.put("contractType", latest.getDocumentType() != null ? latest.getDocumentType().name() : null);
+            lt.put("contractValue", latest.getContractValue());
+            lt.put("liabilityCap", latest.getLiabilityCap());
+            lt.put("jurisdiction", latest.getGoverningLawJurisdiction());
+            lt.put("noticePeriod", latest.getNoticePeriodDays());
+            result.put("latestTerms", lt);
+        }
+        return result;
+    }
+
+    @GetMapping("/clients/lookup")
+    public Map<String, Object> lookupClient(@RequestParam String name) {
+        if (name == null || name.isBlank()) return Map.of("matched", false);
+        List<DocumentMetadata> docs = documentRepository.findByClientOrPartyFuzzy(name.trim());
+        if (docs.isEmpty()) return Map.of("matched", false);
+
+        DocumentMetadata latest = docs.get(0);
+        Map<String, Object> latestTerms = new LinkedHashMap<>();
+        latestTerms.put("lastContractType", latest.getDocumentType() != null ? latest.getDocumentType().name() : null);
+        latestTerms.put("lastContractValue", latest.getContractValue());
+        latestTerms.put("lastLiabilityCap", latest.getLiabilityCap());
+        latestTerms.put("lastJurisdiction", latest.getGoverningLawJurisdiction());
+        latestTerms.put("lastNoticePeriod", latest.getNoticePeriodDays());
+        latestTerms.put("lastExpiryDate", latest.getExpiryDate() != null ? latest.getExpiryDate().toString() : null);
+        latestTerms.put("lastStatus", latest.getContractStatus() != null ? latest.getContractStatus().name() : null);
+
+        String matchedClient = latest.getClientName() != null ? latest.getClientName()
+                : latest.getPartyB() != null ? latest.getPartyB() : latest.getPartyA();
+
+        List<Map<String, Object>> contracts = docs.stream().map(d -> {
+            Map<String, Object> c = new LinkedHashMap<>();
+            c.put("id", d.getId());
+            c.put("fileName", d.getFileName());
+            c.put("documentType", d.getDocumentType() != null ? d.getDocumentType().name() : null);
+            c.put("contractStatus", d.getContractStatus() != null ? d.getContractStatus().name() : null);
+            c.put("contractValue", d.getContractValue());
+            c.put("expiryDate", d.getExpiryDate() != null ? d.getExpiryDate().toString() : null);
+            c.put("liabilityCap", d.getLiabilityCap());
+            c.put("jurisdiction", d.getGoverningLawJurisdiction());
+            c.put("uploadDate", d.getUploadDate() != null ? d.getUploadDate().toString() : null);
+            return c;
+        }).toList();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("matched", true);
+        result.put("clientName", matchedClient);
+        result.put("contractCount", docs.size());
+        result.put("contracts", contracts);
+        result.put("latestTerms", latestTerms);
+        return result;
+    }
+
     // ── Notes ──
 
     @GetMapping("/{id}/notes")

@@ -43,6 +43,8 @@ export default function DocumentsPage() {
   const [sortField, setSortField] = useState('uploadDate,desc');
   const [selectedDocId, setSelectedDocId] = useState(null);
   const [matters, setMatters] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [clientFilter, setClientFilter] = useState('');
   const [loading, setLoading] = useState(true);
 
   // Upload state
@@ -57,6 +59,7 @@ export default function DocumentsPage() {
   // Load matters for filter dropdown
   useEffect(() => {
     api.get('/matters').then(r => setMatters(r.data || [])).catch(() => {});
+    api.get('/documents/clients/distinct').then(r => setClients(r.data || [])).catch(() => {});
   }, []);
 
   // Read docId from URL for cross-flow linking
@@ -74,6 +77,7 @@ export default function DocumentsPage() {
     setLoading(true);
     const params = new URLSearchParams({ size: '30', sort: sortField, page: String(page) });
     if (search) params.set('search', search);
+    if (clientFilter) params.set('search', clientFilter); // client filter uses search
     if (statusFilter) params.set('contractStatus', statusFilter);
     if (typeFilter) params.set('documentType', typeFilter);
     if (matterFilter) params.set('matterId', matterFilter);
@@ -85,7 +89,7 @@ export default function DocumentsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [search, statusFilter, typeFilter, matterFilter, sortField, page]);
+  }, [search, statusFilter, typeFilter, matterFilter, clientFilter, sortField, page]);
 
   useEffect(() => { fetchDocs(); }, [fetchDocs]);
 
@@ -203,14 +207,19 @@ export default function DocumentsPage() {
               <option value="">Matter</option>
               {matters.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
+            <select className="select" value={clientFilter} onChange={e => { setClientFilter(e.target.value); setSearch(''); setPage(0); }}
+              style={{ fontSize: 11, padding: '3px 8px', minWidth: 0, maxWidth: 130 }}>
+              <option value="">Client</option>
+              {clients.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
             <select className="select" value={sortField} onChange={e => setSortField(e.target.value)}
               style={{ fontSize: 11, padding: '3px 8px', minWidth: 0, maxWidth: 120, marginLeft: 'auto' }}>
               {SORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
 
             {/* Clear all filters */}
-            {(statusFilter || typeFilter || matterFilter || search) && (
-              <button onClick={() => { setStatusFilter(''); setTypeFilter(''); setMatterFilter(''); setSearch(''); setPage(0); }}
+            {(statusFilter || typeFilter || matterFilter || clientFilter || search) && (
+              <button onClick={() => { setStatusFilter(''); setTypeFilter(''); setMatterFilter(''); setClientFilter(''); setSearch(''); setPage(0); }}
                 style={{ fontSize: 10, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
                 Clear
               </button>

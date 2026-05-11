@@ -55,6 +55,12 @@ public interface DocumentMetadataRepository extends JpaRepository<DocumentMetada
     @Query("SELECT CAST(d.id AS string) FROM DocumentMetadata d WHERE d.matter.id = :matterUuid")
     List<String> findIdStringsByMatterUuid(@Param("matterUuid") UUID matterUuid);
 
+    @Query("SELECT DISTINCT d.clientName FROM DocumentMetadata d WHERE d.clientName IS NOT NULL AND d.clientName <> '' ORDER BY d.clientName ASC")
+    List<String> findDistinctClientNames();
+
+    @Query(value = "SELECT * FROM document_metadata d WHERE d.source <> 'EDGAR' AND (LOWER(d.client_name) LIKE LOWER(CONCAT('%%', :name, '%%')) OR LOWER(d.party_a) LIKE LOWER(CONCAT('%%', :name, '%%')) OR LOWER(d.party_b) LIKE LOWER(CONCAT('%%', :name, '%%'))) ORDER BY d.upload_date DESC LIMIT 10", nativeQuery = true)
+    List<DocumentMetadata> findByClientOrPartyFuzzy(@Param("name") String name);
+
     // ── Search & Filter ──
 
     @Query(value = """

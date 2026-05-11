@@ -10,6 +10,7 @@ import SaveToCloudModal from '../components/SaveToCloudModal';
 import SendForSignatureModal from '../components/SendForSignatureModal';
 import DraftsRecentStrip from '../components/DraftsRecentStrip';
 import FinalizeModal from '../components/contract/FinalizeModal';
+import PastContractsAlert from '../components/contract/PastContractsAlert';
 
 function stripHtml(html) {
   const div = document.createElement('div');
@@ -526,6 +527,7 @@ export default function DraftPage() {
               <div className="field">
                 <label>Party B</label>
                 <input className="input" value={form.partyB} onChange={e => setForm({ ...form, partyB: e.target.value })} placeholder="Company name" />
+                <PastContractsAlert partyName={form.partyB} />
               </div>
             </div>
 
