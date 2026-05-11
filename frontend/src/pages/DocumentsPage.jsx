@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import {
   Upload, FileText, Search, X, ChevronLeft, ChevronRight,
-  Loader, Cloud, Filter,
+  Loader, Cloud,
 } from 'lucide-react';
 import api from '../api/client';
 import CloudImportModal from '../components/CloudImportModal';
@@ -173,41 +173,48 @@ export default function DocumentsPage() {
             )}
           </div>
 
-          {/* Status tabs */}
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
+          {/* Filters — single compact row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+            {/* Status chips */}
             {STATUS_TABS.map(t => (
               <button key={t.value}
                 onClick={() => handleStatusTab(t.value)}
                 style={{
-                  padding: '4px 12px', borderRadius: 'var(--r-sm)', fontSize: 11, fontWeight: 600,
-                  border: '1px solid ' + (statusFilter === t.value ? 'var(--brand-400)' : 'var(--line-1)'),
-                  background: statusFilter === t.value ? 'var(--brand-400)' : 'var(--bg-2)',
+                  padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 500,
+                  border: 'none',
+                  background: statusFilter === t.value ? 'var(--brand-400)' : 'var(--bg-3)',
                   color: statusFilter === t.value ? 'white' : 'var(--text-2)',
                   cursor: 'pointer', transition: 'all 0.15s',
                 }}>
                 {t.label}
               </button>
             ))}
-          </div>
 
-          {/* Filter row */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+            <div style={{ width: 1, height: 16, background: 'var(--line-2)', margin: '0 2px' }} />
+
+            {/* Type + Matter + Sort — inline */}
             <select className="select" value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(0); }}
-              style={{ fontSize: 11, padding: '3px 8px' }}>
-              <option value="">All types</option>
+              style={{ fontSize: 11, padding: '3px 8px', minWidth: 0, maxWidth: 100 }}>
+              <option value="">Type</option>
               {DOC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
             <select className="select" value={matterFilter} onChange={e => { setMatterFilter(e.target.value); setPage(0); }}
-              style={{ fontSize: 11, padding: '3px 8px' }}>
-              <option value="">All matters</option>
+              style={{ fontSize: 11, padding: '3px 8px', minWidth: 0, maxWidth: 120 }}>
+              <option value="">Matter</option>
               {matters.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
-            <div style={{ marginLeft: 'auto' }}>
-              <select className="select" value={sortField} onChange={e => setSortField(e.target.value)}
-                style={{ fontSize: 11, padding: '3px 8px' }}>
-                {SORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
+            <select className="select" value={sortField} onChange={e => setSortField(e.target.value)}
+              style={{ fontSize: 11, padding: '3px 8px', minWidth: 0, maxWidth: 120, marginLeft: 'auto' }}>
+              {SORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+
+            {/* Clear all filters */}
+            {(statusFilter || typeFilter || matterFilter || search) && (
+              <button onClick={() => { setStatusFilter(''); setTypeFilter(''); setMatterFilter(''); setSearch(''); setPage(0); }}
+                style={{ fontSize: 10, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                Clear
+              </button>
+            )}
           </div>
         </div>
 
