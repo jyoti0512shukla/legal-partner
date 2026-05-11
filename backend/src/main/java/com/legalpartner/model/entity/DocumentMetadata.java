@@ -82,7 +82,7 @@ public class DocumentMetadata {
     private ProcessingStatus processingStatus = ProcessingStatus.PENDING;
 
     // Matter relationship (proper FK, alongside legacy String matterId)
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "matter_uuid")
     private Matter matter;
 
