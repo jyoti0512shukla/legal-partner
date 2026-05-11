@@ -117,6 +117,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Deadline alerts — full width */}
+      <div style={{ marginBottom: 18 }}>
+        <DeadlineWidget />
+      </div>
+
       {/* Main content: recent drafts + getting started */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 18 }}>
         {/* Recent drafts */}
@@ -171,9 +176,8 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Deadlines + Getting started */}
+        {/* Getting started */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <DeadlineWidget />
           <div className="card">
           <div className="card-header">
             <Brain size={14} style={{ color: 'var(--brand-400)' }} />
