@@ -46,8 +46,8 @@ export default function DeadlineConfigTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 480 }}>
       <div>
-        <h3 style={{ fontSize: 14, marginBottom: 4 }}>Deadline Alerts</h3>
-        <p className="small muted">
+        <h3 className="text-sm font-semibold text-text-primary mb-3">Deadline Alerts</h3>
+        <p className="text-xs text-text-muted mb-4">
           Get notified in the dashboard when contracts are approaching expiry, notice deadlines, or renewal dates.
         </p>
       </div>
