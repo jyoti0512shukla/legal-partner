@@ -38,3 +38,26 @@ export async function verifyMfa(code) {
 export async function disableMfa() {
   await apiClient.post('/auth/mfa/disable');
 }
+
+export async function enableEmailMfa() {
+  await apiClient.post('/auth/mfa/enable-email');
+}
+
+export async function getBackupCodesRemaining() {
+  const { data } = await apiClient.get('/auth/mfa/backup-codes/remaining');
+  return data;
+}
+
+export async function regenerateBackupCodes() {
+  const { data } = await apiClient.post('/auth/mfa/backup-codes/regenerate');
+  return data;
+}
+
+export async function getTrustedDevices() {
+  const { data } = await apiClient.get('/auth/mfa/trusted-devices');
+  return data;
+}
+
+export async function revokeAllDevices() {
+  await apiClient.post('/auth/mfa/trusted-devices/revoke');
+}

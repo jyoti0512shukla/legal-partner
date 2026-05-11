@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { setupMfa, verifyMfa, disableMfa } from '../api/auth';
+import { setupMfa, verifyMfa, disableMfa, enableEmailMfa, getBackupCodesRemaining, regenerateBackupCodes, getTrustedDevices, revokeAllDevices } from '../api/auth';
 import { AlertCircle, Loader2, Save } from 'lucide-react';
 import IntegrationsTab from '../components/IntegrationsTab';
 import AgentConfigTab from '../components/AgentConfigTab';
@@ -105,7 +105,7 @@ export default function SettingsPage() {
               <div className="flex justify-between"><span className="text-text-muted">Email</span><span className="text-text-primary">{user?.email}</span></div>
               <div className="flex justify-between"><span className="text-text-muted">Name</span><span className="text-text-primary">{user?.displayName || '—'}</span></div>
               <div className="flex justify-between"><span className="text-text-muted">Role</span><span className="text-text-primary">{user?.role?.replace('ROLE_', '')}</span></div>
-              <div className="flex justify-between"><span className="text-text-muted">MFA</span><span className={user?.mfaEnabled ? 'text-success' : 'text-text-muted'}>{user?.mfaEnabled ? 'Enabled' : 'Not enabled'}</span></div>
+              <div className="flex justify-between"><span className="text-text-muted">MFA</span><span className={user?.mfaEnabled ? 'text-success' : 'text-text-muted'}>{user?.mfaEnabled ? `Enabled (${user?.mfaMethod || 'TOTP'})` : 'Not enabled'}</span></div>
             </div>
           </section>
 
@@ -124,32 +124,20 @@ export default function SettingsPage() {
             <p className="text-sm text-text-muted">Security policies and authentication settings for the firm.</p>
           </div>
 
-          {/* MFA — firm-wide setting */}
-          <section className="card p-6">
-            <h3 className="text-sm font-semibold text-text-primary mb-3">Multi-Factor Authentication</h3>
-            <p className="text-xs text-text-muted mb-4">MFA protects all accounts with a second verification step. Set up your authenticator app below.</p>
-            {mfaSetup ? (
-              <div>
-                <div className="bg-white p-4 rounded-lg inline-block mb-4">
-                  <img src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mfaSetup.qrCodeUrl)}`}
-                    alt="MFA QR Code" width={200} height={200} />
-                </div>
-                <p className="text-xs text-text-muted mb-2">Or enter manually: {mfaSetup.secret}</p>
-                <form onSubmit={handleVerifyMfa} className="flex gap-2">
-                  <input type="text" placeholder="000000" value={mfaCode}
-                    onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    className="input-field flex-1 max-w-[120px] text-center tracking-widest" maxLength={6} />
-                  <button type="submit" className="btn-primary text-sm">Verify & Enable</button>
-                  <button type="button" onClick={() => { setMfaSetup(null); setMfaCode(''); setError(''); }} className="btn-secondary text-sm">Cancel</button>
-                </form>
-              </div>
-            ) : (
-              <div className="flex gap-3">
-                <button onClick={handleEnableMfa} className="btn-primary text-sm">Enable MFA</button>
-                {user?.mfaEnabled && <button onClick={handleDisableMfa} className="btn-secondary text-sm text-danger">Disable MFA</button>}
-              </div>
-            )}
-          </section>
+          {/* MFA — comprehensive */}
+          <MfaSection
+            user={user}
+            mfaSetup={mfaSetup}
+            mfaCode={mfaCode}
+            setMfaCode={setMfaCode}
+            onSetup={handleEnableMfa}
+            onVerify={handleVerifyMfa}
+            onDisable={handleDisableMfa}
+            onCancel={() => { setMfaSetup(null); setMfaCode(''); setError(''); }}
+            refreshUser={refreshUser}
+            setError={setError}
+            setSuccess={setSuccess}
+          />
 
           {isAdmin && <SecurityConfigSection />}
           {!isAdmin && (
@@ -172,6 +160,172 @@ export default function SettingsPage() {
       {activeTab === 'users' && isAdmin && <UserManagementTab />}
       {activeTab === 'teams' && isPartnerOrAdmin && <TeamsManagementTab />}
     </div>
+  );
+}
+
+// ── MFA Section (shown in Organization tab) ──────────
+
+function MfaSection({ user, mfaSetup, mfaCode, setMfaCode, onSetup, onVerify, onDisable, onCancel, refreshUser, setError, setSuccess }) {
+  const [backupRemaining, setBackupRemaining] = useState(null);
+  const [backupCodes, setBackupCodes] = useState(null);
+  const [devices, setDevices] = useState([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
+  const [showDevices, setShowDevices] = useState(false);
+
+  useEffect(() => {
+    if (user?.mfaEnabled) {
+      getBackupCodesRemaining().then(d => setBackupRemaining(d.remaining)).catch(() => {});
+    }
+  }, [user?.mfaEnabled]);
+
+  const handleEnableEmail = async () => {
+    try {
+      await enableEmailMfa();
+      setSuccess('Email OTP enabled as MFA method');
+      refreshUser();
+    } catch (e) { setError(e.response?.data?.message || 'Failed to enable email OTP'); }
+  };
+
+  const handleRegenCodes = async () => {
+    try {
+      const data = await regenerateBackupCodes();
+      setBackupCodes(data.backupCodes);
+      setBackupRemaining(data.backupCodes.length);
+      setSuccess('New backup codes generated — save them securely');
+    } catch (e) { setError(e.response?.data?.message || 'Failed to regenerate codes'); }
+  };
+
+  const handleLoadDevices = async () => {
+    setLoadingDevices(true);
+    try {
+      const data = await getTrustedDevices();
+      setDevices(data);
+      setShowDevices(true);
+    } catch { setDevices([]); setShowDevices(true); }
+    finally { setLoadingDevices(false); }
+  };
+
+  const handleRevokeAll = async () => {
+    if (!confirm('Revoke all trusted devices? Everyone will need to verify MFA on next login.')) return;
+    try {
+      await revokeAllDevices();
+      setDevices([]);
+      setSuccess('All trusted devices revoked');
+    } catch (e) { setError(e.response?.data?.message || 'Failed to revoke devices'); }
+  };
+
+  return (
+    <section className="card p-6">
+      <h3 className="text-sm font-semibold text-text-primary mb-1">Multi-Factor Authentication</h3>
+      <p className="text-xs text-text-muted mb-4">
+        Add a second verification step to protect accounts. Supports authenticator apps (TOTP) and email OTP.
+      </p>
+
+      {/* Status */}
+      <div className="flex items-center gap-3 mb-4 p-3 rounded-lg" style={{ background: 'var(--bg-2)' }}>
+        <div className={`w-2 h-2 rounded-full ${user?.mfaEnabled ? 'bg-success' : 'bg-text-muted'}`} />
+        <span className="text-sm font-medium text-text-primary">
+          {user?.mfaEnabled ? 'MFA is enabled' : 'MFA is not enabled'}
+        </span>
+        {user?.mfaMethod && user.mfaMethod !== 'NONE' && (
+          <span className="text-xs text-text-muted ml-auto">Method: {user.mfaMethod}</span>
+        )}
+      </div>
+
+      {/* TOTP Setup */}
+      {mfaSetup ? (
+        <div className="mb-4 p-4 rounded-lg border border-border">
+          <h4 className="text-xs font-semibold text-text-primary mb-3">Scan with your authenticator app</h4>
+          <div className="bg-white p-4 rounded-lg inline-block mb-3">
+            <img src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(mfaSetup.qrCodeUrl)}`}
+              alt="MFA QR Code" width={180} height={180} />
+          </div>
+          <p className="text-xs text-text-muted mb-3">Or enter manually: <code className="text-text-primary">{mfaSetup.secret}</code></p>
+          <form onSubmit={onVerify} className="flex gap-2">
+            <input type="text" placeholder="000000" value={mfaCode}
+              onChange={e => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="input-field flex-1 max-w-[120px] text-center tracking-widest" maxLength={6} />
+            <button type="submit" className="btn-primary text-sm">Verify & Enable</button>
+            <button type="button" onClick={onCancel} className="btn-secondary text-sm">Cancel</button>
+          </form>
+        </div>
+      ) : !user?.mfaEnabled ? (
+        <div className="flex gap-3 mb-4">
+          <button onClick={onSetup} className="btn-primary text-sm">Setup Authenticator App (TOTP)</button>
+          <button onClick={handleEnableEmail} className="btn-secondary text-sm">Use Email OTP Instead</button>
+        </div>
+      ) : null}
+
+      {/* When MFA is enabled — show management options */}
+      {user?.mfaEnabled && (
+        <div className="space-y-4">
+          {/* Backup Codes */}
+          <div className="p-4 rounded-lg border border-border">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-text-primary">Backup Codes</h4>
+              {backupRemaining !== null && (
+                <span className={`text-xs font-medium ${backupRemaining <= 2 ? 'text-danger' : 'text-text-muted'}`}>
+                  {backupRemaining} remaining
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-text-muted mb-3">
+              Use backup codes to sign in if you lose access to your authenticator. Each code can only be used once.
+            </p>
+            {backupCodes ? (
+              <div className="mb-3">
+                <div className="grid grid-cols-2 gap-1 p-3 rounded bg-surface-el font-mono text-xs">
+                  {backupCodes.map((code, i) => <div key={i}>{code}</div>)}
+                </div>
+                <p className="text-xs text-warning mt-2">Save these codes securely — they won't be shown again.</p>
+              </div>
+            ) : null}
+            <button onClick={handleRegenCodes} className="btn-secondary text-xs">
+              {backupCodes ? 'Regenerate New Codes' : 'View / Regenerate Codes'}
+            </button>
+          </div>
+
+          {/* Trusted Devices */}
+          <div className="p-4 rounded-lg border border-border">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-text-primary">Trusted Devices</h4>
+              <button onClick={handleLoadDevices} className="text-xs text-primary hover:underline" disabled={loadingDevices}>
+                {loadingDevices ? 'Loading...' : showDevices ? 'Refresh' : 'View devices'}
+              </button>
+            </div>
+            <p className="text-xs text-text-muted mb-3">
+              Devices where you've chosen "Trust this device" won't require MFA for 90 days.
+            </p>
+            {showDevices && (
+              <>
+                {devices.length === 0 ? (
+                  <p className="text-xs text-text-muted">No trusted devices.</p>
+                ) : (
+                  <div className="space-y-2 mb-3">
+                    {devices.map(d => (
+                      <div key={d.id} className="flex items-center justify-between text-xs p-2 rounded bg-surface-el">
+                        <div>
+                          <div className="text-text-primary">{d.userAgent?.substring(0, 60) || 'Unknown device'}</div>
+                          <div className="text-text-muted">{d.ipAddress} · Last used: {d.lastUsedAt ? new Date(d.lastUsedAt).toLocaleDateString() : '—'}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {devices.length > 0 && (
+                  <button onClick={handleRevokeAll} className="btn-secondary text-xs text-danger">Revoke All Devices</button>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Disable MFA */}
+          <div className="pt-3 border-t border-border">
+            <button onClick={onDisable} className="text-xs text-danger hover:underline">Disable MFA</button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
