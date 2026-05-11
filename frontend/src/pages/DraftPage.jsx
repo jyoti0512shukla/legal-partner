@@ -9,6 +9,7 @@ import api from '../api/client';
 import SaveToCloudModal from '../components/SaveToCloudModal';
 import SendForSignatureModal from '../components/SendForSignatureModal';
 import DraftsRecentStrip from '../components/DraftsRecentStrip';
+import FinalizeModal from '../components/contract/FinalizeModal';
 
 function stripHtml(html) {
   const div = document.createElement('div');
@@ -115,6 +116,7 @@ export default function DraftPage() {
   const [refiningAt, setRefiningAt] = useState(null);
   const [showSaveToCloud, setShowSaveToCloud] = useState(false);
   const [showSignModal, setShowSignModal] = useState(false);
+  const [showFinalizeModal, setShowFinalizeModal] = useState(false);
   const [selectionInfo, setSelectionInfo] = useState(null);
   const [pendingRefinement, setPendingRefinement] = useState(null);
   const [qaWarnings, setQaWarnings] = useState({});
@@ -449,7 +451,7 @@ export default function DraftPage() {
     setSaving(true);
     setSaveSuccess(false);
     try {
-      await api.post('/ai/draft/save', {
+      const saveRes = await api.post('/ai/draft/save', {
         draftHtml: draft.draftHtml,
         matterId: form.matterId || null,
         contractTypeName: form.contractTypeName || form.templateId,
@@ -457,6 +459,10 @@ export default function DraftPage() {
         partyB: form.partyB || null,
         jurisdiction: form.jurisdiction || null,
       });
+      // Auto-initialize contract lifecycle on saved document
+      if (saveRes.data?.id) {
+        api.post(`/documents/${saveRes.data.id}/lifecycle/initialize`).catch(() => {});
+      }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 4000);
     } catch (e) {
@@ -813,9 +819,14 @@ export default function DraftPage() {
                         <CloudUpload size={14} /> Save to Cloud
                       </button>
                       {draft?.id && (
-                        <button className="btn primary" onClick={() => setShowSignModal(true)}>
-                          <Send size={14} /> Send for Signature
-                        </button>
+                        <>
+                          <button className="btn" onClick={() => setShowFinalizeModal(true)}>
+                            <Lock size={14} /> Finalize
+                          </button>
+                          <button className="btn primary" onClick={() => setShowSignModal(true)}>
+                            <Send size={14} /> Send for Signature
+                          </button>
+                        </>
                       )}
                     </div>
                   </>
@@ -997,6 +1008,14 @@ export default function DraftPage() {
           defaultFileName={`draft-${form.templateId}-${form.effectiveDate || 'draft'}.html`}
           onClose={() => setShowSaveToCloud(false)}
           onSaved={() => setShowSaveToCloud(false)}
+        />
+      )}
+      {showFinalizeModal && draft?.id && (
+        <FinalizeModal
+          docId={draft.id}
+          docName={draft.fileName || `${form.templateId}-draft`}
+          onClose={() => setShowFinalizeModal(false)}
+          onFinalized={() => { setShowFinalizeModal(false); }}
         />
       )}
       {showSignModal && draft?.id && (

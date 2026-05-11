@@ -8,6 +8,8 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import api from '../api/client';
 import MatterFindingsPanel from '../components/MatterFindingsPanel';
+import StatusBadge from '../components/contract/StatusBadge';
+import DocumentTooltip from '../components/contract/DocumentTooltip';
 
 const DEAL_TYPES = ['SAAS_ACQUISITION', 'M_AND_A', 'NDA', 'COMMERCIAL_LEASE', 'FINANCING', 'IP_LICENSE', 'EMPLOYMENT', 'GENERAL'];
 const PRACTICE_AREAS = ['CORPORATE', 'LITIGATION', 'IP', 'TAX', 'REAL_ESTATE', 'LABOR', 'BANKING', 'REGULATORY', 'OTHER'];
@@ -364,13 +366,17 @@ function DocumentsTab({ matterId, canUpload, onDocUploaded, defaultPipelineId, d
                 <div className="flex items-center gap-3 flex-1 min-w-0"
                   onClick={() => navigate(`/documents/${doc.id}/edit?matterId=${matterId}`)}>
                   <FileText className="w-5 h-5 text-text-muted shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-text-primary truncate">{doc.fileName || doc.name}</div>
-                    <div className="text-[10px] text-text-muted">
-                      {doc.documentType && <span>{doc.documentType} · </span>}
-                      {new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString()}
+                  <DocumentTooltip doc={doc}>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-primary truncate">{doc.fileName || doc.name}</div>
+                      <div className="text-[10px] text-text-muted" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {doc.contractStatus && <StatusBadge status={doc.contractStatus} size="sm" />}
+                        {doc.documentType && <span>{doc.documentType} · </span>}
+                        {new Date(doc.uploadedAt || doc.createdAt).toLocaleDateString()}
+                        {doc.currentVersion && <span> · v{doc.currentVersion}</span>}
+                      </div>
                     </div>
-                  </div>
+                  </DocumentTooltip>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   {/* Completed review badges */}

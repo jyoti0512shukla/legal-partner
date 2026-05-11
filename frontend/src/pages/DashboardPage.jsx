@@ -6,13 +6,14 @@ import {
   Brain, Shield, GitPullRequest, FileText, Wand2, Upload, Briefcase,
 } from 'lucide-react';
 import api from '../api/client';
+import DeadlineWidget from '../components/contract/DeadlineWidget';
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [reviewData, setReviewData] = useState(null);
   const [aiData, setAiData] = useState(null);
-  const [counts, setCounts] = useState({ documents: 0, matters: 0, drafts: 0 });
+  const [counts, setCounts] = useState({ documents: 0, matters: 0, drafts: 0, activeContracts: 0 });
   const [recentDrafts, setRecentDrafts] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -23,13 +24,15 @@ export default function DashboardPage() {
       api.get('/documents?size=1').catch(() => ({ data: { totalElements: 0 } })),
       api.get('/matters').catch(() => ({ data: [] })),
       api.get('/ai/drafts').catch(() => ({ data: [] })),
-    ]).then(([reviewRes, aiRes, docsRes, mattersRes, draftsRes]) => {
+      api.get('/documents/active-count').catch(() => ({ data: { count: 0 } })),
+    ]).then(([reviewRes, aiRes, docsRes, mattersRes, draftsRes, activeRes]) => {
       setReviewData(reviewRes.data);
       setAiData(aiRes.data);
       setCounts({
         documents: docsRes.data?.totalElements || 0,
         matters: Array.isArray(mattersRes.data) ? mattersRes.data.length : 0,
         drafts: Array.isArray(draftsRes.data) ? draftsRes.data.length : 0,
+        activeContracts: activeRes.data?.count || 0,
       });
       setRecentDrafts(Array.isArray(draftsRes.data) ? draftsRes.data.slice(0, 5) : []);
     }).finally(() => setLoading(false));
@@ -168,8 +171,10 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Getting started / activity */}
-        <div className="card">
+        {/* Deadlines + Getting started */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <DeadlineWidget />
+          <div className="card">
           <div className="card-header">
             <Brain size={14} style={{ color: 'var(--brand-400)' }} />
             <h3>Getting Started</h3>
@@ -198,6 +203,7 @@ export default function DashboardPage() {
               ))}
             </div>
           </div>
+        </div>
         </div>
       </div>
 

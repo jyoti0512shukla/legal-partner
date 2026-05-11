@@ -8,5 +8,7 @@ public enum WorkflowTriggerEvent {
     /** When risk assessment rates overall HIGH */
     RISK_HIGH_DETECTED,
     /** When a new matter is created */
-    MATTER_CREATED
+    MATTER_CREATED,
+    /** When a contract's lifecycle status transitions to EXECUTED */
+    DOCUMENT_EXECUTED
 }

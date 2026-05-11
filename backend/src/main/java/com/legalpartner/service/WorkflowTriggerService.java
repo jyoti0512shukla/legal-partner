@@ -43,6 +43,12 @@ public class WorkflowTriggerService {
         triggerWorkflows(WorkflowTriggerEvent.DRAFT_COMPLETED, event.documentId(), event.username());
     }
 
+    @Async
+    @EventListener
+    public void onDocumentExecuted(com.legalpartner.event.DocumentExecutedEvent event) {
+        triggerWorkflows(WorkflowTriggerEvent.DOCUMENT_EXECUTED, event.documentId(), event.username());
+    }
+
     private void triggerWorkflows(WorkflowTriggerEvent eventType, UUID documentId, String username) {
         List<WorkflowDefinition> all = definitionRepo.findAll();
         List<WorkflowDefinition> triggered = all.stream()

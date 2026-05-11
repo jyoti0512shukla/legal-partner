@@ -1,6 +1,7 @@
 package com.legalpartner.repository;
 
 import com.legalpartner.model.entity.DocumentMetadata;
+import com.legalpartner.model.enums.ContractStatus;
 import com.legalpartner.model.enums.ExtractionStatus;
 import com.legalpartner.model.enums.ProcessingStatus;
 import org.springframework.data.domain.Page;
@@ -53,4 +54,17 @@ public interface DocumentMetadataRepository extends JpaRepository<DocumentMetada
 
     @Query("SELECT CAST(d.id AS string) FROM DocumentMetadata d WHERE d.matter.id = :matterUuid")
     List<String> findIdStringsByMatterUuid(@Param("matterUuid") UUID matterUuid);
+
+    // ── Contract Lifecycle queries ──
+
+    List<DocumentMetadata> findByContractStatus(ContractStatus status);
+
+    @Query("SELECT d FROM DocumentMetadata d WHERE d.contractStatus = com.legalpartner.model.enums.ContractStatus.ACTIVE AND d.expiryDate IS NOT NULL AND d.expiryDate <= :cutoff")
+    List<DocumentMetadata> findActiveExpiringBefore(@Param("cutoff") java.time.LocalDate cutoff);
+
+    @Query("SELECT d FROM DocumentMetadata d WHERE d.contractStatus = com.legalpartner.model.enums.ContractStatus.EXPIRING AND d.expiryDate IS NOT NULL AND d.expiryDate < :today")
+    List<DocumentMetadata> findExpiredContracts(@Param("today") java.time.LocalDate today);
+
+    @Query("SELECT COUNT(d) FROM DocumentMetadata d WHERE d.contractStatus IN (com.legalpartner.model.enums.ContractStatus.ACTIVE, com.legalpartner.model.enums.ContractStatus.EXPIRING)")
+    long countActiveContracts();
 }

@@ -10,6 +10,8 @@ import com.legalpartner.rag.DocumentFullTextRetriever;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.SignatureEnvelopeRepository;
 import com.legalpartner.repository.UserRepository;
+import com.legalpartner.model.enums.ContractStatus;
+import com.legalpartner.service.ContractLifecycleService;
 import com.legalpartner.service.IntegrationService;
 import com.legalpartner.service.IntegrationService.IntegrationStatus;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ public class IntegrationController {
     private final UserRepository userRepository;
     private final DocuSignProvider docuSignProvider;
     private final DocumentMetadataRepository documentRepository;
+    private final ContractLifecycleService contractLifecycleService;
     private final DocumentFullTextRetriever fullTextRetriever;
     private final SignatureEnvelopeRepository envelopeRepository;
     private final ObjectMapper objectMapper;
@@ -213,8 +216,26 @@ public class IntegrationController {
                     } catch (Exception ex) {
                         log.warn("Failed to download signed PDF for envelope {}: {}", envelopeId, ex.getMessage());
                     }
+                    // Transition contract to EXECUTED
+                    if (envelope.getDocumentId() != null) {
+                        try {
+                            contractLifecycleService.transitionStatus(
+                                    envelope.getDocumentId(), ContractStatus.EXECUTED, "SYSTEM_DOCUSIGN");
+                        } catch (Exception ex2) {
+                            log.warn("Failed to transition doc {} to EXECUTED: {}", envelope.getDocumentId(), ex2.getMessage());
+                        }
+                    }
                 } else if ("voided".equalsIgnoreCase(status) || "declined".equalsIgnoreCase(status)) {
                     envelope.setVoidedAt(java.time.Instant.now());
+                    // Unlock document if signature was voided/declined
+                    if (envelope.getDocumentId() != null) {
+                        try {
+                            contractLifecycleService.transitionStatus(
+                                    envelope.getDocumentId(), ContractStatus.NEGOTIATING, "SYSTEM_DOCUSIGN");
+                        } catch (Exception ex2) {
+                            log.warn("Failed to transition doc {} back to NEGOTIATING: {}", envelope.getDocumentId(), ex2.getMessage());
+                        }
+                    }
                 }
                 envelopeRepository.save(envelope);
                 log.info("Updated envelope {} → {}", envelopeId, status);

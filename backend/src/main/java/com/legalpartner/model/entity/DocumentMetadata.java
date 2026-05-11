@@ -1,5 +1,6 @@
 package com.legalpartner.model.entity;
 
+import com.legalpartner.model.enums.ContractStatus;
 import com.legalpartner.model.enums.DocumentType;
 import com.legalpartner.model.enums.ExtractionStatus;
 import com.legalpartner.model.enums.PracticeArea;
@@ -179,4 +180,29 @@ public class DocumentMetadata {
     @Column(name = "is_anonymized", nullable = false)
     @Builder.Default
     private boolean anonymized = false;
+
+    // ── Contract Lifecycle ──
+    @Enumerated(EnumType.STRING)
+    @Column(name = "contract_status", length = 30)
+    private ContractStatus contractStatus;
+
+    @Column(name = "is_locked", nullable = false)
+    @Builder.Default
+    private boolean locked = false;
+
+    @Column(name = "current_version")
+    private Integer currentVersion;
+
+    // ── User-authored brief (finalization) ──
+    @Column(name = "user_brief", columnDefinition = "TEXT")
+    private String userBrief;
+
+    @Column(name = "user_key_points", columnDefinition = "TEXT")
+    private String userKeyPoints;
+
+    @Column(name = "finalized_at")
+    private Instant finalizedAt;
+
+    @Column(name = "finalized_by", length = 100)
+    private String finalizedBy;
 }

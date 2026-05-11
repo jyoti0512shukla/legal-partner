@@ -10,6 +10,7 @@ import TeamsManagementTab from '../components/TeamsManagementTab';
 import api from '../api/client';
 import AuditLogPage from './AuditLogPage';
 import ReviewPipelinesTab from '../components/ReviewPipelinesTab';
+import DeadlineConfigTab from '../components/contract/DeadlineConfigTab';
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
@@ -30,6 +31,7 @@ export default function SettingsPage() {
       { id: 'integrations', label: 'Integrations' },
       { id: 'agent', label: 'AI Agent' },
       { id: 'pipelines', label: 'Review Pipelines' },
+      { id: 'deadlines', label: 'Deadline Alerts' },
       { id: 'audit', label: 'Audit Log' },
     ] : []),
     ...(isAdmin ? [{ id: 'users', label: 'Users' }] : []),
@@ -160,6 +162,7 @@ export default function SettingsPage() {
       {activeTab === 'integrations' && <IntegrationsTab />}
       {activeTab === 'agent' && <AgentConfigTab />}
       {activeTab === 'pipelines' && isPartnerOrAdmin && <ReviewPipelinesTab />}
+      {activeTab === 'deadlines' && isPartnerOrAdmin && <DeadlineConfigTab />}
 
       {activeTab === 'audit' && isPartnerOrAdmin && <AuditLogPage embedded />}
 

@@ -1,12 +1,17 @@
 package com.legalpartner.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.dto.DocumentDetail;
 import com.legalpartner.model.dto.DocumentStats;
-import com.legalpartner.model.entity.DocumentMetadata;
-import com.legalpartner.model.entity.Matter;
+import com.legalpartner.model.entity.*;
+import com.legalpartner.model.enums.ContractStatus;
+import com.legalpartner.repository.ContractDeadlineRepository;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.MatterRepository;
+import com.legalpartner.service.ContractLifecycleService;
+import com.legalpartner.service.DeadlineService;
 import com.legalpartner.service.DocumentService;
+import com.legalpartner.service.DocumentVersionService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -26,6 +31,10 @@ public class DocumentController {
     private final DocumentService documentService;
     private final DocumentMetadataRepository documentRepository;
     private final MatterRepository matterRepository;
+    private final ContractLifecycleService lifecycleService;
+    private final DocumentVersionService versionService;
+    private final DeadlineService deadlineService;
+    private final ObjectMapper objectMapper;
 
     @PostMapping("/upload")
     @ResponseStatus(HttpStatus.CREATED)
@@ -121,6 +130,149 @@ public class DocumentController {
         return result;
     }
 
+    // ── Contract Lifecycle ──
+
+    @PostMapping("/{id}/lifecycle/initialize")
+    public DocumentMetadata initializeLifecycle(@PathVariable UUID id, Authentication auth) {
+        return lifecycleService.initializeLifecycle(id, auth.getName());
+    }
+
+    @PostMapping("/{id}/lifecycle/transition")
+    public DocumentMetadata transitionStatus(
+            @PathVariable UUID id,
+            @RequestParam ContractStatus status,
+            Authentication auth) {
+        return lifecycleService.transitionStatus(id, status, auth.getName());
+    }
+
+    @GetMapping("/{id}/lifecycle/allowed-transitions")
+    public Map<String, Object> getAllowedTransitions(@PathVariable UUID id) {
+        DocumentMetadata doc = documentRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        return Map.of(
+                "currentStatus", doc.getContractStatus() != null ? doc.getContractStatus().name() : "NONE",
+                "allowedTransitions", lifecycleService.getAllowedNextStatuses(doc.getContractStatus())
+        );
+    }
+
+    // ── Finalization ──
+
+    @GetMapping("/{id}/finalize/prefill")
+    public Map<String, Object> getFinalizationPrefill(@PathVariable UUID id) {
+        DocumentMetadata doc = documentRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        List<String> keyPoints = new ArrayList<>();
+        if (doc.getPartyA() != null) keyPoints.add("Party A: " + doc.getPartyA());
+        if (doc.getPartyB() != null) keyPoints.add("Party B: " + doc.getPartyB());
+        if (doc.getExpiryDate() != null) keyPoints.add("Expires: " + doc.getExpiryDate());
+        if (doc.getContractValue() != null) keyPoints.add("Value: " + doc.getContractValue());
+        if (doc.getLiabilityCap() != null) keyPoints.add("Liability cap: " + doc.getLiabilityCap());
+        if (doc.getNoticePeriodDays() != null) keyPoints.add("Notice period: " + doc.getNoticePeriodDays() + " days");
+        if (doc.getGoverningLawJurisdiction() != null) keyPoints.add("Governing law: " + doc.getGoverningLawJurisdiction());
+        return Map.of(
+                "suggestedBrief", doc.getSummaryText() != null ? doc.getSummaryText() : "",
+                "suggestedKeyPoints", keyPoints
+        );
+    }
+
+    @PostMapping("/{id}/finalize")
+    public DocumentMetadata finalizeDocument(
+            @PathVariable UUID id,
+            @RequestBody Map<String, Object> request,
+            Authentication auth) {
+        String userBrief = (String) request.get("userBrief");
+        @SuppressWarnings("unchecked")
+        List<String> keyPoints = (List<String>) request.getOrDefault("keyPoints", List.of());
+        String keyPointsJson;
+        try { keyPointsJson = objectMapper.writeValueAsString(keyPoints); }
+        catch (Exception e) { keyPointsJson = "[]"; }
+        return lifecycleService.finalize(id, userBrief, keyPointsJson, auth.getName());
+    }
+
+    @PostMapping("/{id}/execute")
+    public DocumentMetadata markExecuted(
+            @PathVariable UUID id,
+            @RequestBody(required = false) Map<String, Object> request,
+            Authentication auth) {
+        if (request != null && request.containsKey("userBrief")) {
+            String userBrief = (String) request.get("userBrief");
+            @SuppressWarnings("unchecked")
+            List<String> keyPoints = (List<String>) request.getOrDefault("keyPoints", List.of());
+            String keyPointsJson;
+            try { keyPointsJson = objectMapper.writeValueAsString(keyPoints); }
+            catch (Exception e) { keyPointsJson = "[]"; }
+            lifecycleService.finalize(id, userBrief, keyPointsJson, auth.getName());
+        }
+        return lifecycleService.markExecuted(id, auth.getName());
+    }
+
+    // ── Versions ──
+
+    @PostMapping("/{id}/versions")
+    @ResponseStatus(HttpStatus.CREATED)
+    public DocumentVersion uploadVersion(
+            @PathVariable UUID id,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(defaultValue = "UPLOAD") String source,
+            @RequestParam(required = false) String changeSummary,
+            Authentication auth) {
+        return versionService.createVersion(id, file, source, changeSummary, auth.getName());
+    }
+
+    @GetMapping("/{id}/versions")
+    public List<DocumentVersion> getVersions(@PathVariable UUID id) {
+        return versionService.getVersions(id);
+    }
+
+    // ── Deadlines ──
+
+    @GetMapping("/{id}/deadlines")
+    public List<ContractDeadline> getDocumentDeadlines(@PathVariable UUID id) {
+        return deadlineService.getDeadlinesForDocument(id);
+    }
+
+    @GetMapping("/deadlines/upcoming")
+    public List<Map<String, Object>> getUpcomingDeadlines(
+            @RequestParam(defaultValue = "10") int limit) {
+        return deadlineService.getUpcomingDeadlines(limit);
+    }
+
+    @PostMapping("/deadlines/{deadlineId}/action")
+    public ContractDeadline actionDeadline(@PathVariable UUID deadlineId, Authentication auth) {
+        return deadlineService.actionDeadline(deadlineId, auth.getName());
+    }
+
+    @GetMapping("/deadlines/config")
+    public List<DeadlineAlertConfig> getAlertConfig() {
+        return deadlineService.getAlertConfig();
+    }
+
+    @PostMapping("/deadlines/config")
+    @ResponseStatus(HttpStatus.CREATED)
+    public DeadlineAlertConfig addAlertConfig(@RequestBody Map<String, Object> body) {
+        int days = (Integer) body.get("alertWindowDays");
+        String channel = (String) body.getOrDefault("notifyChannel", "EMAIL");
+        return deadlineService.addAlertConfig(days, channel);
+    }
+
+    @PutMapping("/deadlines/config/{configId}")
+    public DeadlineAlertConfig updateAlertConfig(@PathVariable UUID configId, @RequestBody Map<String, Object> body) {
+        return deadlineService.updateAlertConfig(configId, body);
+    }
+
+    @DeleteMapping("/deadlines/config/{configId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeAlertConfig(@PathVariable UUID configId) {
+        deadlineService.removeAlertConfig(configId);
+    }
+
+    @GetMapping("/active-count")
+    public Map<String, Long> getActiveContractCount() {
+        return Map.of("count", documentRepository.countActiveContracts());
+    }
+
+    // ── Helpers ──
+
     private Map<String, Object> docToGroupedItem(DocumentMetadata d) {
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("id", d.getId().toString());
@@ -129,6 +281,10 @@ public class DocumentController {
         item.put("source", d.getSource());
         item.put("uploadDate", d.getUploadDate() != null ? d.getUploadDate().toString() : null);
         item.put("status", d.getProcessingStatus() != null ? d.getProcessingStatus().name() : null);
+        item.put("contractStatus", d.getContractStatus() != null ? d.getContractStatus().name() : null);
+        item.put("locked", d.isLocked());
+        item.put("userBrief", d.getUserBrief());
+        item.put("currentVersion", d.getCurrentVersion());
         return item;
     }
 

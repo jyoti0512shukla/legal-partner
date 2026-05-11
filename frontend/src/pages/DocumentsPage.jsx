@@ -4,6 +4,7 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, FileText, Trash2, CheckCircle, Loader, XCircle, Cloud } from 'lucide-react';
 import api from '../api/client';
 import CloudImportModal from '../components/CloudImportModal';
+import StatusBadge from '../components/contract/StatusBadge';
 
 const STATUS_ICONS = {
   INDEXED: <CheckCircle className="w-4 h-4 text-success" />,
@@ -152,7 +153,12 @@ export default function DocumentsPage() {
                 <td className="py-3 text-text-secondary">{d.jurisdiction || '—'}</td>
                 <td className="py-3 text-text-secondary">{d.year || '—'}</td>
                 <td className="py-3">{d.segmentCount}</td>
-                <td className="py-3">{STATUS_ICONS[d.processingStatus]}</td>
+                <td className="py-3">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {d.contractStatus && <StatusBadge status={d.contractStatus} size="sm" />}
+                    {!d.contractStatus && STATUS_ICONS[d.processingStatus]}
+                  </div>
+                </td>
                 <td className="py-3">
                   <button onClick={() => api.delete(`/documents/${d.id}`).then(fetchDocs).catch(() => {})}
                     className="text-text-muted hover:text-danger transition-colors"><Trash2 className="w-4 h-4" /></button>
