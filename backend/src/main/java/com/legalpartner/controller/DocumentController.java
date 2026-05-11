@@ -7,6 +7,7 @@ import com.legalpartner.model.entity.*;
 import com.legalpartner.model.enums.ContractStatus;
 import com.legalpartner.repository.ContractDeadlineRepository;
 import com.legalpartner.repository.DocumentMetadataRepository;
+import com.legalpartner.repository.DocumentNoteRepository;
 import com.legalpartner.repository.MatterRepository;
 import com.legalpartner.service.ContractLifecycleService;
 import com.legalpartner.service.DeadlineService;
@@ -34,6 +35,7 @@ public class DocumentController {
     private final ContractLifecycleService lifecycleService;
     private final DocumentVersionService versionService;
     private final DeadlineService deadlineService;
+    private final DocumentNoteRepository noteRepository;
     private final ObjectMapper objectMapper;
 
     @PostMapping("/upload")
@@ -58,8 +60,28 @@ public class DocumentController {
     }
 
     @GetMapping
-    public Page<DocumentMetadata> list(Authentication auth, Pageable pageable) {
+    public Page<DocumentMetadata> list(
+            Authentication auth,
+            @RequestParam(required = false) String search,
+            @RequestParam(required = false) String contractStatus,
+            @RequestParam(required = false) String documentType,
+            @RequestParam(required = false) String matterId,
+            @RequestParam(required = false) String expiryBefore,
+            @RequestParam(required = false) String expiryAfter,
+            Pageable pageable) {
         String role = extractRole(auth);
+        boolean hasFilters = search != null || contractStatus != null || documentType != null
+                || matterId != null || expiryBefore != null || expiryAfter != null;
+        if (hasFilters) {
+            boolean confidentialFilter = role.contains("ASSOCIATE");
+            String s = (search != null && !search.isBlank()) ? search.trim() : null;
+            String cs = (contractStatus != null && !contractStatus.isBlank()) ? contractStatus : null;
+            String dt = (documentType != null && !documentType.isBlank()) ? documentType : null;
+            String mi = (matterId != null && !matterId.isBlank()) ? matterId : null;
+            String eb = (expiryBefore != null && !expiryBefore.isBlank()) ? expiryBefore : null;
+            String ea = (expiryAfter != null && !expiryAfter.isBlank()) ? expiryAfter : null;
+            return documentRepository.searchAndFilter(confidentialFilter, s, cs, dt, mi, eb, ea, pageable);
+        }
         return documentService.listDocuments(role, pageable);
     }
 
@@ -269,6 +291,62 @@ public class DocumentController {
     @GetMapping("/active-count")
     public Map<String, Long> getActiveContractCount() {
         return Map.of("count", documentRepository.countActiveContracts());
+    }
+
+    // ── Notes ──
+
+    @GetMapping("/{id}/notes")
+    public List<Map<String, Object>> getNotes(@PathVariable UUID id) {
+        return noteRepository.findByDocumentIdOrderByCreatedAtDesc(id).stream()
+                .map(n -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", n.getId());
+                    m.put("content", n.getContent());
+                    m.put("createdBy", n.getCreatedBy());
+                    m.put("createdAt", n.getCreatedAt().toString());
+                    return m;
+                }).toList();
+    }
+
+    @PostMapping("/{id}/notes")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String, Object> addNote(@PathVariable UUID id, @RequestBody Map<String, String> body, Authentication auth) {
+        String content = body.get("content");
+        if (content == null || content.isBlank()) throw new IllegalArgumentException("Note content is required");
+        DocumentMetadata doc = documentRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        DocumentNote note = DocumentNote.builder()
+                .document(doc).content(content.trim()).createdBy(auth.getName()).build();
+        DocumentNote saved = noteRepository.save(note);
+        return Map.of("id", saved.getId(), "content", saved.getContent(),
+                "createdBy", saved.getCreatedBy(), "createdAt", saved.getCreatedAt().toString());
+    }
+
+    @DeleteMapping("/notes/{noteId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteNote(@PathVariable UUID noteId, Authentication auth) {
+        DocumentNote note = noteRepository.findById(noteId)
+                .orElseThrow(() -> new IllegalArgumentException("Note not found"));
+        if (!note.getCreatedBy().equals(auth.getName())) {
+            throw new SecurityException("You can only delete your own notes");
+        }
+        noteRepository.deleteById(noteId);
+    }
+
+    // ── Metadata Edit ──
+
+    @PatchMapping("/{id}/metadata")
+    public DocumentMetadata updateMetadata(@PathVariable UUID id, @RequestBody Map<String, Object> updates, Authentication auth) {
+        DocumentMetadata doc = documentRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Document not found"));
+        if (doc.isLocked()) throw new IllegalStateException("Cannot edit locked document");
+        if (updates.containsKey("partyA")) doc.setPartyA((String) updates.get("partyA"));
+        if (updates.containsKey("partyB")) doc.setPartyB((String) updates.get("partyB"));
+        if (updates.containsKey("clientName")) doc.setClientName((String) updates.get("clientName"));
+        if (updates.containsKey("jurisdiction")) doc.setJurisdiction((String) updates.get("jurisdiction"));
+        if (updates.containsKey("contractValue")) doc.setContractValue((String) updates.get("contractValue"));
+        if (updates.containsKey("userBrief")) doc.setUserBrief((String) updates.get("userBrief"));
+        return documentRepository.save(doc);
     }
 
     // ── Helpers ──

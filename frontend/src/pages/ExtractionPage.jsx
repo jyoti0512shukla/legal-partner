@@ -6,7 +6,10 @@ import BucketSection, { BUCKET_ORDER } from '../components/extraction/BucketSect
 
 export default function ExtractionPage() {
   const [docs, setDocs] = useState([]);
-  const [docId, setDocId] = useState('');
+  const [docId, setDocId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('docId') || '';
+  });
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

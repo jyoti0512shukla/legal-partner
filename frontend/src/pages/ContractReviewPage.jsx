@@ -530,7 +530,10 @@ const TABS = [
 export default function ContractReviewPage() {
   const [grouped, setGrouped] = useState(null);
   const [allDocs, setAllDocs] = useState([]);
-  const [docId, setDocId] = useState('');
+  const [docId, setDocId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('docId') || '';
+  });
   const [tab, setTab] = useState('summary');
 
   // Summary tab state

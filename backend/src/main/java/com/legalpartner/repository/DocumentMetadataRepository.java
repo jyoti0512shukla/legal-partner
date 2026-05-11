@@ -55,6 +55,51 @@ public interface DocumentMetadataRepository extends JpaRepository<DocumentMetada
     @Query("SELECT CAST(d.id AS string) FROM DocumentMetadata d WHERE d.matter.id = :matterUuid")
     List<String> findIdStringsByMatterUuid(@Param("matterUuid") UUID matterUuid);
 
+    // ── Search & Filter ──
+
+    @Query(value = """
+            SELECT * FROM document_metadata d WHERE
+            d.source <> 'EDGAR' AND
+            (:confidentialFilter = false OR d.confidential = false) AND
+            (:search IS NULL OR (
+                LOWER(d.file_name) LIKE LOWER(CONCAT('%%', :search, '%%')) OR
+                LOWER(d.party_a) LIKE LOWER(CONCAT('%%', :search, '%%')) OR
+                LOWER(d.party_b) LIKE LOWER(CONCAT('%%', :search, '%%')) OR
+                LOWER(d.client_name) LIKE LOWER(CONCAT('%%', :search, '%%'))
+            )) AND
+            (CAST(:contractStatus AS VARCHAR) IS NULL OR d.contract_status = :contractStatus) AND
+            (CAST(:documentType AS VARCHAR) IS NULL OR d.document_type = :documentType) AND
+            (CAST(:matterId AS VARCHAR) IS NULL OR CAST(d.matter_uuid AS VARCHAR) = :matterId) AND
+            (CAST(:expiryBefore AS DATE) IS NULL OR d.expiry_date <= CAST(:expiryBefore AS DATE)) AND
+            (CAST(:expiryAfter AS DATE) IS NULL OR d.expiry_date >= CAST(:expiryAfter AS DATE))
+            """,
+            countQuery = """
+            SELECT COUNT(*) FROM document_metadata d WHERE
+            d.source <> 'EDGAR' AND
+            (:confidentialFilter = false OR d.confidential = false) AND
+            (:search IS NULL OR (
+                LOWER(d.file_name) LIKE LOWER(CONCAT('%%', :search, '%%')) OR
+                LOWER(d.party_a) LIKE LOWER(CONCAT('%%', :search, '%%')) OR
+                LOWER(d.party_b) LIKE LOWER(CONCAT('%%', :search, '%%')) OR
+                LOWER(d.client_name) LIKE LOWER(CONCAT('%%', :search, '%%'))
+            )) AND
+            (CAST(:contractStatus AS VARCHAR) IS NULL OR d.contract_status = :contractStatus) AND
+            (CAST(:documentType AS VARCHAR) IS NULL OR d.document_type = :documentType) AND
+            (CAST(:matterId AS VARCHAR) IS NULL OR CAST(d.matter_uuid AS VARCHAR) = :matterId) AND
+            (CAST(:expiryBefore AS DATE) IS NULL OR d.expiry_date <= CAST(:expiryBefore AS DATE)) AND
+            (CAST(:expiryAfter AS DATE) IS NULL OR d.expiry_date >= CAST(:expiryAfter AS DATE))
+            """,
+            nativeQuery = true)
+    Page<DocumentMetadata> searchAndFilter(
+            @Param("confidentialFilter") boolean confidentialFilter,
+            @Param("search") String search,
+            @Param("contractStatus") String contractStatus,
+            @Param("documentType") String documentType,
+            @Param("matterId") String matterId,
+            @Param("expiryBefore") String expiryBefore,
+            @Param("expiryAfter") String expiryAfter,
+            Pageable pageable);
+
     // ── Contract Lifecycle queries ──
 
     List<DocumentMetadata> findByContractStatus(ContractStatus status);
