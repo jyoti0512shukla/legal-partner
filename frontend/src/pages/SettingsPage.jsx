@@ -179,6 +179,7 @@ function MfaSection({ user, mfaSetup, mfaCode, setMfaCode, onSetup, onVerify, on
   }, [user?.mfaEnabled]);
 
   const handleEnableEmail = async () => {
+    setError(''); setSuccess('');
     try {
       await enableEmailMfa();
       setSuccess('Email OTP enabled as MFA method');
@@ -187,6 +188,7 @@ function MfaSection({ user, mfaSetup, mfaCode, setMfaCode, onSetup, onVerify, on
   };
 
   const handleRegenCodes = async () => {
+    setError(''); setSuccess('');
     try {
       const data = await regenerateBackupCodes();
       setBackupCodes(data.backupCodes);
@@ -207,6 +209,7 @@ function MfaSection({ user, mfaSetup, mfaCode, setMfaCode, onSetup, onVerify, on
 
   const handleRevokeAll = async () => {
     if (!confirm('Revoke all trusted devices? Everyone will need to verify MFA on next login.')) return;
+    setError(''); setSuccess('');
     try {
       await revokeAllDevices();
       setDevices([]);

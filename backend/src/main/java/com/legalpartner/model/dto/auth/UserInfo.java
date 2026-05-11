@@ -15,6 +15,7 @@ public class UserInfo {
     private String displayName;
     private String role;
     private boolean mfaEnabled;
+    private String mfaMethod;
 
     public static UserInfo from(User user) {
         return UserInfo.builder()
@@ -23,6 +24,7 @@ public class UserInfo {
                 .displayName(user.getDisplayName())
                 .role("ROLE_" + user.getRole().name())
                 .mfaEnabled(user.isMfaEnabled())
+                .mfaMethod(user.getMfaMethod())
                 .build();
     }
 }
