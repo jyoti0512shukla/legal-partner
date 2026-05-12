@@ -9,11 +9,15 @@ import com.legalpartner.repository.ContractDeadlineRepository;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.DocumentNoteRepository;
 import com.legalpartner.repository.MatterRepository;
+import com.legalpartner.audit.AuditEvent;
+import com.legalpartner.model.enums.AuditActionType;
+import com.legalpartner.service.AuditService;
 import com.legalpartner.service.ContractLifecycleService;
 import com.legalpartner.service.DeadlineService;
 import com.legalpartner.service.DocumentService;
 import com.legalpartner.service.DocumentVersionService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -36,6 +40,7 @@ public class DocumentController {
     private final DocumentVersionService versionService;
     private final DeadlineService deadlineService;
     private final DocumentNoteRepository noteRepository;
+    private final AuditService auditService;
     private final ObjectMapper objectMapper;
 
     @PostMapping("/upload")
@@ -154,11 +159,13 @@ public class DocumentController {
 
     // ── Contract Lifecycle ──
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'PARTNER')")
     @PostMapping("/{id}/lifecycle/initialize")
     public DocumentMetadata initializeLifecycle(@PathVariable UUID id, Authentication auth) {
         return lifecycleService.initializeLifecycle(id, auth.getName());
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'PARTNER')")
     @PostMapping("/{id}/lifecycle/transition")
     public DocumentMetadata transitionStatus(
             @PathVariable UUID id,
@@ -197,6 +204,7 @@ public class DocumentController {
         );
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'PARTNER')")
     @PostMapping("/{id}/finalize")
     public DocumentMetadata finalizeDocument(
             @PathVariable UUID id,
@@ -211,6 +219,7 @@ public class DocumentController {
         return lifecycleService.finalize(id, userBrief, keyPointsJson, auth.getName());
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'PARTNER')")
     @PostMapping("/{id}/execute")
     public DocumentMetadata markExecuted(
             @PathVariable UUID id,
@@ -269,23 +278,34 @@ public class DocumentController {
         return deadlineService.getAlertConfig();
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'PARTNER')")
     @PostMapping("/deadlines/config")
     @ResponseStatus(HttpStatus.CREATED)
-    public DeadlineAlertConfig addAlertConfig(@RequestBody Map<String, Object> body) {
+    public DeadlineAlertConfig addAlertConfig(@RequestBody Map<String, Object> body, Authentication auth) {
         int days = (Integer) body.get("alertWindowDays");
         String channel = (String) body.getOrDefault("notifyChannel", "EMAIL");
-        return deadlineService.addAlertConfig(days, channel);
+        DeadlineAlertConfig saved = deadlineService.addAlertConfig(days, channel);
+        auditService.publish(AuditEvent.builder().username(auth.getName())
+                .action(AuditActionType.DEADLINE_CREATED).queryText("Alert config added: " + days + "d " + channel).success(true).build());
+        return saved;
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'PARTNER')")
     @PutMapping("/deadlines/config/{configId}")
-    public DeadlineAlertConfig updateAlertConfig(@PathVariable UUID configId, @RequestBody Map<String, Object> body) {
-        return deadlineService.updateAlertConfig(configId, body);
+    public DeadlineAlertConfig updateAlertConfig(@PathVariable UUID configId, @RequestBody Map<String, Object> body, Authentication auth) {
+        DeadlineAlertConfig saved = deadlineService.updateAlertConfig(configId, body);
+        auditService.publish(AuditEvent.builder().username(auth.getName())
+                .action(AuditActionType.DEADLINE_CREATED).queryText("Alert config updated").success(true).build());
+        return saved;
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'PARTNER')")
     @DeleteMapping("/deadlines/config/{configId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removeAlertConfig(@PathVariable UUID configId) {
+    public void removeAlertConfig(@PathVariable UUID configId, Authentication auth) {
         deadlineService.removeAlertConfig(configId);
+        auditService.publish(AuditEvent.builder().username(auth.getName())
+                .action(AuditActionType.DEADLINE_CREATED).queryText("Alert config removed").success(true).build());
     }
 
     @GetMapping("/active-count")
@@ -435,6 +455,9 @@ public class DocumentController {
         DocumentNote note = DocumentNote.builder()
                 .document(doc).content(content.trim()).createdBy(auth.getName()).build();
         DocumentNote saved = noteRepository.save(note);
+        auditService.publish(AuditEvent.builder().username(auth.getName())
+                .action(AuditActionType.NOTE_ADDED).documentId(id)
+                .queryText("Note added").success(true).build());
         return Map.of("id", saved.getId(), "content", saved.getContent(),
                 "createdBy", saved.getCreatedBy(), "createdAt", saved.getCreatedAt().toString());
     }
@@ -444,14 +467,19 @@ public class DocumentController {
     public void deleteNote(@PathVariable UUID noteId, Authentication auth) {
         DocumentNote note = noteRepository.findById(noteId)
                 .orElseThrow(() -> new IllegalArgumentException("Note not found"));
-        if (!note.getCreatedBy().equals(auth.getName())) {
+        String role = extractRole(auth);
+        if (!note.getCreatedBy().equals(auth.getName()) && !role.contains("ADMIN")) {
             throw new SecurityException("You can only delete your own notes");
         }
         noteRepository.deleteById(noteId);
+        auditService.publish(AuditEvent.builder().username(auth.getName())
+                .action(AuditActionType.NOTE_DELETED).documentId(note.getDocument().getId())
+                .queryText("Note deleted").success(true).build());
     }
 
     // ── Metadata Edit ──
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'PARTNER')")
     @PatchMapping("/{id}/metadata")
     public DocumentMetadata updateMetadata(@PathVariable UUID id, @RequestBody Map<String, Object> updates, Authentication auth) {
         DocumentMetadata doc = documentRepository.findById(id)
@@ -463,7 +491,11 @@ public class DocumentController {
         if (updates.containsKey("jurisdiction")) doc.setJurisdiction((String) updates.get("jurisdiction"));
         if (updates.containsKey("contractValue")) doc.setContractValue((String) updates.get("contractValue"));
         if (updates.containsKey("userBrief")) doc.setUserBrief((String) updates.get("userBrief"));
-        return documentRepository.save(doc);
+        DocumentMetadata saved = documentRepository.save(doc);
+        auditService.publish(AuditEvent.builder().username(auth.getName())
+                .action(AuditActionType.METADATA_EDITED).documentId(id)
+                .queryText("Fields updated: " + String.join(", ", updates.keySet())).success(true).build());
+        return saved;
     }
 
     // ── Helpers ──
