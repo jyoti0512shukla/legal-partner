@@ -154,6 +154,7 @@ public class MfaService {
     public void enableEmailOtp(UUID userId) {
         userRepository.findById(userId).ifPresent(user -> {
             user.setMfaEnabled(true);
+            user.setMfaMethod("EMAIL_OTP");
             userRepository.save(user);
         });
     }
