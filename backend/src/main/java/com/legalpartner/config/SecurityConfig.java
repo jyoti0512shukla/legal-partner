@@ -62,7 +62,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(AbstractHttpConfigurer::disable)
                 .headers(headers -> headers
-                        .frameOptions(frame -> frame.deny())
+                        .frameOptions(frame -> frame.sameOrigin())
                         .contentTypeOptions(ct -> {})
                         .httpStrictTransportSecurity(hsts -> hsts
                                 .includeSubDomains(true)
