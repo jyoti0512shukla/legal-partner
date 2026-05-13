@@ -313,6 +313,37 @@ public class DocumentController {
         return Map.of("count", documentRepository.countActiveContracts());
     }
 
+    // ── Version Compare ──
+
+    @GetMapping("/{id}/versions/{v1}/{v2}/compare")
+    public Map<String, Object> compareVersions(@PathVariable UUID id, @PathVariable int v1, @PathVariable int v2) {
+        var ver1 = versionService.getVersion(id, v1);
+        var ver2 = versionService.getVersion(id, v2);
+        String text1 = readVersionText(ver1.getStoredPath());
+        String text2 = readVersionText(ver2.getStoredPath());
+        return Map.of(
+                "v1", Map.of("versionNumber", v1, "text", text1, "source", ver1.getSource(), "createdBy", ver1.getCreatedBy() != null ? ver1.getCreatedBy() : ""),
+                "v2", Map.of("versionNumber", v2, "text", text2, "source", ver2.getSource(), "createdBy", ver2.getCreatedBy() != null ? ver2.getCreatedBy() : "")
+        );
+    }
+
+    private String readVersionText(String path) {
+        if (path == null) return "";
+        try {
+            java.nio.file.Path filePath = java.nio.file.Path.of(path);
+            if (!java.nio.file.Files.exists(filePath)) {
+                // Try with /data/documents prefix
+                filePath = java.nio.file.Path.of("/data/documents", path);
+            }
+            if (!java.nio.file.Files.exists(filePath)) return "[File not found]";
+            String content = java.nio.file.Files.readString(filePath);
+            // Strip HTML tags for plain text comparison
+            return content.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+        } catch (Exception e) {
+            return "[Error reading file: " + e.getMessage() + "]";
+        }
+    }
+
     // ── Client Intelligence ──
 
     @GetMapping("/clients/distinct")
