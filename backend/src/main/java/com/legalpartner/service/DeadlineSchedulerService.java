@@ -28,6 +28,7 @@ public class DeadlineSchedulerService {
     private final DocumentMetadataRepository documentRepo;
     private final DeadlineService deadlineService;
     private final AuditService auditService;
+    private final InAppNotificationService notificationService;
 
     /** Run daily at 8am — send alerts, update statuses */
     @Scheduled(cron = "0 0 8 * * *")
@@ -102,6 +103,12 @@ public class DeadlineSchedulerService {
         log.info("DEADLINE ALERT: {} for {} — {} in {} days ({})",
                 dl.getDeadlineType(), doc.getFileName(), dl.getDescription(),
                 alert.getAlertWindowDays(), dl.getDeadlineDate());
+
+        // In-app notification to all partners/admins
+        notificationService.notifyPartnersAndAdmins("DEADLINE_APPROACHING",
+                dl.getDeadlineType() + ": " + doc.getFileName(),
+                dl.getDescription() + " — " + alert.getAlertWindowDays() + " days away (" + dl.getDeadlineDate() + ")",
+                "/documents?docId=" + doc.getId() + "&tab=deadlines");
 
         auditService.publish(AuditEvent.builder()
                 .username("SYSTEM_SCHEDULER")

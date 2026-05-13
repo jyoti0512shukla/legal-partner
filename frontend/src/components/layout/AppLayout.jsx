@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Search, Sparkles, Bell, Home, ChevronRight, FileText, Briefcase, Wand2, X } from 'lucide-react';
+import { Search, Sparkles, Bell, Home, ChevronRight, FileText, Briefcase, Wand2, X, Check } from 'lucide-react';
 import api from '../../api/client';
 import Sidebar from './Sidebar';
 
@@ -147,6 +147,130 @@ function GlobalSearch() {
   );
 }
 
+function NotificationBell() {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState({ notifications: [], unreadCount: 0 });
+  const ref = useRef(null);
+
+  const load = () => {
+    api.get('/notifications').then(r => setData(r.data || { notifications: [], unreadCount: 0 })).catch(() => {});
+  };
+
+  useEffect(() => { load(); const i = setInterval(load, 30000); return () => clearInterval(i); }, []);
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleClick = (n) => {
+    api.post(`/notifications/${n.id}/read`).catch(() => {});
+    setOpen(false);
+    if (n.link) navigate(n.link);
+    load();
+  };
+
+  const markAllRead = () => {
+    api.post('/notifications/read-all').then(load).catch(() => {});
+  };
+
+  const TYPE_ICONS = {
+    REVIEW_ASSIGNED: { color: 'var(--brand-400)', label: 'Review' },
+    DEADLINE_APPROACHING: { color: 'var(--warn-400)', label: 'Deadline' },
+    CONTRACT_EXECUTED: { color: 'var(--success-400)', label: 'Executed' },
+    CONTRACT_EXPIRING: { color: '#d29922', label: 'Expiring' },
+    STATUS_CHANGED: { color: 'var(--info-400)', label: 'Status' },
+    NOTE_ADDED: { color: 'var(--text-2)', label: 'Note' },
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button className="icon-btn" title="Notifications" onClick={() => setOpen(!open)}>
+        <Bell size={16} />
+        {data.unreadCount > 0 && (
+          <span style={{
+            position: 'absolute', top: 2, right: 2, width: 8, height: 8,
+            borderRadius: '50%', background: 'var(--danger-400)',
+          }} />
+        )}
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 8,
+          width: 360, maxHeight: 440, overflow: 'auto',
+          background: 'var(--bg-1)', border: '1px solid var(--line-1)',
+          borderRadius: 'var(--r-md)', boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '10px 14px', borderBottom: '1px solid var(--line-1)',
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)' }}>
+              Notifications {data.unreadCount > 0 && <span style={{ color: 'var(--brand-400)' }}>({data.unreadCount})</span>}
+            </span>
+            {data.unreadCount > 0 && (
+              <button onClick={markAllRead}
+                style={{ fontSize: 10, color: 'var(--brand-400)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                <Check size={10} /> Mark all read
+              </button>
+            )}
+          </div>
+          {data.notifications.length === 0 ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+              No notifications yet
+            </div>
+          ) : data.notifications.map(n => {
+            const t = TYPE_ICONS[n.type] || { color: 'var(--text-3)', label: n.type };
+            return (
+              <div key={n.id} onClick={() => handleClick(n)}
+                style={{
+                  display: 'flex', gap: 10, padding: '10px 14px', cursor: 'pointer',
+                  borderBottom: '1px solid var(--line-1)',
+                  background: n.read ? 'transparent' : 'var(--brand-400)04',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-2)'}
+                onMouseLeave={e => e.currentTarget.style.background = n.read ? 'transparent' : 'var(--brand-400)04'}>
+                <div style={{
+                  width: 8, height: 8, borderRadius: '50%', marginTop: 4, flexShrink: 0,
+                  background: n.read ? 'var(--line-2)' : t.color,
+                }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: n.read ? 400 : 600, color: 'var(--text-1)' }}>
+                    {n.title}
+                  </div>
+                  {n.message && (
+                    <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2, lineHeight: 1.4 }}>
+                      {n.message.length > 80 ? n.message.slice(0, 80) + '...' : n.message}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 3 }}>
+                    <span style={{ color: t.color, fontWeight: 600 }}>{t.label}</span>
+                    {' · '}{timeAgo(n.createdAt)}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  const days = Math.floor(hrs / 24);
+  return days + 'd ago';
+}
+
 export default function AppLayout({ children }) {
   const location = useLocation();
   const pageTitle = PAGE_TITLES[location.pathname] || '';
@@ -166,10 +290,7 @@ export default function AppLayout({ children }) {
             <button className="icon-btn" title="What's new">
               <Sparkles size={16} />
             </button>
-            <button className="icon-btn" title="Notifications">
-              <Bell size={16} />
-              <span className="dot"></span>
-            </button>
+            <NotificationBell />
           </div>
         </div>
         <div className="content-area">
