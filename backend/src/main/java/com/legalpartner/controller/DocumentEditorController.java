@@ -59,14 +59,13 @@ public class DocumentEditorController {
                 "url", fileUrl
         ));
         String mode = doc.isLocked() ? "view" : "edit";
-        config.put("editorConfig", Map.of(
-                "callbackUrl", callbackUrl,
-                "mode", mode,
-                "user", Map.of(
-                        "id", auth.getName(),
-                        "name", auth.getName()
-                )
-        ));
+        Map<String, Object> editorConfig = new LinkedHashMap<>();
+        editorConfig.put("callbackUrl", callbackUrl);
+        editorConfig.put("mode", mode);
+        editorConfig.put("user", Map.of("id", auth.getName(), "name", auth.getName()));
+        // Disable auto-save — only save on explicit force save (our Save button)
+        editorConfig.put("customization", Map.of("autosave", false, "forcesave", true));
+        config.put("editorConfig", editorConfig);
         config.put("documentType", fileType.equals("pdf") ? "pdf" : "word");
         config.put("onlyofficeUrl", onlyofficeUrl);
 
@@ -107,8 +106,8 @@ public class DocumentEditorController {
         int status = body.get("status") instanceof Number n ? n.intValue() : 0;
         log.info("ONLYOFFICE callback for doc {}: status={}", documentId, status);
 
-        // Status 2 = document ready for saving, 6 = force save
-        if (status == 2 || status == 6) {
+        // Status 6 = force save (our Save button). Status 2 = editor closed — ignore (no auto-save).
+        if (status == 6) {
             String downloadUrl = (String) body.get("url");
             if (downloadUrl != null) {
                 try {
