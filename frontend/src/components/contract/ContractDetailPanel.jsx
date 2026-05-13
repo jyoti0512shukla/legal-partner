@@ -16,6 +16,7 @@ const TABS = [
   { id: 'versions', label: 'Versions' },
   { id: 'deadlines', label: 'Deadlines' },
   { id: 'activity', label: 'Activity' },
+  { id: 'review', label: 'Review' },
 ];
 
 function getUrgencyColor(daysUntil) {
@@ -271,6 +272,8 @@ export default function ContractDetailPanel({ docId, onClose, onStatusChanged, o
         {tab === 'deadlines' && <DeadlinesTab docId={docId} />}
 
         {tab === 'activity' && <ActivityTab docId={docId} />}
+
+        {tab === 'review' && <ReviewTab docId={docId} matterId={doc.matter?.id} />}
       </div>
 
       {/* Modals */}
@@ -389,6 +392,206 @@ function ActivityTab({ docId }) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+const ACTION_STYLE = {
+  APPROVE: { color: 'var(--success-400)', bg: 'var(--success-bg, rgba(63,185,80,0.1))', label: 'Approved' },
+  RETURN: { color: 'var(--warn-400)', bg: 'var(--warn-bg, rgba(216,154,58,0.1))', label: 'Returned' },
+  FLAG: { color: 'var(--danger-400)', bg: 'var(--danger-bg, rgba(217,83,78,0.1))', label: 'Flagged' },
+  SEND: { color: 'var(--info-400)', bg: 'rgba(56,139,253,0.1)', label: 'Sent' },
+  ADD_NOTE: { color: 'var(--text-2)', bg: 'var(--bg-3)', label: 'Note' },
+};
+
+function ReviewTab({ docId, matterId }) {
+  const [reviews, setReviews] = useState([]);
+  const [actions, setActions] = useState({});
+  const [pipelines, setPipelines] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [startingReview, setStartingReview] = useState(false);
+  const [selectedPipeline, setSelectedPipeline] = useState('');
+  const [actionNote, setActionNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [reviewsRes, pipelinesRes] = await Promise.all([
+        matterId ? api.get(`/review-pipelines/reviews/matter/${matterId}`) : Promise.resolve({ data: [] }),
+        api.get('/review-pipelines'),
+      ]);
+
+      // Filter reviews for this document
+      const docReviews = (reviewsRes.data || []).filter(r => r.documentId === docId || !r.documentId);
+      setReviews(docReviews);
+      setPipelines(pipelinesRes.data || []);
+
+      // Load actions for each review
+      const actionsMap = {};
+      for (const r of docReviews) {
+        try {
+          const actRes = await api.get(`/review-pipelines/reviews/${r.id}/actions`);
+          actionsMap[r.id] = actRes.data || [];
+        } catch { actionsMap[r.id] = []; }
+      }
+      setActions(actionsMap);
+    } catch {}
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, [docId, matterId]);
+
+  const handleStartReview = async () => {
+    if (!selectedPipeline || !matterId) return;
+    setStartingReview(true);
+    try {
+      await api.post(`/review-pipelines/reviews/start?matterId=${matterId}&documentId=${docId}&pipelineId=${selectedPipeline}`);
+      setSelectedPipeline('');
+      load();
+    } catch (e) { alert(e.response?.data?.message || 'Failed to start review'); }
+    finally { setStartingReview(false); }
+  };
+
+  const handleAction = async (reviewId, action) => {
+    setSubmitting(true);
+    try {
+      await api.post(`/review-pipelines/reviews/${reviewId}/action`, { action, notes: actionNote });
+      setActionNote('');
+      load();
+    } catch (e) { alert(e.response?.data?.message || 'Action failed'); }
+    finally { setSubmitting(false); }
+  };
+
+  if (loading) return <Loader2 size={14} className="animate-spin" style={{ color: 'var(--text-3)' }} />;
+
+  const activeReview = reviews.find(r => r.status === 'IN_PROGRESS');
+  const completedReviews = reviews.filter(r => r.status !== 'IN_PROGRESS');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Active review */}
+      {activeReview && (
+        <div className="card" style={{ padding: 14, borderLeftWidth: 3, borderLeftColor: 'var(--brand-400)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-1)', marginBottom: 4 }}>
+            {activeReview.pipelineName}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 8 }}>
+            Stage {activeReview.currentStageOrder} of {activeReview.totalStages}: <strong>{activeReview.currentStageName}</strong>
+          </div>
+
+          {/* Progress bar */}
+          <div style={{ height: 4, background: 'var(--bg-3)', borderRadius: 2, marginBottom: 10 }}>
+            <div style={{
+              height: '100%', borderRadius: 2, background: 'var(--brand-400)',
+              width: `${activeReview.totalStages > 0 ? (activeReview.currentStageOrder / activeReview.totalStages) * 100 : 0}%`,
+              transition: 'width 0.3s',
+            }} />
+          </div>
+
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input className="input" value={actionNote} onChange={e => setActionNote(e.target.value)}
+              placeholder="Add a note..." style={{ flex: 1, fontSize: 11, padding: '4px 8px', minWidth: 120 }} />
+            {['APPROVE', 'RETURN', 'FLAG'].map(a => {
+              const s = ACTION_STYLE[a];
+              return (
+                <button key={a} className="btn sm" onClick={() => handleAction(activeReview.id, a)}
+                  disabled={submitting}
+                  style={{ fontSize: 10, color: s.color, background: s.bg, border: 'none' }}>
+                  {a === 'APPROVE' ? <Check size={10} /> : null} {s.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Start new review */}
+      {!activeReview && matterId && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <select className="select" value={selectedPipeline} onChange={e => setSelectedPipeline(e.target.value)}
+            style={{ fontSize: 11, padding: '4px 8px', flex: 1 }}>
+            <option value="">Select review pipeline...</option>
+            {pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <button className="btn sm primary" onClick={handleStartReview}
+            disabled={!selectedPipeline || startingReview} style={{ fontSize: 10 }}>
+            {startingReview ? <Loader2 size={10} className="animate-spin" /> : null}
+            Start Review
+          </button>
+        </div>
+      )}
+
+      {!matterId && !activeReview && reviews.length === 0 && (
+        <div className="small muted">This document is not linked to a matter. Assign it to a matter to start a review.</div>
+      )}
+
+      {/* Review history */}
+      {reviews.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', marginBottom: 8 }}>
+            Review History
+          </div>
+          {reviews.map(r => {
+            const reviewActions = actions[r.id] || [];
+            return (
+              <div key={r.id} style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-1)' }}>{r.pipelineName}</span>
+                  <span style={{
+                    fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 3,
+                    background: r.status === 'COMPLETED' ? 'var(--success-bg, rgba(63,185,80,0.1))' : 'var(--bg-3)',
+                    color: r.status === 'COMPLETED' ? 'var(--success-400)' : 'var(--text-3)',
+                    textTransform: 'uppercase',
+                  }}>
+                    {r.status}
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 'auto' }}>
+                    {r.startedAt ? new Date(r.startedAt).toLocaleDateString() : ''}
+                  </span>
+                </div>
+                {/* Actions timeline */}
+                {reviewActions.length > 0 && (
+                  <div style={{ paddingLeft: 12, borderLeft: '2px solid var(--line-1)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {reviewActions.map(a => {
+                      const s = ACTION_STYLE[a.action] || ACTION_STYLE.ADD_NOTE;
+                      return (
+                        <div key={a.id} style={{ fontSize: 11 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{
+                              fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 3,
+                              background: s.bg, color: s.color,
+                            }}>
+                              {s.label}
+                            </span>
+                            <span style={{ color: 'var(--text-2)' }}>{a.stageName}</span>
+                            <span style={{ color: 'var(--text-3)', marginLeft: 'auto', fontSize: 10 }}>
+                              {a.actedByName || a.actedBy} · {new Date(a.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          {a.notes && (
+                            <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2, fontStyle: 'italic', paddingLeft: 4 }}>
+                              "{a.notes}"
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {reviewActions.length === 0 && (
+                  <div style={{ fontSize: 10, color: 'var(--text-3)', paddingLeft: 12 }}>No actions recorded</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {reviews.length === 0 && !activeReview && matterId && (
+        <div className="small muted">No reviews started for this document yet.</div>
+      )}
     </div>
   );
 }
