@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, Shield, AlertTriangle, Loader2, FileText, Play, Wand2, Type, ClipboardCheck, Replace, Gauge } from 'lucide-react';
+import { ArrowLeft, Shield, AlertTriangle, Loader2, FileText, Play, Wand2, Type, ClipboardCheck, Replace, Gauge, Save } from 'lucide-react';
 import api from '../api/client';
 
 export default function DocumentEditorPage() {
@@ -21,6 +21,8 @@ export default function DocumentEditorPage() {
   const [aiLoading, setAiLoading] = useState(null); // tracks which action key is loading
   const [coverage, setCoverage] = useState(null);
   const [coverageLoading, setCoverageLoading] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Load document info first, editor config separately (may fail if no stored file)
   useEffect(() => {
@@ -66,6 +68,7 @@ export default function DocumentEditorPage() {
             events: {
               onReady: () => console.log('[Editor] ONLYOFFICE editor ready'),
               onError: (e) => { console.error('[Editor] ONLYOFFICE error:', e); setError('Editor error: ' + JSON.stringify(e)); },
+              onDocumentStateChange: (e) => { setHasUnsavedChanges(e.data); },
               onSelectionChange: () => {},
             },
           };
@@ -87,6 +90,35 @@ export default function DocumentEditorPage() {
     document.head.appendChild(script);
     return () => { try { document.head.removeChild(script); } catch {} };
   }, [config]);
+
+  // Save: trigger ONLYOFFICE force save via connector
+  const handleSave = useCallback(() => {
+    if (!editorInstance.current) return;
+    setSaving(true);
+    try {
+      const connector = editorInstance.current.createConnector();
+      connector.callCommand(() => {
+        Api.asc_Save();
+      }, () => {
+        // Save triggered — ONLYOFFICE will call our callback endpoint
+      });
+      // Also trigger force save via the API
+      editorInstance.current.triggerForceSave && editorInstance.current.triggerForceSave();
+    } catch (e) {
+      console.error('[Editor] Force save failed, trying alternative:', e);
+    }
+    // The actual save happens via callback — give it a moment
+    setTimeout(() => { setSaving(false); setHasUnsavedChanges(false); }, 2000);
+  }, []);
+
+  // Warn on browser close/refresh with unsaved changes
+  useEffect(() => {
+    const handler = (e) => {
+      if (hasUnsavedChanges) { e.preventDefault(); e.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [hasUnsavedChanges]);
 
   // Poll for selected text every 500ms when selection tab is active
   const connectorRef = useRef(null);
@@ -226,16 +258,33 @@ export default function DocumentEditorPage() {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-surface border-b border-border/50 shrink-0">
         <div className="flex items-center gap-3">
-          <Link to={matterId ? `/matters/${matterId}` : '/documents'}
-            className="text-text-muted hover:text-text-primary">
+          <button onClick={() => {
+              if (hasUnsavedChanges && !confirm('You have unsaved changes. Leave without saving?')) return;
+              window.location.href = matterId ? `/matters/${matterId}` : '/documents';
+            }}
+            className="text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer">
             <ArrowLeft className="w-4 h-4" />
-          </Link>
+          </button>
           <div>
             <h1 className="text-sm font-semibold text-text-primary font-display">{doc?.fileName}</h1>
             <p className="text-[10px] text-text-muted">{doc?.documentType} · {doc?.contentType}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {hasUnsavedChanges && (
+            <span className="text-[10px] bg-warning/10 text-warning px-2 py-0.5 rounded-full">
+              Unsaved changes
+            </span>
+          )}
+          <button onClick={handleSave} disabled={saving || !hasUnsavedChanges}
+            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+              hasUnsavedChanges
+                ? 'bg-primary text-white hover:bg-primary/90'
+                : 'bg-surface-el text-text-muted'
+            }`}>
+            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+            {saving ? 'Saving...' : 'Save'}
+          </button>
           {selectedText && (
             <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full">
               {selectedText.length > 30 ? selectedText.slice(0, 30) + '...' : selectedText} selected
