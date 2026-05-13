@@ -58,9 +58,10 @@ public class DocumentEditorController {
                 "title", doc.getFileName(),
                 "url", fileUrl
         ));
+        String mode = doc.isLocked() ? "view" : "edit";
         config.put("editorConfig", Map.of(
                 "callbackUrl", callbackUrl,
-                "mode", "edit",
+                "mode", mode,
                 "user", Map.of(
                         "id", auth.getName(),
                         "name", auth.getName()

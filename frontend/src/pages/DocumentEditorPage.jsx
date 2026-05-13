@@ -267,24 +267,34 @@ export default function DocumentEditorPage() {
           </button>
           <div>
             <h1 className="text-sm font-semibold text-text-primary font-display">{doc?.fileName}</h1>
-            <p className="text-[10px] text-text-muted">{doc?.documentType} · {doc?.contentType}</p>
+            <p className="text-[10px] text-text-muted">
+              {doc?.documentType} · {doc?.contentType}
+              {doc?.locked && <span className="ml-2 text-warning"> (Read-only — document is locked)</span>}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {hasUnsavedChanges && (
+          {doc?.locked && (
+            <span className="text-[10px] bg-warning/10 text-warning px-2 py-0.5 rounded-full">
+              Read-only
+            </span>
+          )}
+          {hasUnsavedChanges && !doc?.locked && (
             <span className="text-[10px] bg-warning/10 text-warning px-2 py-0.5 rounded-full">
               Unsaved changes
             </span>
           )}
-          <button onClick={handleSave} disabled={saving || !hasUnsavedChanges}
-            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
-              hasUnsavedChanges
-                ? 'bg-primary text-white hover:bg-primary/90'
-                : 'bg-surface-el text-text-muted'
-            }`}>
-            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          {!doc?.locked && (
+            <button onClick={handleSave} disabled={saving || !hasUnsavedChanges}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                hasUnsavedChanges
+                  ? 'bg-primary text-white hover:bg-primary/90'
+                  : 'bg-surface-el text-text-muted'
+              }`}>
+              {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          )}
           {selectedText && (
             <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full">
               {selectedText.length > 30 ? selectedText.slice(0, 30) + '...' : selectedText} selected
