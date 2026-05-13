@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Search, Sparkles, Bell, Home, ChevronRight, FileText, Briefcase, Wand2, X, Check } from 'lucide-react';
+import { Search, Bell, Home, ChevronRight, FileText, Briefcase, Wand2, X, Check } from 'lucide-react';
 import api from '../../api/client';
 import Sidebar from './Sidebar';
 
@@ -291,9 +291,6 @@ export default function AppLayout({ children }) {
           </div>
           <GlobalSearch />
           <div className="topbar-right">
-            <button className="icon-btn" title="What's new">
-              <Sparkles size={16} />
-            </button>
             <NotificationBell />
           </div>
         </div>
