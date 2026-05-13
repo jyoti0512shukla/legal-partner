@@ -46,6 +46,7 @@ export default function DocumentsPage() {
   const [clients, setClients] = useState([]);
   const [clientFilter, setClientFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [initialTab, setInitialTab] = useState(null);
 
   // Upload state
   const [showUpload, setShowUpload] = useState(false);
@@ -65,7 +66,9 @@ export default function DocumentsPage() {
   // Read docId from URL for cross-flow linking
   useEffect(() => {
     const docId = searchParams.get('docId');
+    const tab = searchParams.get('tab');
     if (docId) setSelectedDocId(docId);
+    if (tab) setInitialTab(tab);
     if (searchParams.get('cloud') === 'connected') {
       setSearchParams({}, { replace: true });
       setShowCloudImport(true);
@@ -366,9 +369,10 @@ export default function DocumentsPage() {
       {selectedDocId && (
         <ContractDetailPanel
           docId={selectedDocId}
-          onClose={() => setSelectedDocId(null)}
+          initialTab={initialTab}
+          onClose={() => { setSelectedDocId(null); setInitialTab(null); }}
           onStatusChanged={fetchDocs}
-          onDeleted={() => { setSelectedDocId(null); fetchDocs(); }}
+          onDeleted={() => { setSelectedDocId(null); setInitialTab(null); fetchDocs(); }}
         />
       )}
 

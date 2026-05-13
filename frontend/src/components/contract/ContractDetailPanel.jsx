@@ -27,11 +27,11 @@ function getUrgencyColor(daysUntil) {
   return 'var(--text-3)';
 }
 
-export default function ContractDetailPanel({ docId, onClose, onStatusChanged, onDeleted }) {
+export default function ContractDetailPanel({ docId, initialTab, onClose, onStatusChanged, onDeleted }) {
   const navigate = useNavigate();
   const [doc, setDoc] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState(initialTab || 'overview');
   const [allowed, setAllowed] = useState([]);
   const [showFinalize, setShowFinalize] = useState(false);
   const [showSign, setShowSign] = useState(false);
@@ -54,7 +54,7 @@ export default function ContractDetailPanel({ docId, onClose, onStatusChanged, o
     .finally(() => setLoading(false));
   };
 
-  useEffect(() => { if (docId) { setTab('overview'); loadDoc(); } }, [docId]);
+  useEffect(() => { if (docId) { setTab(initialTab || 'overview'); loadDoc(); } }, [docId]);
 
   const handleTransition = async (e) => {
     const status = e.target.value;

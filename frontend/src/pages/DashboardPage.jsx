@@ -261,16 +261,19 @@ export default function DashboardPage() {
               {needsAction.map(r => (
                 <div
                   key={r.id}
-                  onClick={() => navigate(`/matters/${r.matterId}`)}
+                  onClick={() => r.documentId
+                    ? navigate(`/documents?docId=${r.documentId}&tab=review`)
+                    : navigate(`/matters/${r.matterId}`)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer',
                     borderBottom: '1px solid var(--line-1)',
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="small" style={{ fontWeight: 500 }}>{r.matterName}</div>
+                    <div className="small" style={{ fontWeight: 500 }}>{r.documentName || r.matterName}</div>
                     <div className="tiny muted">
                       {r.pipelineName} &middot; {r.currentStageName}
+                      {r.matterName && r.documentName && <span> &middot; {r.matterName}</span>}
                       {r.requiredRole && <span className="chip" style={{ marginLeft: 6 }}>{r.requiredRole}</span>}
                     </div>
                   </div>
