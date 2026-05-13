@@ -414,6 +414,11 @@ function ReviewTab({ docId, matterId }) {
   const [actionNote, setActionNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // AI Assist
+  const [aiLoading, setAiLoading] = useState(false);
+  const [riskData, setRiskData] = useState(null);
+  const [summaryData, setSummaryData] = useState(null);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -506,6 +511,104 @@ function ReviewTab({ docId, matterId }) {
           </div>
         </div>
       )}
+
+      {/* AI Assist */}
+      <div style={{ border: '1px solid var(--line-1)', borderRadius: 'var(--r-md)', overflow: 'hidden' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '8px 12px', background: 'var(--bg-2)', borderBottom: riskData || summaryData ? '1px solid var(--line-1)' : 'none',
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>AI Review Assist</span>
+          <button className="btn sm" onClick={async () => {
+            setAiLoading(true); setRiskData(null); setSummaryData(null);
+            try {
+              const [riskRes, summaryRes] = await Promise.all([
+                api.post(`/ai/risk-assessment/${docId}`).catch(() => ({ data: null })),
+                api.post(`/ai/summarize/${docId}`).catch(() => ({ data: null })),
+              ]);
+              if (riskRes.data) setRiskData(riskRes.data);
+              if (summaryRes.data) setSummaryData(summaryRes.data);
+            } catch {}
+            finally { setAiLoading(false); }
+          }} disabled={aiLoading} style={{ fontSize: 10 }}>
+            {aiLoading ? <Loader2 size={10} className="animate-spin" /> : <Shield size={10} />}
+            {aiLoading ? 'Analyzing...' : riskData ? 'Re-run' : 'Run AI Review'}
+          </button>
+        </div>
+
+        {aiLoading && (
+          <div style={{ padding: 20, textAlign: 'center' }}>
+            <Loader2 size={16} className="animate-spin" style={{ color: 'var(--brand-400)' }} />
+            <div className="small muted" style={{ marginTop: 6 }}>Running risk assessment and summarization...</div>
+          </div>
+        )}
+
+        {riskData && !aiLoading && (
+          <div style={{ padding: 12 }}>
+            {/* Risk score */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center',
+                fontSize: 12, fontWeight: 700,
+                background: riskData.overallRisk === 'HIGH' ? 'var(--danger-bg, rgba(217,83,78,0.1))' :
+                  riskData.overallRisk === 'MEDIUM' ? 'var(--warn-bg, rgba(216,154,58,0.1))' : 'var(--success-bg, rgba(63,185,80,0.1))',
+                color: riskData.overallRisk === 'HIGH' ? 'var(--danger-400)' :
+                  riskData.overallRisk === 'MEDIUM' ? 'var(--warn-400)' : 'var(--success-400)',
+              }}>
+                {riskData.riskScore || '?'}
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-1)' }}>
+                  {riskData.overallRisk || 'UNKNOWN'} Risk
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--text-3)' }}>
+                  {riskData.answeredQuestions || 0} questions analyzed
+                </div>
+              </div>
+            </div>
+
+            {/* Key findings */}
+            {riskData.categories && Object.entries(riskData.categories).map(([severity, items]) => {
+              if (!Array.isArray(items) || items.length === 0) return null;
+              const color = severity === 'HIGH' ? 'var(--danger-400)' : severity === 'MEDIUM' ? 'var(--warn-400)' : 'var(--success-400)';
+              return (
+                <div key={severity} style={{ marginBottom: 8 }}>
+                  {items.slice(0, 5).map((item, i) => (
+                    <div key={i} style={{
+                      display: 'flex', gap: 6, alignItems: 'flex-start', padding: '4px 0',
+                      fontSize: 11, lineHeight: 1.4,
+                    }}>
+                      <span style={{
+                        fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 2,
+                        background: color + '18', color, flexShrink: 0, marginTop: 2,
+                      }}>
+                        {severity}
+                      </span>
+                      <span style={{ color: 'var(--text-2)' }}>
+                        {typeof item === 'string' ? item : item.clause || item.finding || item.question || JSON.stringify(item)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+
+            {/* Summary */}
+            {summaryData && (
+              <div style={{ marginTop: 8, padding: 8, background: 'var(--bg-2)', borderRadius: 'var(--r-sm)', fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                {typeof summaryData === 'string' ? summaryData :
+                 summaryData.summary || summaryData.text || JSON.stringify(summaryData).substring(0, 300)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!riskData && !aiLoading && (
+          <div style={{ padding: '12px', fontSize: 11, color: 'var(--text-3)', textAlign: 'center' }}>
+            Click "Run AI Review" to get risk assessment, compliance checks, and a summary.
+          </div>
+        )}
+      </div>
 
       {/* Start new review */}
       {!activeReview && matterId && (
