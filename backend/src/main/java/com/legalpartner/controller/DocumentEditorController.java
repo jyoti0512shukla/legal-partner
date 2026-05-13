@@ -2,6 +2,7 @@ package com.legalpartner.controller;
 
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.repository.DocumentMetadataRepository;
+import com.legalpartner.repository.DocumentVersionRepository;
 import com.legalpartner.service.FileStorageService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +19,7 @@ import java.util.*;
 public class DocumentEditorController {
 
     private final DocumentMetadataRepository docRepo;
+    private final DocumentVersionRepository versionRepo;
     private final FileStorageService fileStorage;
 
     @Value("${legalpartner.onlyoffice.url:http://localhost:8443}")
@@ -26,8 +28,9 @@ public class DocumentEditorController {
     @Value("${legalpartner.onlyoffice.backend-url:http://backend:8080}")
     private String onlyofficeBackendUrl;
 
-    public DocumentEditorController(DocumentMetadataRepository docRepo, FileStorageService fileStorage) {
+    public DocumentEditorController(DocumentMetadataRepository docRepo, DocumentVersionRepository versionRepo, FileStorageService fileStorage) {
         this.docRepo = docRepo;
+        this.versionRepo = versionRepo;
         this.fileStorage = fileStorage;
     }
 
@@ -108,16 +111,49 @@ public class DocumentEditorController {
             String downloadUrl = (String) body.get("url");
             if (downloadUrl != null) {
                 try {
+                    DocumentMetadata doc = docRepo.findById(documentId).orElse(null);
+                    if (doc == null) {
+                        log.warn("ONLYOFFICE callback: document {} not found", documentId);
+                        return Map.of("error", 0);
+                    }
+                    if (doc.isLocked()) {
+                        log.warn("ONLYOFFICE callback: document {} is locked, rejecting save", documentId);
+                        return Map.of("error", 0);
+                    }
                     byte[] edited = new org.springframework.web.client.RestTemplate()
                             .getForObject(downloadUrl, byte[].class);
-                    if (edited != null) {
-                        DocumentMetadata doc = docRepo.findById(documentId).orElse(null);
-                        if (doc != null && doc.getStoredPath() != null) {
-                            java.nio.file.Files.write(java.nio.file.Paths.get(doc.getStoredPath()), edited);
-                            doc.setFileSize((long) edited.length);
-                            docRepo.save(doc);
-                            log.info("Saved edited document {} ({} bytes)", documentId, edited.length);
-                        }
+                    if (edited != null && doc.getStoredPath() != null) {
+                        // Save as new version
+                        int nextVersion = (doc.getCurrentVersion() != null ? doc.getCurrentVersion() : 0) + 1;
+                        String ext = getFileType(doc.getFileName());
+                        String versionPath = "/data/documents/" + documentId + "/v" + nextVersion + "." + ext;
+                        java.nio.file.Path path = java.nio.file.Paths.get(versionPath);
+                        java.nio.file.Files.createDirectories(path.getParent());
+                        java.nio.file.Files.write(path, edited);
+
+                        // Also update the main stored path
+                        java.nio.file.Files.write(java.nio.file.Paths.get(doc.getStoredPath()), edited);
+
+                        // Create version record
+                        @SuppressWarnings("unchecked")
+                        java.util.List<java.util.List<String>> users = (java.util.List<java.util.List<String>>) body.get("users");
+                        String editedBy = (users != null && !users.isEmpty()) ? users.get(0).toString() : "unknown";
+
+                        var version = com.legalpartner.model.entity.DocumentVersion.builder()
+                                .document(doc)
+                                .versionNumber(nextVersion)
+                                .storedPath(versionPath)
+                                .fileSize((long) edited.length)
+                                .source("EDIT")
+                                .changeSummary("Edited in document editor")
+                                .createdBy(editedBy)
+                                .build();
+                        versionRepo.save(version);
+
+                        doc.setCurrentVersion(nextVersion);
+                        doc.setFileSize((long) edited.length);
+                        docRepo.save(doc);
+                        log.info("Saved edited document {} as v{} ({} bytes)", documentId, nextVersion, edited.length);
                     }
                 } catch (Exception e) {
                     log.error("Failed to save edited document {}: {}", documentId, e.getMessage());
