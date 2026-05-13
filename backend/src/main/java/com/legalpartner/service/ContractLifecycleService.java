@@ -41,13 +41,13 @@ public class ContractLifecycleService {
             Map.entry(ContractStatus.NEGOTIATING, Set.of(
                     ContractStatus.INTERNAL_REVIEW, ContractStatus.APPROVED, ContractStatus.PENDING_SIGNATURE)),
             Map.entry(ContractStatus.PENDING_SIGNATURE, Set.of(
-                    ContractStatus.EXECUTED, ContractStatus.NEGOTIATING)),
+                    ContractStatus.EXECUTED, ContractStatus.NEGOTIATING, ContractStatus.DRAFT)),
             Map.entry(ContractStatus.EXECUTED, Set.of(
-                    ContractStatus.ACTIVE)),
+                    ContractStatus.ACTIVE, ContractStatus.DRAFT)),
             Map.entry(ContractStatus.ACTIVE, Set.of(
-                    ContractStatus.EXPIRING, ContractStatus.TERMINATED, ContractStatus.RENEWED)),
+                    ContractStatus.EXPIRING, ContractStatus.TERMINATED, ContractStatus.RENEWED, ContractStatus.DRAFT)),
             Map.entry(ContractStatus.EXPIRING, Set.of(
-                    ContractStatus.EXPIRED, ContractStatus.RENEWED, ContractStatus.TERMINATED))
+                    ContractStatus.EXPIRED, ContractStatus.RENEWED, ContractStatus.TERMINATED, ContractStatus.DRAFT))
     );
 
     @Transactional
@@ -67,8 +67,8 @@ public class ContractLifecycleService {
             doc.setLocked(true);
         }
 
-        // Unlock if bouncing back from PENDING_SIGNATURE
-        if (current == ContractStatus.PENDING_SIGNATURE && newStatus == ContractStatus.NEGOTIATING) {
+        // Unlock when going back to editable statuses
+        if (newStatus == ContractStatus.DRAFT || newStatus == ContractStatus.NEGOTIATING) {
             doc.setLocked(false);
         }
 

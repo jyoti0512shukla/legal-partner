@@ -308,6 +308,36 @@ export default function DocumentEditorPage() {
         </div>
       </div>
 
+      {/* Locked document banner */}
+      {doc?.locked && (
+        <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/50 shrink-0"
+          style={{ background: 'var(--warn-bg, rgba(216,154,58,0.08))' }}>
+          <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+          <div className="flex-1 text-xs">
+            <span className="font-semibold text-warning">Read-only</span>
+            <span className="text-text-muted ml-1">
+              — This document is <strong>{doc.contractStatus?.replace(/_/g, ' ')}</strong> and locked for editing.
+              {doc.contractStatus === 'PENDING_SIGNATURE' && ' It is awaiting signatures.'}
+              {doc.contractStatus === 'EXECUTED' && ' It has been signed and executed.'}
+              {doc.contractStatus === 'ACTIVE' && ' It is an active contract.'}
+              {doc.contractStatus === 'EXPIRING' && ' It is approaching expiry.'}
+            </span>
+          </div>
+          <button onClick={async () => {
+            if (!confirm('This will unlock the document and set its status back to DRAFT. Previous approvals will need to be re-done. Continue?')) return;
+            try {
+              await api.post(`/documents/${id}/lifecycle/transition?status=DRAFT`);
+              window.location.reload();
+            } catch (e) {
+              alert(e.response?.data?.message || 'Cannot unlock — you may not have permission');
+            }
+          }}
+            className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-warning/10 text-warning hover:bg-warning/20 transition-colors shrink-0">
+            Unlock & Edit
+          </button>
+        </div>
+      )}
+
       {/* Split view */}
       <div className="flex flex-1 overflow-hidden">
         {/* Editor or fallback */}
