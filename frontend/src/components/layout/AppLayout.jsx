@@ -166,10 +166,14 @@ function NotificationBell() {
   }, []);
 
   const handleClick = (n) => {
+    // Mark read immediately in local state
+    setData(prev => ({
+      notifications: prev.notifications.filter(x => x.id !== n.id),
+      unreadCount: Math.max(0, prev.unreadCount - (n.read ? 0 : 1)),
+    }));
     api.post(`/notifications/${n.id}/read`).catch(() => {});
     setOpen(false);
     if (n.link) navigate(n.link);
-    load();
   };
 
   const markAllRead = () => {
