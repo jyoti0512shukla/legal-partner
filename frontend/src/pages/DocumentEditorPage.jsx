@@ -42,34 +42,50 @@ export default function DocumentEditorPage() {
   useEffect(() => {
     if (!config || !editorRef.current) return;
 
+    console.log('[Editor] Config received:', JSON.stringify(config, null, 2));
+    console.log('[Editor] Loading ONLYOFFICE API from:', config.onlyofficeUrl + '/web-apps/apps/api/documents/api.js');
+
     const script = document.createElement('script');
     script.src = config.onlyofficeUrl + '/web-apps/apps/api/documents/api.js';
     script.onload = () => {
+      console.log('[Editor] ONLYOFFICE API script loaded. DocsAPI available:', !!window.DocsAPI);
       if (window.DocsAPI) {
-        editorInstance.current = new window.DocsAPI.DocEditor('onlyoffice-editor', {
-          document: config.document,
-          editorConfig: {
-            ...config.editorConfig,
-            customization: {
-              toolbarNoTabs: true,
-              compactHeader: true,
+        try {
+          const editorConfig = {
+            document: config.document,
+            editorConfig: {
+              ...config.editorConfig,
+              customization: {
+                toolbarNoTabs: true,
+                compactHeader: true,
+              },
             },
-          },
-          documentType: config.documentType,
-          height: '100%',
-          width: '100%',
-          events: {
-            onSelectionChange: (e) => {
-              // ONLYOFFICE fires this when selection changes
-              // We'll poll for selection instead since event support varies
+            documentType: config.documentType,
+            height: '100%',
+            width: '100%',
+            events: {
+              onReady: () => console.log('[Editor] ONLYOFFICE editor ready'),
+              onError: (e) => { console.error('[Editor] ONLYOFFICE error:', e); setError('Editor error: ' + JSON.stringify(e)); },
+              onSelectionChange: () => {},
             },
-          },
-        });
+          };
+          console.log('[Editor] Creating DocEditor with config:', JSON.stringify(editorConfig, null, 2));
+          editorInstance.current = new window.DocsAPI.DocEditor('onlyoffice-editor', editorConfig);
+        } catch (e) {
+          console.error('[Editor] Failed to create DocEditor:', e);
+          setError('Failed to initialize editor: ' + e.message);
+        }
+      } else {
+        console.error('[Editor] DocsAPI not available after script load');
+        setError('ONLYOFFICE API loaded but DocsAPI not available');
       }
     };
-    script.onerror = () => setError('Could not connect to document editor. Is ONLYOFFICE running?');
+    script.onerror = (e) => {
+      console.error('[Editor] Failed to load ONLYOFFICE script:', e);
+      setError('Could not load document editor script from: ' + config.onlyofficeUrl);
+    };
     document.head.appendChild(script);
-    return () => { document.head.removeChild(script); };
+    return () => { try { document.head.removeChild(script); } catch {} };
   }, [config]);
 
   // Poll for selected text every 500ms when selection tab is active
