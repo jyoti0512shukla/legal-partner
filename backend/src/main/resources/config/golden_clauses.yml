@@ -1,35 +1,57 @@
 # Golden Clause Library — curated, templatized legal clauses for deterministic fallback.
 #
-# Placeholder defaults: when a {{placeholder}} can't be resolved from DealSpec,
-# use these fallback values instead of rejecting the entire clause.
-# Add new defaults here — no code change needed.
-placeholder_defaults:
-  liability_cap_months: "twelve (12)"
-  notice_days: "thirty (30)"
-  cure_days: "thirty (30)"
-  survival_years: "five (5)"
-  notice_period: "thirty (30) days"
-  _default: "[as agreed by the Parties]"
+# Unresolved placeholders are NOT defaulted: they render as highlighted fill-in fields
+# (e.g. [Notice Days]) so the lawyer sees the gap instead of a guessed value.
+#
+# Placeholder vocabulary — {{name}} in a template resolves via, in order:
+#   party_placeholders → the party whose role matches (e.g. {{licensor}})
+#   literals           → fixed text
+#   aliases            → a DealSpec field path (formatted: currency etc.)
+#   a dotted DealSpec path used directly, e.g. {{fees.billingCycle}}
+party_placeholders:
+  party_a:
+    licensor: "Licensor"
+    service_provider: "Service Provider"
+    provider: "Provider"
+    employer: "Employer"
+    supplier: "Supplier"
+    disclosing_party: "Disclosing Party"
+  party_b:
+    licensee: "Licensee"
+    client: "Client"
+    customer: "Customer"
+    employee: "Employee"
+    buyer: "Buyer"
+    receiving_party: "Receiving Party"
+
+literals:
+  software_name: "the Software"
+
+aliases:
+  license_fee: fees.licenseFee
+  maintenance_fee: fees.maintenanceFee
+  subscription_fee: fees.subscriptionFee
+  users: license.users
+  locations: license.locations
+  sla_hours: support.slaResponseHours
+  support_coverage: support.coverage
+  patch_frequency: support.patchFrequency
+  uptime_sla: support.uptimeSla
+  jurisdiction: legal.jurisdiction
+  court: legal.court
+  notice_days: legal.noticeDays
+  cure_days: legal.cureDays
+  survival_years: legal.survivalYears
+  notice_period: legal.noticePeriod
+  salary: compensation.salary
+  license_type: license.type
 #
 # Structure: clause_type → entries[] (each with contract_type, jurisdiction, template, etc.)
 #
 # Placeholders use {{field}} syntax. Fields are resolved from DealSpec using dotted paths:
 #   {{partyA.name}}, {{partyB.name}}, {{fees.licenseFee}}, {{license.users}}, etc.
 #
-# Convenience aliases (resolved by GoldenClauseLibrary before DealSpec lookup):
-#   {{licensor}}          → partyA.name (when partyA.role == Licensor) or partyB.name
-#   {{licensee}}          → the other party
-#   {{license_fee}}       → fees.licenseFee (formatted)
-#   {{maintenance_fee}}   → fees.maintenanceFee (formatted)
-#   {{users}}             → license.users
-#   {{locations}}         → license.locations
-#   {{sla_hours}}         → support.slaResponseHours
-#   {{support_coverage}}  → support.coverage
-#   {{patch_frequency}}   → support.patchFrequency
-#   {{jurisdiction}}      → legal.jurisdiction
-#   {{court}}             → legal.court
-#   {{notice_days}}       → legal.noticeDays
-#   {{software_name}}     → "the Software" (default if not specified)
+# Aliases, literals and party placeholders: see the blocks above.
 #
 # Conditional blocks: {{#if field}}...{{/if}} — block is included only if field is non-null.
 # Industry additions: appended as additional paragraph when industry matches.
@@ -1062,51 +1084,18 @@ clauses:
       during the twelve (12) month period preceding the claim.
 
       '
-  - id: LIAB_INDEMNIFICATION
+  - id: LIAB_SURVIVAL_SOFTWARE_LICENSE
     contract_type: software_license
     jurisdiction: default
     quality_score: 5
-    source: Enterprise software agreement mutual indemnification provisions
-    template: 'Mutual Indemnification. Each party (the "Indemnifying Party") shall defend, indemnify and hold harmless the other
-      party and its officers, directors, employees, agents, successors and permitted assigns (collectively, the "Indemnified
-      Parties") from and against all third-party claims, actions, suits, proceedings, damages, losses, liabilities, costs and
-      expenses (including reasonable attorneys'' fees and court costs) arising out of or relating to: (a) the Indemnifying Party''s
-      material breach of any representation, warranty or obligation under this Agreement; or (b) the Indemnifying Party''s gross
-      negligence or willful misconduct in connection with this Agreement.
-
-      IP Indemnification by Licensor. Licensor shall defend, indemnify and hold harmless Licensee and the Licensee Indemnified
-      Parties from and against all third-party claims alleging that Licensee''s authorized use of {{software_name}} in accordance
-      with this Agreement infringes any patent, copyright, trademark or trade secret of such third party. In the event of any
-      such claim, Licensor may, at its sole option and expense: (i) procure for Licensee the right to continue using the Software;
-      (ii) modify the Software to make it non-infringing while maintaining substantially equivalent functionality; or (iii) replace
-      the Software with a non-infringing alternative of substantially equivalent functionality. If none of the foregoing options
-      is commercially practicable, Licensor may terminate this Agreement and refund to Licensee a pro rata portion of any prepaid
-      fees. This Section states Licensor''s entire liability and Licensee''s sole and exclusive remedy for any claim of intellectual
-      property infringement. Licensor shall have no obligation under this Section for any claim arising from: (A) modification
-      of the Software by anyone other than Licensor; (B) use of the Software in combination with products, services or technology
-      not provided or approved by Licensor; or (C) use of the Software in violation of this Agreement.
-
-      Indemnification Procedures. The Indemnified Party shall: (a) provide prompt written notice of any claim to the Indemnifying
-      Party (provided that failure to give prompt notice shall not relieve the Indemnifying Party except to the extent materially
-      prejudiced thereby); (b) grant the Indemnifying Party sole control of the defense and settlement of such claim; and (c)
-      provide reasonable cooperation and assistance, at the Indemnifying Party''s expense, in the defense and settlement of such
-      claim. The Indemnifying Party shall not settle any claim in a manner that imposes any obligation or liability on the
-      Indemnified Party without the Indemnified Party''s prior written consent, which shall not be unreasonably withheld.
-
-      Survival of Liability Provisions. The limitations of liability, exclusions of damages, indemnification obligations and
-      related provisions set forth in this Section shall survive any termination or expiration of this Agreement and shall continue
-      in full force and effect with respect to any claims arising out of or relating to events that occurred during the term
-      of this Agreement.
+    source: Enterprise software agreement liability survival provisions
+    template: 'Survival of Liability Provisions. The limitations of liability, exclusions of damages and related provisions
+      set forth in this Section shall survive any termination or expiration of this Agreement and shall continue in full force
+      and effect with respect to any claims arising out of or relating to events that occurred during the term of this Agreement.
+      Nothing in this Agreement shall limit or exclude either party''s liability for its own fraud, or for any other liability
+      that cannot be limited or excluded under applicable law.
 
       '
-    industry_additions:
-      financial_services: In addition to the foregoing, Licensor shall indemnify Licensee from and against any regulatory fines,
-        penalties or sanctions imposed on Licensee by any financial regulatory authority to the extent directly attributable to
-        a defect in the Software or Licensor''s failure to comply with applicable financial regulatory requirements.
-      healthcare: In addition to the foregoing, Licensor shall indemnify Licensee from and against any fines, penalties or
-        corrective action costs imposed on Licensee by any governmental authority under HIPAA, HITECH or applicable state
-        health data privacy laws to the extent directly attributable to a security breach caused by a defect in the Software
-        or Licensor''s failure to maintain the security safeguards required under this Agreement.
   - id: LIAB_MSA_CAP
     contract_type: msa
     jurisdiction: default
@@ -1122,22 +1111,32 @@ clauses:
       OR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL OR BUSINESS OPPORTUNITY, HOWEVER CAUSED AND REGARDLESS OF THE THEORY
       OF LIABILITY, EVEN IF SUCH PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 
+      Notwithstanding the foregoing, nothing in this Agreement shall limit or exclude either party''s liability for its own
+      fraud, gross negligence or willful misconduct, or for any other liability that cannot be limited or excluded under
+      applicable law. The limitations of liability set forth in this Article shall survive any termination or expiration
+      of this Agreement.
+
       '
   - id: LIAB_SAAS_CAP
     contract_type: saas
     jurisdiction: default
     quality_score: 5
     source: Market-standard SaaS liability provisions (GulpData, EVEMeta patterns)
-    template: 'IN NO EVENT SHALL {{provider}} HAVE ANY LIABILITY TO {{customer}} ARISING OUT OF OR RELATING TO THIS AGREEMENT
+    template: 'IN NO EVENT SHALL EITHER PARTY BE LIABLE TO THE OTHER PARTY ARISING OUT OF OR RELATING TO THIS AGREEMENT
       FOR ANY: (I) LOST REVENUES, PROFITS, SAVINGS OR GOODWILL; OR (II) ANY INDIRECT, SPECIAL, INCIDENTAL, CONSEQUENTIAL OR
-      PUNITIVE DAMAGES, HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY, EVEN IF {{provider}} HAS BEEN ADVISED OF
-      THE POSSIBILITY OF SUCH DAMAGES. EXCEPT FOR {{provider}}''S INDEMNIFICATION OBLIGATIONS AND BREACHES OF ITS CONFIDENTIALITY
-      AND DATA PROTECTION OBLIGATIONS, THE TOTAL AGGREGATE LIABILITY OF {{provider}} ARISING OUT OF OR RELATED TO THIS AGREEMENT
+      PUNITIVE DAMAGES, HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY, EVEN IF SUCH PARTY HAS BEEN ADVISED OF
+      THE POSSIBILITY OF SUCH DAMAGES. EXCEPT FOR A PARTY''S INDEMNIFICATION OBLIGATIONS AND BREACHES OF ITS CONFIDENTIALITY
+      AND DATA PROTECTION OBLIGATIONS, THE TOTAL AGGREGATE LIABILITY OF EITHER PARTY ARISING OUT OF OR RELATED TO THIS AGREEMENT
       SHALL NOT EXCEED THE TOTAL SUBSCRIPTION FEES ACTUALLY PAID BY {{customer}} TO {{provider}} DURING THE TWELVE (12) MONTH
       PERIOD IMMEDIATELY PRECEDING THE EVENT GIVING RISE TO THE CLAIM. THE EXISTENCE OF MULTIPLE CLAIMS SHALL NOT ENLARGE
-      THIS LIMITATION. FOR CLAIMS ARISING FROM {{provider}}''S BREACH OF ITS DATA PROTECTION OBLIGATIONS OR CONFIDENTIALITY
-      OBLIGATIONS, {{provider}}''S AGGREGATE LIABILITY SHALL NOT EXCEED TWO (2) TIMES THE TOTAL ANNUAL SUBSCRIPTION FEES PAID
+      THIS LIMITATION. FOR CLAIMS ARISING FROM A PARTY''S BREACH OF ITS DATA PROTECTION OBLIGATIONS OR CONFIDENTIALITY
+      OBLIGATIONS, THAT PARTY''S AGGREGATE LIABILITY SHALL NOT EXCEED TWO (2) TIMES THE TOTAL ANNUAL SUBSCRIPTION FEES PAID
       AND PAYABLE UNDER THIS AGREEMENT.
+
+      Notwithstanding the foregoing, nothing in this Agreement shall limit or exclude either party''s liability for its own
+      fraud, gross negligence or willful misconduct, or for any other liability that cannot be limited or excluded under
+      applicable law. The limitations of liability set forth in this Article shall survive any termination or expiration
+      of this Agreement.
 
       '
   - id: LIAB_SUPPLY_CAP_AND_INDEMNIFICATION
@@ -1169,12 +1168,159 @@ clauses:
       {{licensee}} TO {{licensor}} DURING THE TWELVE (12) MONTH PERIOD IMMEDIATELY PRECEDING THE EVENT GIVING RISE TO THE
       CLAIM. IN NO EVENT SHALL EITHER PARTY BE LIABLE TO THE OTHER FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR
       PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS, REVENUE, DATA OR GOODWILL, HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF
-      LIABILITY, EVEN IF SUCH PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. {{licensor}} shall indemnify, defend
-      and hold harmless {{licensee}} from and against all claims, damages, losses, costs and expenses (including reasonable
-      attorneys'' fees) arising from any third-party claim that {{licensee}}''s authorized use of the Licensed IP in accordance
-      with this Agreement infringes any patent, copyright, trademark or trade secret of such third party, provided that {{licensee}}
-      promptly notifies {{licensor}} of such claim, cooperates in the defense thereof and allows {{licensor}} sole control
-      of the defense and settlement.
+      LIABILITY, EVEN IF SUCH PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. Notwithstanding the foregoing, nothing
+      in this Agreement shall limit or exclude either party''s liability for its own fraud, gross negligence or willful misconduct,
+      or for any other liability that cannot be limited or excluded under applicable law. The limitations of liability set
+      forth in this Article shall survive any termination or expiration of this Agreement.
+
+      '
+  INDEMNIFICATION:
+  - id: INDEM_SOFTWARE_LICENSE
+    contract_type: software_license
+    jurisdiction: default
+    quality_score: 5
+    source: Enterprise software agreement mutual indemnification provisions
+    template: 'Mutual Indemnification. Each party (the "Indemnifying Party") shall defend, indemnify and hold harmless the other
+      party and its officers, directors, employees, agents, successors and permitted assigns (collectively, the "Indemnified
+      Parties") from and against all third-party claims, actions, suits, proceedings, damages, losses, liabilities, costs and
+      expenses (including reasonable attorneys'' fees and court costs) arising out of or relating to: (a) the Indemnifying Party''s
+      material breach of any representation, warranty or obligation under this Agreement; or (b) the Indemnifying Party''s gross
+      negligence or willful misconduct in connection with this Agreement.
+
+      IP Indemnification by Licensor. Licensor shall defend, indemnify and hold harmless Licensee and the Licensee Indemnified
+      Parties from and against all third-party claims alleging that Licensee''s authorized use of {{software_name}} in accordance
+      with this Agreement infringes any patent, copyright, trademark or trade secret of such third party. In the event of any
+      such claim, Licensor may, at its sole option and expense: (i) procure for Licensee the right to continue using the Software;
+      (ii) modify the Software to make it non-infringing while maintaining substantially equivalent functionality; or (iii) replace
+      the Software with a non-infringing alternative of substantially equivalent functionality. If none of the foregoing options
+      is commercially practicable, Licensor may terminate this Agreement and refund to Licensee a pro rata portion of any prepaid
+      fees. This Section states Licensor''s entire liability and Licensee''s sole and exclusive remedy for any claim of intellectual
+      property infringement. Licensor shall have no obligation under this Section for any claim arising from: (A) modification
+      of the Software by anyone other than Licensor; (B) use of the Software in combination with products, services or technology
+      not provided or approved by Licensor; or (C) use of the Software in violation of this Agreement.
+
+      Indemnification Procedures. The Indemnified Party shall: (a) provide prompt written notice of any claim to the Indemnifying
+      Party (provided that failure to give prompt notice shall not relieve the Indemnifying Party except to the extent materially
+      prejudiced thereby); (b) grant the Indemnifying Party sole control of the defense and settlement of such claim; and (c)
+      provide reasonable cooperation and assistance, at the Indemnifying Party''s expense, in the defense and settlement of such
+      claim. The Indemnifying Party shall not settle any claim in a manner that imposes any obligation or liability on the
+      Indemnified Party without the Indemnified Party''s prior written consent, which shall not be unreasonably withheld.
+
+      Survival. The indemnification obligations set forth in this Section shall survive any termination or expiration of this
+      Agreement and shall continue in full force and effect with respect to any claims arising out of or relating to events
+      that occurred during the term of this Agreement.
+
+      '
+    industry_additions:
+      financial_services: In addition to the foregoing, Licensor shall indemnify Licensee from and against any regulatory fines,
+        penalties or sanctions imposed on Licensee by any financial regulatory authority to the extent directly attributable to
+        a defect in the Software or Licensor''s failure to comply with applicable financial regulatory requirements.
+      healthcare: In addition to the foregoing, Licensor shall indemnify Licensee from and against any fines, penalties or
+        corrective action costs imposed on Licensee by any governmental authority under HIPAA, HITECH or applicable state
+        health data privacy laws to the extent directly attributable to a security breach caused by a defect in the Software
+        or Licensor''s failure to maintain the security safeguards required under this Agreement.
+  - id: INDEM_MSA
+    contract_type: msa
+    jurisdiction: default
+    quality_score: 5
+    source: Market-standard MSA mutual indemnification provisions
+    template: 'Mutual Indemnification. Each party (the "Indemnifying Party") shall defend, indemnify and hold harmless the other
+      party and its officers, directors, employees and agents (collectively, the "Indemnified Parties") from and against all
+      third-party claims, actions, damages, losses, liabilities, costs and expenses (including reasonable attorneys'' fees)
+      arising out of or relating to: (a) the Indemnifying Party''s material breach of any representation, warranty or obligation
+      under this Agreement or any SOW; (b) the Indemnifying Party''s gross negligence or willful misconduct; or (c) the Indemnifying
+      Party''s violation of applicable law in the performance of this Agreement.
+
+      IP Indemnification by Service Provider. {{service_provider}} shall defend, indemnify and hold harmless {{client}} from
+      and against all third-party claims alleging that the Services or Deliverables, as delivered by {{service_provider}} and
+      used in accordance with this Agreement, infringe any patent, copyright, trademark or trade secret of such third party.
+      {{service_provider}} shall have no obligation under this Section for any claim arising from: (A) modification of the
+      Deliverables by anyone other than {{service_provider}}; (B) combination of the Deliverables with materials not provided
+      or approved by {{service_provider}}; or (C) use of the Deliverables in violation of this Agreement.
+
+      Indemnification Procedures. The Indemnified Party shall: (a) provide prompt written notice of any claim to the Indemnifying
+      Party (provided that failure to give prompt notice shall not relieve the Indemnifying Party except to the extent materially
+      prejudiced thereby); (b) grant the Indemnifying Party sole control of the defense and settlement of such claim; and (c)
+      provide reasonable cooperation, at the Indemnifying Party''s expense, in the defense and settlement of such claim. The
+      Indemnifying Party shall not settle any claim in a manner that imposes any obligation or liability on the Indemnified
+      Party without the Indemnified Party''s prior written consent, which shall not be unreasonably withheld. The indemnification
+      obligations set forth in this Section shall survive any termination or expiration of this Agreement.
+
+      '
+  - id: INDEM_SAAS
+    contract_type: saas
+    jurisdiction: default
+    quality_score: 5
+    source: Market-standard SaaS mutual indemnification provisions
+    template: 'Indemnification by Provider. {{provider}} shall defend, indemnify and hold harmless {{customer}} and its officers,
+      directors, employees and agents from and against all third-party claims, damages, losses, liabilities, costs and expenses
+      (including reasonable attorneys'' fees) arising from any third-party claim alleging that {{customer}}''s authorized use
+      of the Services in accordance with this Agreement infringes any patent, copyright, trademark or trade secret of such third
+      party. In the event of such a claim, {{provider}} may, at its option and expense: (i) procure the right for {{customer}}
+      to continue using the Services; (ii) modify the Services to be non-infringing while maintaining substantially equivalent
+      functionality; or (iii) if neither is commercially practicable, terminate the affected subscription and refund any prepaid
+      fees for the unused portion of the subscription term.
+
+      Indemnification by Customer. {{customer}} shall defend, indemnify and hold harmless {{provider}} and its officers, directors,
+      employees and agents from and against all third-party claims, damages, losses, liabilities, costs and expenses (including
+      reasonable attorneys'' fees) arising from: (a) Customer Data, including any claim that Customer Data infringes or misappropriates
+      the rights of a third party or violates applicable law; or (b) {{customer}}''s use of the Services in violation of this
+      Agreement or applicable law.
+
+      Indemnification Procedures. The indemnified party shall: (a) provide prompt written notice of any claim to the indemnifying
+      party (provided that failure to give prompt notice shall not relieve the indemnifying party except to the extent materially
+      prejudiced thereby); (b) grant the indemnifying party sole control of the defense and settlement of such claim; and (c)
+      provide reasonable cooperation, at the indemnifying party''s expense, in the defense and settlement of such claim. The
+      indemnifying party shall not settle any claim in a manner that imposes any obligation or liability on the indemnified
+      party without the indemnified party''s prior written consent, which shall not be unreasonably withheld. The indemnification
+      obligations set forth in this Section shall survive any termination or expiration of this Agreement.
+
+      '
+  - id: INDEM_IP_LICENSE
+    contract_type: ip_license
+    jurisdiction: default
+    quality_score: 5
+    source: Market-standard IP license indemnification provisions
+    template: 'IP Indemnification by Licensor. {{licensor}} shall defend, indemnify and hold harmless {{licensee}} and its officers,
+      directors, employees and agents from and against all third-party claims, damages, losses, costs and expenses (including
+      reasonable attorneys'' fees) arising from any third-party claim that {{licensee}}''s authorized use of the Licensed IP
+      in accordance with this Agreement infringes any patent, copyright, trademark or trade secret of such third party.
+
+      Mutual Indemnification. Each party shall defend, indemnify and hold harmless the other party from and against all third-party
+      claims, damages, losses, liabilities, costs and expenses (including reasonable attorneys'' fees) arising out of or relating
+      to: (a) its material breach of any representation, warranty or obligation under this Agreement; or (b) its gross negligence
+      or willful misconduct in connection with this Agreement.
+
+      Indemnification Procedures. The indemnified party shall provide prompt written notice of any claim to the indemnifying
+      party, grant the indemnifying party sole control of the defense and settlement of such claim, and provide reasonable
+      cooperation, at the indemnifying party''s expense, in the defense and settlement of such claim. The indemnifying party
+      shall not settle any claim in a manner that imposes any obligation or liability on the indemnified party without the
+      indemnified party''s prior written consent, which shall not be unreasonably withheld. The indemnification obligations
+      set forth in this Section shall survive any termination or expiration of this Agreement.
+
+      '
+  - id: INDEM_DEFAULT
+    contract_type: default
+    jurisdiction: default
+    quality_score: 4
+    source: Generic mutual indemnification provisions for commercial agreements
+    template: 'Mutual Indemnification. Each party (the "Indemnifying Party") shall defend, indemnify and hold harmless the other
+      party and its officers, directors, employees and agents (collectively, the "Indemnified Parties") from and against all
+      third-party claims, actions, damages, losses, liabilities, costs and expenses (including reasonable attorneys'' fees)
+      arising out of or relating to: (a) the Indemnifying Party''s material breach of any representation, warranty or obligation
+      under this Agreement; (b) the Indemnifying Party''s gross negligence or willful misconduct; or (c) the Indemnifying Party''s
+      violation of applicable law in the performance of this Agreement.
+
+      Indemnification Procedures. The Indemnified Party shall: (a) provide prompt written notice of any claim to the Indemnifying
+      Party (provided that failure to give prompt notice shall not relieve the Indemnifying Party except to the extent materially
+      prejudiced thereby); (b) grant the Indemnifying Party sole control of the defense and settlement of such claim; and (c)
+      provide reasonable cooperation, at the Indemnifying Party''s expense, in the defense and settlement of such claim. The
+      Indemnifying Party shall not settle any claim in a manner that imposes any obligation or liability on the Indemnified
+      Party without the Indemnified Party''s prior written consent, which shall not be unreasonably withheld.
+
+      Survival. The indemnification obligations set forth in this Section shall survive any termination or expiration of this
+      Agreement and shall continue in full force and effect with respect to any claims arising out of or relating to events
+      that occurred during the term of this Agreement.
 
       '
   TERMINATION:

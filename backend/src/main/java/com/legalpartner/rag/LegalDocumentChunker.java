@@ -13,6 +13,13 @@ import java.util.regex.Pattern;
 @Slf4j
 public class LegalDocumentChunker {
 
+    /** Clause keywords from config/vocabulary.yml (chunk_clause_keywords). */
+    private final com.legalpartner.config.LegalVocabulary vocabulary;
+
+    public LegalDocumentChunker(com.legalpartner.config.LegalVocabulary vocabulary) {
+        this.vocabulary = vocabulary;
+    }
+
     private static final List<Pattern> LEGAL_BOUNDARIES = List.of(
             Pattern.compile("(?m)^\\s*(ARTICLE|Article|SECTION|Section|CLAUSE|Clause)\\s+\\d+"),
             Pattern.compile("(?m)^\\s*\\d+\\.\\d*\\.?\\s+[A-Z]"),
@@ -20,17 +27,6 @@ public class LegalDocumentChunker {
             Pattern.compile("(?m)^\\s*(WHEREAS|NOW,?\\s+THEREFORE|IN WITNESS WHEREOF)")
     );
 
-    private static final Map<ClauseType, List<String>> CLAUSE_KEYWORDS = Map.ofEntries(
-            Map.entry(ClauseType.TERMINATION, List.of("termination", "terminate", "notice period", "expiry", "exit clause")),
-            Map.entry(ClauseType.LIABILITY, List.of("liability", "liable", "limitation of liability", "cap on", "damages")),
-            Map.entry(ClauseType.INDEMNITY, List.of("indemnify", "indemnification", "hold harmless", "indemnity")),
-            Map.entry(ClauseType.WARRANTY, List.of("warranty", "warranties", "represents and warrants", "representation")),
-            Map.entry(ClauseType.CONFIDENTIALITY, List.of("confidential", "non-disclosure", "proprietary", "nda")),
-            Map.entry(ClauseType.GOVERNING_LAW, List.of("governing law", "jurisdiction", "arbitration", "dispute resolution", "applicable law")),
-            Map.entry(ClauseType.FORCE_MAJEURE, List.of("force majeure", "act of god", "unforeseen", "beyond control")),
-            Map.entry(ClauseType.IP_RIGHTS, List.of("intellectual property", "ip rights", "patent", "copyright", "trademark", "work product")),
-            Map.entry(ClauseType.PAYMENT, List.of("payment", "invoice", "compensation", "fee", "charges", "remuneration"))
-    );
 
     @Value("${legalpartner.chunking.target-size:600}")
     private int targetSize;
@@ -172,14 +168,14 @@ public class LegalDocumentChunker {
         int maxScore = 0;
         ClauseType best = ClauseType.GENERAL;
 
-        for (var entry : CLAUSE_KEYWORDS.entrySet()) {
+        for (var entry : vocabulary.chunkClauseKeywords().entrySet()) {
             int score = 0;
             for (String keyword : entry.getValue()) {
                 if (lower.contains(keyword)) score++;
             }
             if (score > maxScore) {
                 maxScore = score;
-                best = entry.getKey();
+                best = ClauseType.valueOf(entry.getKey());
             }
         }
         return best;

@@ -2,6 +2,7 @@ package com.legalpartner.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.legalpartner.config.LegalVocabulary;
 import com.legalpartner.rag.PromptTemplates;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -31,8 +32,8 @@ import java.util.regex.Pattern;
  *    still display the real document to its own lawyers).
  *
  * 2. {@link #detectConcreteEntities(String)} — runs at output time. Regex-based
- *    quick pass over a generated draft that flags concrete dollar amounts,
- *    dates with year, emails, phones. The caller cross-checks these against
+ *    quick pass over a generated draft that flags concrete values matching
+ *    {@code vocabulary.yml entity_patterns} (amounts, dated dates, emails, phones). The caller cross-checks these against
  *    what the user actually supplied in the deal brief; anything not in the
  *    brief probably leaked from a precedent.
  *
@@ -46,11 +47,13 @@ import java.util.regex.Pattern;
 public class AnonymizationService {
 
     private final ChatLanguageModel chatModel;
+    private final LegalVocabulary vocabulary;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public AnonymizationService(
-            @Qualifier("shortChatModel") ChatLanguageModel shortChatModel) {
+            @Qualifier("shortChatModel") ChatLanguageModel shortChatModel, LegalVocabulary vocabulary) {
         this.chatModel = shortChatModel;
+        this.vocabulary = vocabulary;
     }
 
     public record AnonymizationResult(String anonymizedText, Map<String, String> entityMap) {}
@@ -147,13 +150,8 @@ public class AnonymizationService {
 
     /**
      * Fast regex pass over a generated draft clause. Returns every concrete,
-     * identifiable token that could be a cross-client leak:
-     *   - dollar / currency figures with actual amounts ($1,200,000, INR 5,00,000)
-     *   - specific dates with year (January 15, 2024)
-     *   - email addresses
-     *   - phone numbers (simple patterns)
-     *   - possible party / company names (CapitalCase words 2-5 tokens long,
-     *     minus a whitelist of common legal terms)
+     * identifiable token that could be a cross-client leak, using the patterns in
+     * {@code vocabulary.yml entity_patterns} (amounts, dated dates, emails, phones).
      *
      * The caller should cross-check these against what the user actually
      * supplied in the deal brief + form fields. Anything unaccounted for is
@@ -164,33 +162,13 @@ public class AnonymizationService {
         String plain = draftText.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
         Set<String> out = new LinkedHashSet<>();
 
-        // Dollar / currency figures with digits (skip round numbers like "100" or "30"
-        // — too generic; only flag ≥4 digits or with currency symbol + decimals)
-        Matcher money = Pattern.compile(
-                "(?:\\$|₹|£|€|USD|INR|GBP|EUR)\\s*[\\d,]{4,}(?:\\.\\d{2})?"
-              + "|[\\d,]{4,}\\s*(?:dollars|rupees|USD|INR|GBP|EUR)").matcher(plain);
-        while (money.find()) out.add(money.group().trim());
-
-        // Specific dates with year — "January 15, 2024", "15/01/2024", "2024-01-15"
-        Matcher dates = Pattern.compile(
-                "(?i)\\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?"
-              + "|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
-              + "\\s+\\d{1,2},?\\s+\\d{4}\\b"
-              + "|\\b\\d{4}-\\d{2}-\\d{2}\\b"
-              + "|\\b\\d{1,2}/\\d{1,2}/\\d{4}\\b").matcher(plain);
-        while (dates.find()) out.add(dates.group().trim());
-
-        // Email addresses
-        Matcher emails = Pattern.compile("[\\w._%+-]+@[\\w.-]+\\.[A-Za-z]{2,}").matcher(plain);
-        while (emails.find()) out.add(emails.group().trim());
-
-        // Phone numbers — permissive, catches formatted US/UK/India styles
-        Matcher phones = Pattern.compile(
-                "\\+?\\d{1,3}[\\s-]?\\(?\\d{3,5}\\)?[\\s-]?\\d{3,4}[\\s-]?\\d{3,4}").matcher(plain);
-        while (phones.find()) {
-            String match = phones.group().trim();
-            // Filter out year-like short matches
-            if (match.replaceAll("[^\\d]", "").length() >= 9) out.add(match);
+        // Patterns from vocabulary.yml entity_patterns; min_digits drops generic values ("$30", years).
+        for (LegalVocabulary.EntityPattern p : vocabulary.entityPatterns()) {
+            Matcher m = p.pattern().matcher(plain);
+            while (m.find()) {
+                String match = m.group().trim();
+                if (p.specific(match)) out.add(match);
+            }
         }
 
         return out;

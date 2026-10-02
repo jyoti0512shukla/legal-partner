@@ -29,6 +29,8 @@ import java.util.stream.Collectors;
 public class ExtractionPipeline {
 
     private final DocumentFullTextRetriever fullTextRetriever;
+
+    private final com.legalpartner.config.PromptRepository prompts;
     private final DocumentMetadataRepository documentRepository;
     private final DiscoveryPass discoveryPass;
     private final CanonicalMapper canonicalMapper;
@@ -54,7 +56,9 @@ public class ExtractionPipeline {
                                ImportanceRanker importanceRanker,
                                AliasOverrideRepository aliasOverrideRepo,
                                @Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+            com.legalpartner.config.PromptRepository prompts) {
+        this.prompts = prompts;
         this.fullTextRetriever = fullTextRetriever;
         this.documentRepository = documentRepository;
         this.discoveryPass = discoveryPass;
@@ -264,16 +268,7 @@ public class ExtractionPipeline {
                     })
                     .collect(Collectors.joining("\n"));
 
-            String prompt = """
-                    Based on these contract findings, identify the top 5 risks for legal review.
-                    For each, provide a 1-line explanation and severity (HIGH/MEDIUM/LOW).
-
-                    Findings:
-                    """ + input + """
-
-                    Output JSON only:
-                    {"risks": [{"risk": "short description", "severity": "HIGH|MEDIUM|LOW", "explanation": "1-line why this matters"}]}
-                    """;
+            String prompt = prompts.get("EXTRACTION_TOP_RISKS").replace("{{FINDINGS}}", input);
 
             String response = jsonChatModel.generate(UserMessage.from(prompt)).content().text();
             String json = response.contains("{") ? response.substring(response.indexOf('{')) : response;

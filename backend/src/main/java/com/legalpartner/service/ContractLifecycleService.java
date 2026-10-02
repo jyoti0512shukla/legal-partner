@@ -1,6 +1,7 @@
 package com.legalpartner.service;
 
 import com.legalpartner.audit.AuditEvent;
+import com.legalpartner.config.ContractLifecycleConfig;
 import com.legalpartner.event.DocumentExecutedEvent;
 import com.legalpartner.model.entity.DocumentMetadata;
 import com.legalpartner.model.entity.DocumentVersion;
@@ -8,6 +9,7 @@ import com.legalpartner.model.enums.AuditActionType;
 import com.legalpartner.model.enums.ContractStatus;
 import com.legalpartner.repository.DocumentMetadataRepository;
 import com.legalpartner.repository.DocumentVersionRepository;
+import com.legalpartner.service.learning.LearningConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -17,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -30,25 +31,8 @@ public class ContractLifecycleService {
     private final DocumentVersionRepository versionRepo;
     private final ApplicationEventPublisher eventPublisher;
     private final AuditService auditService;
-
-    private static final Map<ContractStatus, Set<ContractStatus>> ALLOWED_TRANSITIONS = Map.ofEntries(
-            Map.entry(ContractStatus.DRAFT, Set.of(
-                    ContractStatus.INTERNAL_REVIEW, ContractStatus.NEGOTIATING, ContractStatus.PENDING_SIGNATURE)),
-            Map.entry(ContractStatus.INTERNAL_REVIEW, Set.of(
-                    ContractStatus.APPROVED, ContractStatus.DRAFT)),
-            Map.entry(ContractStatus.APPROVED, Set.of(
-                    ContractStatus.NEGOTIATING, ContractStatus.PENDING_SIGNATURE)),
-            Map.entry(ContractStatus.NEGOTIATING, Set.of(
-                    ContractStatus.INTERNAL_REVIEW, ContractStatus.APPROVED, ContractStatus.PENDING_SIGNATURE)),
-            Map.entry(ContractStatus.PENDING_SIGNATURE, Set.of(
-                    ContractStatus.EXECUTED, ContractStatus.NEGOTIATING, ContractStatus.DRAFT)),
-            Map.entry(ContractStatus.EXECUTED, Set.of(
-                    ContractStatus.ACTIVE, ContractStatus.DRAFT)),
-            Map.entry(ContractStatus.ACTIVE, Set.of(
-                    ContractStatus.EXPIRING, ContractStatus.TERMINATED, ContractStatus.RENEWED, ContractStatus.DRAFT)),
-            Map.entry(ContractStatus.EXPIRING, Set.of(
-                    ContractStatus.EXPIRED, ContractStatus.RENEWED, ContractStatus.TERMINATED, ContractStatus.DRAFT))
-    );
+    private final ContractLifecycleConfig lifecycle;
+    private final LearningConfig learningConfig;
 
     @Transactional
     public DocumentMetadata transitionStatus(UUID documentId, ContractStatus newStatus, String username) {
@@ -62,15 +46,9 @@ public class ContractLifecycleService {
                     "Invalid transition: " + current + " → " + newStatus);
         }
 
-        // Lock on PENDING_SIGNATURE
-        if (newStatus == ContractStatus.PENDING_SIGNATURE) {
-            doc.setLocked(true);
-        }
-
-        // Unlock when going back to editable statuses
-        if (newStatus == ContractStatus.DRAFT || newStatus == ContractStatus.NEGOTIATING) {
-            doc.setLocked(false);
-        }
+        // Lock / unlock per contract_lifecycle.yml
+        if (lifecycle.locks(newStatus)) doc.setLocked(true);
+        if (lifecycle.unlocks(newStatus)) doc.setLocked(false);
 
         doc.setContractStatus(newStatus);
         DocumentMetadata saved = documentRepo.save(doc);
@@ -100,7 +78,7 @@ public class ContractLifecycleService {
             return doc; // already initialized
         }
 
-        doc.setContractStatus(ContractStatus.DRAFT);
+        doc.setContractStatus(lifecycle.initial());
         doc.setCurrentVersion(1);
 
         // Create v1 from existing stored file if not already versioned
@@ -110,7 +88,7 @@ public class ContractLifecycleService {
                     .versionNumber(1)
                     .storedPath(doc.getStoredPath())
                     .fileSize(doc.getFileSizeBytes())
-                    .source("DRAFT_ASYNC".equals(doc.getSource()) ? "AI_GENERATED" : "UPLOAD")
+                    .source(learningConfig.isAiGenerated(doc.getSource()) ? "AI_GENERATED" : "UPLOAD")
                     .changeSummary("Initial version")
                     .createdBy(username)
                     .build();
@@ -123,7 +101,7 @@ public class ContractLifecycleService {
                 .username(username)
                 .action(AuditActionType.CONTRACT_STATUS_CHANGED)
                 .documentId(documentId)
-                .queryText("null → DRAFT")
+                .queryText("null → " + lifecycle.initial().name())
                 .success(true)
                 .build());
 
@@ -134,10 +112,9 @@ public class ContractLifecycleService {
     public DocumentMetadata finalize(UUID documentId, String userBrief, String userKeyPointsJson, String username) {
         DocumentMetadata doc = findOrThrow(documentId);
 
-        // Allow finalization from various pre-signature statuses
+        // Allowed pre-signature statuses per contract_lifecycle.yml finalize.allowed_from
         ContractStatus current = doc.getContractStatus();
-        if (current != null && current != ContractStatus.DRAFT && current != ContractStatus.APPROVED
-                && current != ContractStatus.NEGOTIATING && current != ContractStatus.INTERNAL_REVIEW) {
+        if (!lifecycle.canFinalizeFrom(current)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Cannot finalize document in status: " + current);
         }
@@ -147,7 +124,7 @@ public class ContractLifecycleService {
         doc.setFinalizedAt(Instant.now());
         doc.setFinalizedBy(username);
         doc.setLocked(true);
-        doc.setContractStatus(ContractStatus.PENDING_SIGNATURE);
+        doc.setContractStatus(lifecycle.finalizeTo());
 
         DocumentMetadata saved = documentRepo.save(doc);
 
@@ -187,14 +164,11 @@ public class ContractLifecycleService {
     }
 
     public boolean isTransitionAllowed(ContractStatus from, ContractStatus to) {
-        if (from == null) return to == ContractStatus.DRAFT;
-        Set<ContractStatus> allowed = ALLOWED_TRANSITIONS.get(from);
-        return allowed != null && allowed.contains(to);
+        return lifecycle.nextStatuses(from).contains(to);
     }
 
     public Set<ContractStatus> getAllowedNextStatuses(ContractStatus current) {
-        if (current == null) return Set.of(ContractStatus.DRAFT);
-        return ALLOWED_TRANSITIONS.getOrDefault(current, Set.of());
+        return lifecycle.nextStatuses(current);
     }
 
     public void assertNotLocked(DocumentMetadata doc) {

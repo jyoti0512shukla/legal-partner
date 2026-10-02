@@ -42,6 +42,16 @@ public class ChatModelConfig {
     @Value("${legalpartner.chat-api-model:mistralai/Mistral-7B-Instruct-v0.2}")
     private String vllmModel;
 
+    /** Bearer token for the OpenAI-compatible endpoint. Self-hosted vLLM ignores it;
+     *  hosted providers (OpenRouter, DeepInfra, Together) require it. */
+    @Value("${legalpartner.chat-api-key:no-op}")
+    private String vllmApiKey;
+
+    /** Blank (e.g. an unset env var passed through docker-compose) falls back to "no-op". */
+    private String apiKey() {
+        return vllmApiKey == null || vllmApiKey.isBlank() ? "no-op" : vllmApiKey;
+    }
+
     @Value("${legalpartner.gemini-api-key:}")
     private String geminiApiKey;
 
@@ -94,6 +104,10 @@ public class ChatModelConfig {
     @Bean
     @Primary
     ChatLanguageModel chatLanguageModel() {
+        return ReasoningStrippingChatModel.wrap(buildChatLanguageModel());
+    }
+
+    private ChatLanguageModel buildChatLanguageModel() {
         if ("gemini".equalsIgnoreCase(provider)) {
             log.info("LLM provider: Google Gemini ({})", geminiModel);
             return GoogleAiGeminiChatModel.builder()
@@ -110,7 +124,7 @@ public class ChatModelConfig {
             log.info("LLM provider: vLLM ({} @ {})", vllmModel, url);
             return OpenAiChatModel.builder()
                     .baseUrl(url)
-                    .apiKey("no-op")
+                    .apiKey(apiKey())
                     .modelName(vllmModel)
                     .timeout(Duration.ofSeconds(llmTimeoutSeconds))
                     .maxTokens(chatMaxTokens)
@@ -147,6 +161,10 @@ public class ChatModelConfig {
      */
     @Bean("shortChatModel")
     ChatLanguageModel shortChatModel() {
+        return ReasoningStrippingChatModel.wrap(buildShortChatModel());
+    }
+
+    private ChatLanguageModel buildShortChatModel() {
         if ("gemini".equalsIgnoreCase(provider)) {
             return GoogleAiGeminiChatModel.builder()
                     .apiKey(geminiApiKey)
@@ -160,7 +178,7 @@ public class ChatModelConfig {
             String url = vllmBaseUrl.endsWith("/v1") ? vllmBaseUrl : vllmBaseUrl + "/v1";
             return OpenAiChatModel.builder()
                     .baseUrl(url)
-                    .apiKey("no-op")
+                    .apiKey(apiKey())
                     .modelName(vllmModel)
                     .timeout(Duration.ofSeconds(llmTimeoutSeconds))
                     .maxTokens(shortMaxTokens)
@@ -174,18 +192,30 @@ public class ChatModelConfig {
     /** Q&A model — low output (500 tokens), maximizes context for document text */
     @Bean("qaChatModel")
     ChatLanguageModel qaChatModel() {
+        return ReasoningStrippingChatModel.wrap(buildQaChatModel());
+    }
+
+    private ChatLanguageModel buildQaChatModel() {
         return buildModel(qaMaxTokens, shortTemperature, shortFrequencyPenalty);
     }
 
     /** Summary model — medium output (800 tokens) */
     @Bean("summaryChatModel")
     ChatLanguageModel summaryChatModel() {
+        return ReasoningStrippingChatModel.wrap(buildSummaryChatModel());
+    }
+
+    private ChatLanguageModel buildSummaryChatModel() {
         return buildModel(summaryMaxTokens, shortTemperature, shortFrequencyPenalty);
     }
 
     /** Risk assessment model — medium output (600 tokens) for per-clause evaluation */
     @Bean("riskChatModel")
     ChatLanguageModel riskChatModel() {
+        return ReasoningStrippingChatModel.wrap(buildRiskChatModel());
+    }
+
+    private ChatLanguageModel buildRiskChatModel() {
         return buildModel(riskMaxTokens, shortTemperature, shortFrequencyPenalty);
     }
 
@@ -200,7 +230,7 @@ public class ChatModelConfig {
         if (vllmBaseUrl != null && !vllmBaseUrl.isBlank()) {
             String url = vllmBaseUrl.endsWith("/v1") ? vllmBaseUrl : vllmBaseUrl + "/v1";
             return OpenAiChatModel.builder()
-                    .baseUrl(url).apiKey("no-op").modelName(vllmModel)
+                    .baseUrl(url).apiKey(apiKey()).modelName(vllmModel)
                     .timeout(Duration.ofSeconds(llmTimeoutSeconds))
                     .maxTokens(maxTokens).temperature(temperature)
                     .frequencyPenalty(frequencyPenalty)
@@ -211,6 +241,10 @@ public class ChatModelConfig {
 
     @Bean("jsonChatModel")
     ChatLanguageModel jsonChatModel() {
+        return ReasoningStrippingChatModel.wrap(buildJsonChatModel());
+    }
+
+    private ChatLanguageModel buildJsonChatModel() {
         if ("gemini".equalsIgnoreCase(provider)) {
             return GoogleAiGeminiChatModel.builder()
                     .apiKey(geminiApiKey)
@@ -226,7 +260,7 @@ public class ChatModelConfig {
             String url = vllmBaseUrl.endsWith("/v1") ? vllmBaseUrl : vllmBaseUrl + "/v1";
             return OpenAiChatModel.builder()
                     .baseUrl(url)
-                    .apiKey("no-op")
+                    .apiKey(apiKey())
                     .modelName(vllmModel)
                     .timeout(Duration.ofSeconds(llmTimeoutSeconds))
                     .responseFormat("json_object")

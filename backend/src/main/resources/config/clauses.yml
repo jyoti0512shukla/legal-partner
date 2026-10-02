@@ -13,6 +13,10 @@
 #   semantic_requirements  — keywords the final output MUST contain (lowercased)
 #   forbidden_headings     — phrases that, if present, indicate content from
 #                          a DIFFERENT clause type was pasted in (triggers retry)
+#   review_keys          — review clause keys (risk_questions.yml) this clause is
+#                          reviewed as. Default: its own key. [] = not reviewed.
+#                          Drives the draft → review handoff and the semantic
+#                          requirements the drafter is held to.
 #
 # Note: DEFAULTS ONLY. Runtime still allows overrides via individual service
 # logic where needed (e.g. localeConfig for jurisdiction).
@@ -21,6 +25,7 @@ clauses:
 
   DEFINITIONS:
     title: "Definitions"
+    review_keys: []
     expected_subclauses: 7
     system_prompt_id: DRAFT_DEFINITIONS_SYSTEM
     user_prompt_id: DRAFT_DEFINITIONS_USER
@@ -35,6 +40,7 @@ clauses:
 
   SERVICES:
     title: "Services"
+    review_keys: [SLA]
     expected_subclauses: 3
     system_prompt_id: DRAFT_SERVICES_SYSTEM
     user_prompt_id: DRAFT_SERVICES_USER
@@ -112,7 +118,7 @@ clauses:
       - "Limitation of Liability"
 
   LIABILITY:
-    title: "Liability and Indemnity"
+    title: "Limitation of Liability"
     expected_subclauses: 5
     system_prompt_id: DRAFT_LIABILITY_SYSTEM
     user_prompt_id: DRAFT_LIABILITY_USER
@@ -123,6 +129,23 @@ clauses:
       - "Indian Contract Act Section 73 74 liquidated damages"
     acceptable_clause_types: [LIABILITY, INDEMNITY, GENERAL]
     semantic_requirements: ["shall not exceed", "aggregate", "indemnif"]
+    forbidden_headings:
+      - "Scope of Services"
+      - "Payment Schedule"
+      - "Force Majeure Event"
+      - "Confidential Information obligations"
+
+  INDEMNIFICATION:
+    title: "Indemnification"
+    expected_subclauses: 3
+    system_prompt_id: DRAFT_INDEMNIFICATION_SYSTEM
+    user_prompt_id: DRAFT_INDEMNIFICATION_USER
+    search_queries:
+      - "indemnify hold harmless defend third-party claims losses"
+      - "IP infringement indemnity procedure notice control of defense"
+      - "mutual indemnification breach gross negligence willful misconduct"
+    acceptable_clause_types: [INDEMNITY, LIABILITY, GENERAL]
+    semantic_requirements: ["indemnif", "hold harmless"]
     forbidden_headings:
       - "Scope of Services"
       - "Payment Schedule"
@@ -167,6 +190,8 @@ clauses:
 
   REPRESENTATIONS_WARRANTIES:
     title: "Representations and Warranties"
+    golden_first: false
+    review_keys: [WARRANTIES]
     expected_subclauses: 5
     system_prompt_id: DRAFT_REPRESENTATIONS_WARRANTIES_SYSTEM
     user_prompt_id: DRAFT_REPRESENTATIONS_WARRANTIES_USER
@@ -181,6 +206,7 @@ clauses:
 
   DATA_PROTECTION:
     title: "Data Protection and Privacy"
+    golden_first: false
     expected_subclauses: 5
     system_prompt_id: DRAFT_DATA_PROTECTION_SYSTEM
     user_prompt_id: DRAFT_DATA_PROTECTION_USER

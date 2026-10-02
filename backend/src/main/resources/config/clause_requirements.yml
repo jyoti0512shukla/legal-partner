@@ -40,10 +40,11 @@ rules:
     severity: CRITICAL
     description: "Definitions must reference both contracting parties"
     conditions:
-      - type: contains_keywords
-        value: ["shall mean", "refers to"]
+      # contains_any: standard drafting uses "means"; any definitional verb satisfies the rule.
+      - type: contains_any
+        value: ["means", "shall mean", "refers to"]
     fix_strategy: TARGETED_RETRY
-    fix_hint: "Each defined term must use 'shall mean' or 'refers to' — do not leave definitions as placeholders."
+    fix_hint: "Each defined term must use 'means', 'shall mean' or 'refers to' — do not leave definitions as placeholders."
 
   # ════════════════════════════════════════════════════════════════════
   # SERVICES
@@ -258,6 +259,26 @@ rules:
     fix_strategy: RETRY
     fix_hint: "Include liability cap (aggregate maximum), exclusion of consequential damages, and indemnification obligations."
 
+  - id: LIA_CONSEQUENTIAL_EXCLUSION
+    applies_to: [LIABILITY]
+    severity: HIGH
+    description: "Liability clause must exclude indirect and consequential damages"
+    conditions:
+      - type: contains_any
+        value: ["consequential", "indirect damages", "indirect, incidental"]
+    fix_strategy: RETRY
+    fix_hint: "Add an exclusion of indirect, incidental, special, consequential and punitive damages for both parties."
+
+  - id: LIA_FRAUD_CARVEOUT
+    applies_to: [LIABILITY]
+    severity: HIGH
+    description: "Liability limitations must not apply to fraud, gross negligence or willful misconduct"
+    conditions:
+      - type: contains_any
+        value: ["fraud", "willful misconduct", "wilful misconduct", "gross negligence"]
+    fix_strategy: INJECT
+    inject_template: "Notwithstanding the foregoing, nothing in this Agreement shall limit or exclude either party's liability for its own fraud, gross negligence or willful misconduct, or for any other liability that cannot be limited or excluded under applicable law."
+
   - id: LIA_NO_UNLIMITED
     applies_to: [LIABILITY]
     severity: MEDIUM
@@ -278,6 +299,30 @@ rules:
         field: legal.liabilityCap
     fix_strategy: INJECT
     inject_template: "The aggregate liability of either party under this Agreement shall not exceed {{legal.liabilityCap}}."
+
+  # ════════════════════════════════════════════════════════════════════
+  # INDEMNIFICATION
+  # ════════════════════════════════════════════════════════════════════
+
+  - id: INDEM_CORE_OBLIGATION
+    applies_to: [INDEMNIFICATION]
+    severity: CRITICAL
+    description: "Indemnification clause must contain defend/indemnify/hold harmless obligations"
+    conditions:
+      - type: contains_keywords
+        value: ["indemnify", "hold harmless"]
+    fix_strategy: RETRY
+    fix_hint: "The clause must obligate each party to defend, indemnify and hold harmless the other against third-party claims."
+
+  - id: INDEM_PROCEDURES
+    applies_to: [INDEMNIFICATION]
+    severity: MEDIUM
+    description: "Indemnification clause must include claim procedures (notice, control of defense, cooperation)"
+    conditions:
+      - type: contains_any
+        value: ["written notice", "control of the defense", "control of the defence", "cooperat"]
+    fix_strategy: INJECT
+    inject_template: "The indemnified party shall provide prompt written notice of any claim, grant the indemnifying party sole control of the defense and settlement of the claim, and provide reasonable cooperation at the indemnifying party's expense."
 
   # ════════════════════════════════════════════════════════════════════
   # TERMINATION
@@ -380,7 +425,7 @@ rules:
   # ════════════════════════════════════════════════════════════════════
 
   - id: ALL_MIN_LENGTH
-    applies_to: [DEFINITIONS, SERVICES, PAYMENT, CONFIDENTIALITY, DATA_PROTECTION, IP_RIGHTS, LIABILITY, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS]
+    applies_to: [DEFINITIONS, SERVICES, PAYMENT, CONFIDENTIALITY, DATA_PROTECTION, IP_RIGHTS, LIABILITY, INDEMNIFICATION, TERMINATION, GOVERNING_LAW, GENERAL_PROVISIONS]
     severity: LOW
     description: "Every clause must meet a minimum length threshold"
     conditions:
@@ -430,7 +475,8 @@ rules:
 
   # License grant clause must exist for license agreements
   - id: LICENSE_GRANT_REQUIRED
-    applies_to: [IP_RIGHTS, DEFINITIONS]
+    # The grant lives in the IP/grant clause, never in DEFINITIONS.
+    applies_to: [IP_RIGHTS]
     severity: CRITICAL
     when: "license.type != null"
     description: "License grant clause must exist for license agreements"

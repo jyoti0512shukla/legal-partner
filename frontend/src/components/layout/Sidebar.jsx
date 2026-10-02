@@ -6,7 +6,7 @@ import api from '../../api/client';
 import {
   LayoutDashboard, Briefcase, FileText, Shield, Settings, LogOut,
   FileEdit, Wand2, Library, Users, Sparkles, Workflow, Brain,
-  GitCompare, ClipboardList, Key, Sun, Moon,
+  GitCompare, ClipboardList, Key, Sun, Moon, GraduationCap,
 } from 'lucide-react';
 
 const NAV = [
@@ -26,6 +26,7 @@ const NAV = [
   { section: 'Manage', items: [
     { to: '/playbooks',     label: 'Playbooks',       icon: ClipboardList },
     { to: '/clause-library', label: 'Clause Library', icon: Library },
+    { to: '/firm-knowledge', label: 'Firm Knowledge', icon: GraduationCap },
     { to: '/workflows',      label: 'AI Agents',      icon: Workflow },
     { to: '/settings',       label: 'Settings',        icon: Settings },
   ]},

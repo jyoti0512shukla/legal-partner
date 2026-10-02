@@ -20,13 +20,17 @@ import java.util.stream.Collectors;
 public class ImportanceRanker {
 
     private final ChatLanguageModel jsonChatModel;
+
+    private final com.legalpartner.config.PromptRepository prompts;
     private final ConsistencyChecker consistencyChecker;
 
     private static final Set<String> BOOST_BUCKETS = Set.of("COMMERCIAL", "LEGAL");
     private static final int MAX_HIGH = 7;
 
     public ImportanceRanker(@Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
-                            ConsistencyChecker consistencyChecker) {
+                            ConsistencyChecker consistencyChecker,
+            com.legalpartner.config.PromptRepository prompts) {
+        this.prompts = prompts;
         this.jsonChatModel = jsonChatModel;
         this.consistencyChecker = consistencyChecker;
     }
@@ -103,18 +107,7 @@ public class ImportanceRanker {
 
             if (fieldList.isBlank()) return rankings;
 
-            String prompt = """
-                    Rate the importance of each contract term for legal review.
-                    HIGH: critical for deal evaluation, risk, or compliance.
-                    MEDIUM: useful context.
-                    LOW: administrative or boilerplate.
-
-                    Terms:
-                    """ + fieldList + """
-
-                    Output JSON only:
-                    {"rankings": [{"field": "field_name", "importance": "HIGH|MEDIUM|LOW"}]}
-                    """;
+            String prompt = prompts.get("EXTRACTION_IMPORTANCE_RANKING").replace("{{TERMS}}", fieldList);
 
             String response = jsonChatModel.generate(UserMessage.from(prompt)).content().text();
             // Parse JSON response

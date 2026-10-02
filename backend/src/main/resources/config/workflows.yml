@@ -1,0 +1,83 @@
+# Predefined workflows seeded at startup (WorkflowService). A workflow is seeded once by
+# name; editing an entry here does not overwrite a workflow already in the database.
+#
+# Step fields map 1:1 to WorkflowStepConfig:
+#   type            WorkflowStepType enum value
+#   label           display name
+#   maxIterations   self-refine iterations (default 1)
+#   retryCount      retries on failure (default 0)
+#   condition       {field: "<STEP>.<result key>", op: eq|neq|in, value: "..."} — skip unless true
+#   params          step-specific string parameters
+
+workflows:
+
+  - name: Due Diligence
+    description: "Full contract analysis: extract terms, assess risk, check compliance, and extract obligations"
+    steps:
+      - { type: EXTRACT_KEY_TERMS,  label: Extract Key Terms }
+      - { type: RISK_ASSESSMENT,    label: Risk Assessment, maxIterations: 2 }
+      - { type: COMPLIANCE_CHECK,   label: Playbook Compliance }
+      - { type: OBLIGATION_EXTRACT, label: Extract Obligations }
+      - { type: GENERATE_SUMMARY,   label: Executive Summary }
+
+  - name: Contract Review
+    description: "Rapid review: risk assessment → firm-grounded redlines for HIGH/MEDIUM risks"
+    steps:
+      - { type: RISK_ASSESSMENT,     label: Risk Assessment, maxIterations: 2 }
+      - { type: REDLINE_SUGGESTIONS, label: "Redline Suggestions (Firm Clauses)", maxIterations: 2 }
+      - { type: GENERATE_SUMMARY,    label: Executive Summary }
+
+  - name: Key Terms Only
+    description: "Extract structured key terms and data points from the document"
+    steps:
+      - { type: EXTRACT_KEY_TERMS, label: Extract Key Terms }
+
+  - name: High-Risk Deep Dive
+    description: "Full analysis with conditional redlines and approval gate — partner reviews before sign-off"
+    steps:
+      - { type: RISK_ASSESSMENT,  label: Risk Assessment, maxIterations: 2 }
+      - { type: COMPLIANCE_CHECK, label: Playbook Compliance }
+      - type: REDLINE_SUGGESTIONS
+        label: Redline Suggestions
+        maxIterations: 2
+        condition: { field: RISK_ASSESSMENT.overallRisk, op: in, value: "HIGH,MEDIUM" }
+      - { type: APPROVAL_GATE,    label: Partner Review }
+      - { type: GENERATE_SUMMARY, label: Executive Summary }
+
+  - name: Playbook Review
+    description: "Compliance-first: check against firm playbook → risk assessment → firm-grounded redlines → summary"
+    steps:
+      - { type: COMPLIANCE_CHECK,    label: Playbook Compliance }
+      - { type: RISK_ASSESSMENT,     label: Risk Benchmark vs Corpus, maxIterations: 2 }
+      - { type: REDLINE_SUGGESTIONS, label: Redlines from Firm Playbook, maxIterations: 2 }
+      - { type: GENERATE_SUMMARY,    label: Executive Memo }
+
+  - name: "Draft & Assess Loop"
+    description: "Draft a clause → assess risk → refine redlines → summary. Each step self-refines until quality passes."
+    steps:
+      - { type: DRAFT_CLAUSE,    label: Draft Liability Clause, maxIterations: 2, params: { clauseType: LIABILITY } }
+      - { type: RISK_ASSESSMENT, label: Assess Drafted Clause, maxIterations: 2 }
+      - type: REDLINE_SUGGESTIONS
+        label: Refine with Firm Playbook
+        maxIterations: 2
+        condition: { field: RISK_ASSESSMENT.overallRisk, op: in, value: "HIGH,MEDIUM" }
+      - { type: GENERATE_SUMMARY, label: Draft Summary }
+
+  - name: Draft Full Agreement
+    description: "Draft a complete contract → assess risk → compliance check → redlines → approval → summary"
+    steps:
+      - { type: DRAFT_CLAUSE,     label: Draft Full Agreement, params: { mode: agreement } }
+      - { type: RISK_ASSESSMENT,  label: Assess Agreement, maxIterations: 2 }
+      - { type: COMPLIANCE_CHECK, label: Playbook Compliance }
+      - type: REDLINE_SUGGESTIONS
+        label: Redline Weak Clauses
+        maxIterations: 2
+        condition: { field: RISK_ASSESSMENT.overallRisk, op: in, value: "HIGH,MEDIUM" }
+      - { type: GENERATE_SUMMARY, label: Executive Summary }
+
+  - name: Post-Signature Tracker
+    description: "Extract obligations, deadlines, payments, and renewal dates from executed contracts"
+    steps:
+      - { type: EXTRACT_KEY_TERMS,  label: Extract Key Terms }
+      - { type: OBLIGATION_EXTRACT, label: "Extract Obligations & Deadlines" }
+      - { type: GENERATE_SUMMARY,   label: Obligation Summary }

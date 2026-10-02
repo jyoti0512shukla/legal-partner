@@ -20,6 +20,8 @@ import java.util.List;
 public class PlaybookComparisonService {
 
     private final PlaybookPositionRepository positionRepo;
+
+    private final com.legalpartner.config.PromptRepository prompts;
     private final ChatLanguageModel jsonChatModel;
     private final DocumentFullTextRetriever fullTextRetriever;
     private final ObjectMapper objectMapper;
@@ -27,7 +29,9 @@ public class PlaybookComparisonService {
     public PlaybookComparisonService(PlaybookPositionRepository positionRepo,
                                       @Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
                                       DocumentFullTextRetriever fullTextRetriever,
-                                      ObjectMapper objectMapper) {
+                                      ObjectMapper objectMapper,
+            com.legalpartner.config.PromptRepository prompts) {
+        this.prompts = prompts;
         this.positionRepo = positionRepo;
         this.jsonChatModel = jsonChatModel;
         this.fullTextRetriever = fullTextRetriever;
@@ -58,27 +62,7 @@ public class PlaybookComparisonService {
 
     private MatterFinding comparePosition(PlaybookPosition position, String contractText,
                                            Matter matter, DocumentMetadata doc) {
-        String prompt = String.format("""
-                Analyze this contract against the firm's standard position.
-
-                Clause Type: %s
-                Firm's Standard Position: %s
-                Minimum Acceptable: %s
-                Non-negotiable: %s
-
-                Contract text:
-                %s
-
-                Respond ONLY with valid JSON:
-                {"verdict": "MATCHES|DEVIATES|MISSING", "severity": "HIGH|MEDIUM|LOW", "explanation": "one sentence", "section_ref": "Section X.Y or MISSING"}
-
-                Rules:
-                - DEVIATES but meets minimum → MEDIUM
-                - DEVIATES and below minimum → HIGH
-                - Non-negotiable and DEVIATES → always HIGH
-                - MISSING entirely → HIGH
-                - MATCHES → verdict is MATCHES
-                """,
+        String prompt = String.format(prompts.get("PLAYBOOK_POSITION_COMPARISON"),
                 position.getClauseType(),
                 position.getStandardPosition(),
                 position.getMinimumAcceptable() != null ? position.getMinimumAcceptable() : "N/A",

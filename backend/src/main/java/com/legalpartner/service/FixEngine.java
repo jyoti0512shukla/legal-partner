@@ -33,13 +33,17 @@ import java.util.stream.Collectors;
 @Slf4j
 public class FixEngine {
 
-    /** Maximum retries for BLOCK violations before falling back to deterministic injection. */
-    private static final int MAX_BLOCK_RETRIES = 3;
-
     private final ChatLanguageModel chatModel;
+    private final com.legalpartner.config.PromptRepository prompts;
+    /** Maximum retries for BLOCK violations before falling back to deterministic injection. */
+    private final int maxBlockRetries;
 
-    public FixEngine(ChatLanguageModel chatModel) {
+    public FixEngine(ChatLanguageModel chatModel,
+                     com.legalpartner.config.PromptRepository prompts,
+                     @org.springframework.beans.factory.annotation.Value("${legalpartner.draft.fix.max-block-retries:3}") int maxBlockRetries) {
         this.chatModel = chatModel;
+        this.prompts = prompts;
+        this.maxBlockRetries = maxBlockRetries;
     }
 
     // ── Public records ──────────────────────────────────────────────────
@@ -113,19 +117,19 @@ public class FixEngine {
 
             // Try up to MAX_BLOCK_RETRIES to get the LLM to comply
             boolean blockResolved = false;
-            for (int attempt = 1; attempt <= MAX_BLOCK_RETRIES; attempt++) {
+            for (int attempt = 1; attempt <= maxBlockRetries; attempt++) {
                 String blockRetryPrompt = buildBlockRetryPrompt(currentHtml, blockFailures, dealSpec, attempt);
                 String fixedHtml = executeRetry(currentHtml, blockRetryPrompt, systemPrompt);
                 if (fixedHtml != null && !fixedHtml.equals(currentHtml)) {
                     currentHtml = fixedHtml;
                     modified = true;
-                    log.info("FixEngine BLOCK retry attempt {}/{}: got new output", attempt, MAX_BLOCK_RETRIES);
+                    log.info("FixEngine BLOCK retry attempt {}/{}: got new output", attempt, maxBlockRetries);
                     // Re-check: are BLOCK rules now passing?
                     // We can't re-validate here (we don't have clauseType), so we do a text-level check
                     blockResolved = true;
                     break;
                 }
-                log.warn("FixEngine BLOCK retry attempt {}/{}: no improvement", attempt, MAX_BLOCK_RETRIES);
+                log.warn("FixEngine BLOCK retry attempt {}/{}: no improvement", attempt, maxBlockRetries);
             }
 
             // For each BLOCK failure, deterministically inject if the rule has an inject_template
@@ -251,35 +255,17 @@ public class FixEngine {
      */
     private String buildTargetedRetryPrompt(String originalClause, List<RuleResult> failures,
                                              DealSpec dealSpec) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("You are fixing a legal contract clause. The clause below has specific issues.\n");
-        sb.append("Fix ONLY the listed issues. DO NOT change any other part of the clause.\n");
-        sb.append("Return the complete fixed clause in the same HTML format.\n\n");
-
-        sb.append("ISSUES TO FIX:\n");
+        StringBuilder issues = new StringBuilder();
         for (RuleResult f : failures) {
-            sb.append("- [").append(f.rule().id()).append("] ").append(f.message()).append("\n");
-            if (f.rule().fixHint() != null) {
-                sb.append("  Fix: ").append(f.rule().fixHint()).append("\n");
-            }
+            issues.append("- [").append(f.rule().id()).append("] ").append(f.message()).append("\n");
+            if (f.rule().fixHint() != null) issues.append("  Fix: ").append(f.rule().fixHint()).append("\n");
         }
+        return String.format(prompts.get("FIX_TARGETED_RETRY"), issues, dealValues(dealSpec), originalClause);
+    }
 
-        // Add deal values for context
-        if (dealSpec != null) {
-            String dealContext = buildDealContextForFix(dealSpec);
-            if (!dealContext.isEmpty()) {
-                sb.append("\nDEAL VALUES TO USE:\n").append(dealContext);
-            }
-        }
-
-        sb.append("\nDO NOT CHANGE:\n");
-        sb.append("- Existing sub-clause numbering and structure\n");
-        sb.append("- Correct provisions that are already present\n");
-        sb.append("- HTML formatting and tag structure\n\n");
-
-        sb.append("ORIGINAL CLAUSE:\n").append(originalClause);
-
-        return sb.toString();
+    private String dealValues(DealSpec dealSpec) {
+        String ctx = dealSpec != null ? buildDealContextForFix(dealSpec) : "";
+        return ctx.isEmpty() ? "(none provided)\n" : ctx;
     }
 
     /**
@@ -287,34 +273,13 @@ public class FixEngine {
      */
     private String buildFullRetryPrompt(String originalClause, List<RuleResult> failures,
                                          DealSpec dealSpec, String originalUserPrompt) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("You previously generated this clause, but it failed quality validation.\n");
-        sb.append("Re-generate the clause fixing ALL of the following issues.\n\n");
-
-        sb.append("FAILED REQUIREMENTS:\n");
+        StringBuilder reqs = new StringBuilder();
         for (RuleResult f : failures) {
-            sb.append("- ").append(f.message()).append("\n");
-            if (f.rule().fixHint() != null) {
-                sb.append("  Required: ").append(f.rule().fixHint()).append("\n");
-            }
+            reqs.append("- ").append(f.message()).append("\n");
+            if (f.rule().fixHint() != null) reqs.append("  Required: ").append(f.rule().fixHint()).append("\n");
         }
-
-        if (dealSpec != null) {
-            String dealContext = buildDealContextForFix(dealSpec);
-            if (!dealContext.isEmpty()) {
-                sb.append("\nDEAL VALUES — use these exact values:\n").append(dealContext);
-            }
-        }
-
-        if (originalUserPrompt != null && !originalUserPrompt.isBlank()) {
-            sb.append("\nORIGINAL INSTRUCTIONS:\n").append(originalUserPrompt).append("\n");
-        }
-
-        sb.append("\nPREVIOUS (REJECTED) OUTPUT:\n").append(originalClause);
-        sb.append("\n\nGenerate a corrected version that passes all requirements above.");
-        sb.append(" Output ONLY the HTML clause, no explanation.");
-
-        return sb.toString();
+        String instructions = originalUserPrompt != null && !originalUserPrompt.isBlank() ? originalUserPrompt : "(none)";
+        return String.format(prompts.get("FIX_FULL_RETRY"), reqs, dealValues(dealSpec), instructions, originalClause);
     }
 
     /**
@@ -323,34 +288,19 @@ public class FixEngine {
      */
     private String buildBlockRetryPrompt(String originalClause, List<RuleResult> blockFailures,
                                           DealSpec dealSpec, int attempt) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("CRITICAL: The following clause violates mandatory contract rules and WILL BE REJECTED.\n");
-        sb.append("This is retry attempt ").append(attempt).append(" of ").append(MAX_BLOCK_RETRIES).append(".\n");
-        sb.append("You MUST fix ALL of the following violations or the clause will be replaced with deterministic text.\n\n");
-
-        sb.append("MANDATORY VIOLATIONS TO FIX:\n");
+        StringBuilder violations = new StringBuilder();
         for (RuleResult f : blockFailures) {
-            sb.append("- [BLOCK] [").append(f.rule().id()).append("] ").append(f.message()).append("\n");
+            violations.append("- [BLOCK] [").append(f.rule().id()).append("] ").append(f.message()).append("\n");
             if (f.rule().fixHint() != null) {
-                sb.append("  REQUIRED FIX: ").append(f.rule().fixHint()).append("\n");
+                violations.append("  REQUIRED FIX: ").append(f.rule().fixHint()).append("\n");
             }
             if (f.rule().injectTemplate() != null) {
                 String resolved = resolveTemplate(f.rule().injectTemplate(), dealSpec);
-                sb.append("  REQUIRED TEXT (include this or equivalent): ").append(truncate(resolved, 200)).append("\n");
+                violations.append("  REQUIRED TEXT (include this or equivalent): ").append(truncate(resolved, 200)).append("\n");
             }
         }
-
-        if (dealSpec != null) {
-            String dealContext = buildDealContextForFix(dealSpec);
-            if (!dealContext.isEmpty()) {
-                sb.append("\nDEAL VALUES — these are non-negotiable:\n").append(dealContext);
-            }
-        }
-
-        sb.append("\nORIGINAL (REJECTED) CLAUSE:\n").append(originalClause);
-        sb.append("\n\nRewrite the clause fixing ALL block violations. Output ONLY the HTML clause.");
-
-        return sb.toString();
+        return String.format(prompts.get("FIX_BLOCK_RETRY"), attempt, maxBlockRetries, violations,
+                dealValues(dealSpec), originalClause);
     }
 
     // ── LLM retry execution ────────────────────────────────────────────
@@ -360,8 +310,7 @@ public class FixEngine {
      */
     private String executeRetry(String currentHtml, String fixPrompt, String systemPrompt) {
         try {
-            String sys = systemPrompt != null ? systemPrompt
-                    : "You are a legal contract drafting assistant. Fix the clause as instructed. Output ONLY valid HTML.";
+            String sys = systemPrompt != null ? systemPrompt : prompts.get("FIX_SYSTEM_DEFAULT");
 
             AiMessage response = chatModel.generate(
                     SystemMessage.from(sys),

@@ -351,7 +351,7 @@ export default function DraftPage() {
               setQaWarnings(prev => ({ ...prev, [event.clauseType]: event.qaWarnings }));
             }
           } else if (event.type === 'complete') {
-            setDraft({ draftHtml: event.draftHtml, suggestions: event.suggestions, draftParametersHtml: event.draftParametersHtml || '' });
+            setDraft({ draftHtml: event.draftHtml, suggestions: event.suggestions, draftParametersHtml: event.draftParametersHtml || '', draftToken: event.draftToken || null });
             if (event.qaWarnings && Object.keys(event.qaWarnings).length > 0) {
               setQaWarnings(event.qaWarnings);
             }
@@ -459,6 +459,7 @@ export default function DraftPage() {
         partyA: form.partyA || null,
         partyB: form.partyB || null,
         jurisdiction: form.jurisdiction || null,
+        draftToken: draft.draftToken || null,
       });
       // Auto-initialize contract lifecycle on saved document
       if (saveRes.data?.id) {

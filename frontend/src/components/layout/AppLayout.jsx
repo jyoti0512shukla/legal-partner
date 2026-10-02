@@ -15,6 +15,7 @@ const PAGE_TITLES = {
   '/compare': 'Compare',
   '/extraction': 'Extraction',
   '/clause-library': 'Clause Library',
+  '/firm-knowledge': 'Firm Knowledge',
   '/workflows': 'AI Agents',
   '/settings': 'Settings',
   '/playbooks': 'Playbooks',

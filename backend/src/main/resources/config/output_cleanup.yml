@@ -1,0 +1,246 @@
+# Cleanup of raw LLM output before clause structuring (LlmOutputSanitizer).
+#
+# Everything here is model- and prompt-specific: chat-template tokens, markers a fine-tune
+# leaks, phrases a model uses to talk about its own output. Switching or adding a model means
+# adding its artifacts here — no Java change. Steps run in order; each has one `op`:
+#
+#   truncate_at_literal  cut the text at the first marker found after position 0 (checked in order)
+#   truncate_at_regex    cut the text at the first match of each pattern (checked in order)
+#   replace              regex replaceAll for each {pattern, with} (Java regex; $1 = group)
+#   replace_literal      plain-text replace for each {from, to}
+#   extract_json_prose   if the text is a JSON object, keep the longest value of `fields`
+#                        (when longer than min_chars)
+#   drop_lines           drop lines whose trimmed text fully matches a pattern
+#   dedupe_repetition    cut at the first repeated segment (fingerprint of first N chars)
+#   drop_meta_lines      drop lines that are model meta-commentary (see meta_commentary)
+#   trim                 strip leading/trailing whitespace
+#
+# Patterns are YAML single-quoted: backslashes are literal, '' is a quote.
+
+steps:
+  # 0. The model echoed our retry / system prompt, training markers or unrelated boilerplate.
+  - op: truncate_at_literal
+    markers:
+    - "REWRITE REQUIRED"
+    - "MISSING SUB-CLAUSES:"
+    - "RULES FOR THIS REWRITE:"
+    - "INSTRUCTIONS: Perform rewrite"
+    - "ANCHOR: Follow the firm precedent"
+    - "PRESERVE sub-clauses that do NOT have issues"
+    # Training-format markers leaked from v3's instruction-tuning corpus
+    - "__PROCESSED_REQUEST__"
+    - "__INSTRUCTION__"
+    - "__RESPONSE__"
+    - "__FOLLOW_UP_QUESTIONS__"
+    - "__FORBIDDEN_ACTIONS"
+    - "__CONFIRMATION_OF_UNDERSTANDING__"
+    - "__BEGIN_PREMIUM_INSTRUCTIONS__"
+    - "INSTRUCTION: Write an additional clause"
+    - "CONFIRMATION_OF_UNDERSTANDING"
+    - "FORBIDDEN_ACTIONS_I_WILL_NOT_TAKE"
+    # Federal-contracting boilerplate that tended to pour in after legal-prose saturation
+    - "\nCFR § "
+    - "\nFAR § "
+    - "\nFAR §"
+    - "\nCFR §"
+    - "UNDERSTANDINGS AND ACKNOWLEDGMENTS, IN FEDERAL CONTRACTING FORM"
+    - "The Government Contractor"
+    # Mistral instruction tokens that leaked through vLLM
+    - "[/INST]"
+    - "[INST]"
+    # Fix engine retry artifacts
+    - "REVISED ORIGINAL CLAUSE"
+    - "MODIFIED CLAUSE"
+    - "Correct version"
+    - "Here is the fixed clause"
+    - "Here is the corrected"
+    # (```html / ```json are NOT markers: a fenced answer after any preamble would be cut away
+    #  entirely; fences are stripped in step 2 instead.)
+    # Model copying input context verbatim as a "schedule"
+    - "SCHEDULE — DRAFT PARAMETERS"
+    - "SCHEDULE - DRAFT PARAMETERS"
+    - "Draft Parameters"
+    # SaulLM-54B artifacts — model echoes system prompt structure markers
+    - "END OF ARTICLE"
+    - "END OF DOCUMENT"
+    - "END OF CLARIFICATIONS"
+    - "END OF CLAUSE"
+    - "The following sub-clauses were provided earlier"
+    # Model self-commentary / meta-text that breaks document trust
+    - "Note: This clause is drafted"
+    - "Note: This payment clause"
+    - "Note: This clause complies"
+    - "Note: Keep the same structure"
+    - "Note: CCPA -"
+    - "[Note: the above sub-clauses"
+    - "[Note: this clause"
+    - "This clause is tailored"
+    - "Reference UCC Article"
+    - "Sub-clause 8:"
+    - "Sub-clause 9:"
+    - "Sub-clause 10:"
+
+  - op: truncate_at_regex
+    patterns:
+      - '__[A-Z][A-Z0-9_]{2,}__'                                   # generic __TRAINING_TOKEN__
+      - '(?i)\[Source\s+\d+:\s*[^\]]*(?:\]|$)|Source:\s*\S+\.(?:pdf|docx|htm[l]?|txt)'  # RAG chunk headers
+      - '\s\|\s+(?:OTHER|NDA|MSA|SAAS|EMPLOYMENT|VENDOR|USA|INDIA|UK)\s+\|'              # pipe-delimited RAG metadata
+
+  # 1. Chat-template tokens — Mistral/Llama, Gemma, Qwen/ChatML — and bare role labels.
+  - op: replace
+    rules:
+      - { pattern: '\[/?INST\]', with: '' }
+      - { pattern: '<</?SYS>>', with: '' }
+      - { pattern: '</?s>', with: '' }
+      - { pattern: '<\|end_of_turn\|>', with: '' }
+      - { pattern: '<\|start_of_turn\|>(?:user|model|assistant|thought|system)?', with: '' }
+      - { pattern: '<\|im_start\|>(?:user|assistant|system)?', with: '' }
+      - { pattern: '<\|im_end\|>', with: '' }
+      - { pattern: '(?m)^\s*(?:user|model|assistant|thought)\s*$', with: '' }
+  # 2. Markdown code fences.
+      - { pattern: '```(?:json|html|text)?\s*', with: '' }
+      - { pattern: '```', with: '' }
+
+  # 3. JSON-wrapped answers: {"suggested_language": "actual text", ...}
+  - op: extract_json_prose
+    fields: [output, suggested_language, fix_text, fix, content, text, clause_text]
+    min_chars: 80
+
+  # 4. Lines that are pure JSON syntax / key-value pairs.
+  - op: drop_lines
+    patterns:
+      - '^[{}\[\],]+$'
+      - '^"[a-z_]+"\s*:\s*["\[{].*'
+      - '^"[a-z_]+"\s*:\s*\d+.*'
+      - '^"[a-z_]+"\s*:\s*""\s*,?$'
+
+  # 5. LaTeX, 6. code comments.
+  - op: replace
+    rules:
+      - { pattern: '\$\\text\{([^}]*)\}\$', with: '$1' }
+      - { pattern: '\\text\{([^}]*)\}', with: '$1' }
+      - { pattern: '\\textbf\{([^}]*)\}', with: '$1' }
+      - { pattern: '\\textit\{([^}]*)\}', with: '$1' }
+      - { pattern: '\\section\*?\{([^}]*)\}', with: '$1' }
+      - { pattern: '\\subsection\*?\{([^}]*)\}', with: '$1' }
+      - { pattern: '\\emph\{([^}]*)\}', with: '$1' }
+      - { pattern: '\+\s*//[^\n]*', with: '' }
+      - { pattern: '(?m)^\s*//[^\n]*$', with: '' }
+      - { pattern: '/\*.*?\*/', with: '' }
+
+  # 7. Unicode escapes rendered as literal text.
+  - op: replace_literal
+    rules:
+      - { from: '\u201c', to: "\u201c" }
+      - { from: '\u201d', to: "\u201d" }
+      - { from: '\u2019', to: "\u2019" }
+      - { from: '\u2014', to: "\u2014" }
+      - { from: '\u2013', to: "\u2013" }
+      - { from: '\xef\x84\xbc', to: "," }
+
+  # 8. ASCII table rules, 9. leaked JSON fields, 10. JSON value openers, 11. blank lines / braces.
+  - op: replace
+    rules:
+      - { pattern: '(?m)^[\s|\-]{10,}$', with: '' }
+      - { pattern: '"clause_name"\s*:\s*"[^"]*"\s*,?', with: '' }
+      - { pattern: '"clause_type"\s*:\s*"[^"]*"\s*,?', with: '' }
+      - { pattern: '"risk_level"\s*:\s*"[^"]*"\s*,?', with: '' }
+      - { pattern: '"rule_set"\s*:\s*"[^"]*"\s*,?', with: '' }
+      - { pattern: '"issue_id"\s*:\s*\d+\s*,?', with: '' }
+      - { pattern: '"issue_type"\s*:\s*"[^"]*"\s*,?', with: '' }
+      - { pattern: '"issue"\s*:\s*"[^"]*"\s*,?', with: '' }
+      - { pattern: '"rationale"\s*:\s*"[^"]*"\s*,?', with: '' }
+      - { pattern: '"(?:output|suggested_language|fix_text|fix)"\s*:\s*"', with: '' }
+      - { pattern: '"\s*,?\s*$', with: '' }
+      - { pattern: '\n{3,}', with: "\n\n" }
+      - { pattern: ',\s*\n\s*\}', with: '' }
+      - { pattern: '\{\s*\}', with: '' }
+  - op: trim
+
+  # 12. Generation loops.
+  - op: dedupe_repetition
+    min_chars: 200            # shorter outputs are left alone
+    min_segment_chars: 40
+    fingerprint_chars: 60
+
+  # 13. Meta-commentary lines.
+  - op: drop_meta_lines
+
+  # 14. Bold markdown.
+  - op: replace
+    rules:
+      - { pattern: '\*\*([^*]+)\*\*', with: '$1' }
+      - { pattern: '\*\*', with: '' }
+
+# A line (lower-cased, trimmed) is meta-commentary — not legal prose — if it matches any rule.
+meta_commentary:
+  starts_with_pattern:
+    - '^(note:|\[note|reference:|source:|instruction:|end of |do not |sub-clause \d).*'
+    - '^(here is|here are|below is|the following|to summarize|to conclude|in summary|drafting complete|in conclusion).*'
+    # Raw DealSpec / prompt key-value dumps
+    - '^(contract type|jurisdiction|counterparty type|practice area|license fee|maintenance fee|license type|users|locations|deal brief|severity|coverage|deployment|industry):.*'
+  contains:
+    # Model talking about its own output
+    - "this clause"
+    - "this version"
+    - "this section"
+    - "this payment"
+    - "the above"
+    - "as per the"
+    - "the following sub-clauses"
+    - "satisfies all"
+    - "satisfies the"
+    - "requirements stated"
+    - "passed requirements"
+    - "passed all"
+    - "not required to be"
+    - "data protection and privacy focus"
+    - "is a first draft"
+    # Fix engine / retry prompt leaks
+    - "fixed clause"
+    - "fixing"
+    - "corrected clause"
+    - "corrected version"
+    - "revised clause"
+    - "revised original"
+    - "correct version"
+    - "required fix"
+    - "only the required"
+    - "deal values embedded"
+    - "violation"
+    - "rewrite"
+    - "modified clause"
+    # Code / markup
+    - "```"
+    - '\text{'
+    - '\section{'
+    # Cross-jurisdiction contamination (NB: also strips these in Indian-law drafts)
+    - "indian contract act"
+    - "sections 73 and 74"
+  # Heading echoes: a short line that is only an article label.
+  short_line_pattern:
+    pattern: '^article \d+\..*'
+    max_chars: 39
+
+# Artifacts that survive cleanup trigger a clause retry. `message` is sent back to the model
+# ({match} = the matched text). `unless_contract_type_contains`: skip for these contract types.
+qa_artifact_checks:
+  - name: json
+    pattern: '"[a-z_]+"\s*:\s*["\[{]'
+    message: "LLM artifact: raw JSON detected in output — output must be plain legal prose only"
+  - name: latex
+    pattern: '\\text\{|\\textbf\{|\$\\text'
+    message: "LLM artifact: LaTeX notation detected — output must be plain text, not LaTeX"
+  - name: code_comment
+    pattern: '(?m)//\s*\w|/\*|\*/'
+    message: "LLM artifact: code comments detected — output must be plain legal prose"
+  - name: instruction_tokens
+    pattern: '\[INST\]|\[/INST\]|<<SYS>>'
+    message: "LLM artifact: instruction tokens detected — output must not contain model control tokens"
+  - name: training_marker
+    pattern: '__[A-Z][A-Z0-9_]{2,}__'
+    message: "LLM artifact: training-format marker '{match}' leaked into output — rewrite the clause without any __TOKEN__ markers"
+  - name: federal_citation
+    pattern: '\b(?:CFR|FAR)\s*§\s*\d'
+    unless_contract_type_contains: [federal, government]
+    message: "LLM artifact: federal regulation citation ({match}) leaked into a non-federal contract — rewrite without CFR/FAR boilerplate"

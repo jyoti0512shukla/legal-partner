@@ -40,6 +40,39 @@ public class FileStorageService {
     }
 
     /** Returns the absolute path for a document file (e.g. /data/documents/<id>.docx). */
+    /**
+     * Delete every stored artifact of a document: {@code <id>.*} files (original, draft
+     * HTML/DOCX, manifest, parameters) and the {@code <id>/} version directory.
+     * @return number of files removed
+     */
+    public int deleteAllFor(UUID documentId) {
+        int removed = 0;
+        String prefix = documentId.toString();
+        try (var files = Files.list(storageDir)) {
+            for (Path p : files.filter(f -> f.getFileName().toString().startsWith(prefix)).toList()) {
+                removed += deleteRecursively(p);
+            }
+        } catch (IOException e) {
+            log.warn("Could not list storage for {}: {}", documentId, e.getMessage());
+        }
+        return removed;
+    }
+
+    private int deleteRecursively(Path p) {
+        int n = 0;
+        try {
+            if (Files.isDirectory(p)) {
+                try (var children = Files.list(p)) {
+                    for (Path c : children.toList()) n += deleteRecursively(c);
+                }
+            }
+            if (Files.deleteIfExists(p)) n++;
+        } catch (IOException e) {
+            log.warn("Could not delete {}: {}", p, e.getMessage());
+        }
+        return n;
+    }
+
     public Path resolve(String fileName) {
         return storageDir.resolve(fileName);
     }

@@ -89,7 +89,14 @@ class EncryptionServiceTest {
         }
         EncryptionService otherService = new EncryptionService(otherConfig.stringEncryptor());
 
-        assertThatThrownBy(() -> otherService.decrypt(encrypted))
-                .isInstanceOf(Exception.class);
+        // A wrong key must never recover the plaintext. It usually fails the padding check and
+        // throws, but ~1 in 256 attempts passes padding and yields garbage — both are correct.
+        String recovered;
+        try {
+            recovered = otherService.decrypt(encrypted);
+        } catch (Exception expected) {
+            return;
+        }
+        org.assertj.core.api.Assertions.assertThat(recovered).isNotEqualTo("secret data");
     }
 }

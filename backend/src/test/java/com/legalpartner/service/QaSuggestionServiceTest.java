@@ -24,7 +24,7 @@ class QaSuggestionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new QaSuggestionService(chatModel, retriever);
+        service = new QaSuggestionService(chatModel, retriever, com.legalpartner.testsupport.ConfigFixtures.prompts());
         service.init();
     }
 

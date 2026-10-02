@@ -177,26 +177,21 @@ public final class StructuredSchemas {
     // Exactly 12 clauses with fixed clause_id enum. The enum constraint means
     // the model cannot invent new clause IDs or use prose variants.
 
-    public static final Map<String, Object> CHECKLIST_SCHEMA = Map.of(
+    /** Checklist schema for the configured clause ids (risk_questions.yml checklist_clauses). */
+    public static Map<String, Object> checklistSchema(List<String> clauseIds) {
+        return Map.of(
             "type", "object",
             "required", List.of("clauses"),
             "properties", Map.of(
                     "clauses", Map.of(
                             "type", "array",
-                            "minItems", 12,
-                            "maxItems", 12,
+                            "minItems", clauseIds.size(),
+                            "maxItems", clauseIds.size(),
                             "items", Map.of(
                                     "type", "object",
                                     "required", List.of("clause_id", "status", "risk_level", "section_ref", "finding"),
                                     "properties", Map.ofEntries(
-                                            Map.entry("clause_id", enumProp(
-                                                    "LIABILITY_LIMIT", "INDEMNITY",
-                                                    "TERMINATION_CONVENIENCE", "TERMINATION_CAUSE",
-                                                    "FORCE_MAJEURE", "CONFIDENTIALITY",
-                                                    "GOVERNING_LAW", "DISPUTE_RESOLUTION",
-                                                    "IP_OWNERSHIP", "DATA_PROTECTION",
-                                                    "PAYMENT_TERMS", "ASSIGNMENT"
-                                            )),
+                                            Map.entry("clause_id", enumProp(clauseIds.toArray(String[]::new))),
                                             Map.entry("status",         enumProp("PRESENT", "WEAK", "MISSING")),
                                             Map.entry("risk_level",     enumProp("HIGH", "MEDIUM", "LOW")),
                                             Map.entry("section_ref",    strProp()),
@@ -206,5 +201,6 @@ public final class StructuredSchemas {
                             )
                     )
             )
-    );
+        );
+    }
 }

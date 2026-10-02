@@ -92,6 +92,24 @@ public final class PromptTemplates {
     // contract mode + list banned/required terms BEFORE drafting, so the main
     // generation is primed with its own self-identified constraints. Cheaper
     // than post-hoc QA retry on mode blur.
+    /**
+     * Draft verification repair (DraftVerifier). Overridable in clause_prompts.yml.
+     * Args: %1$s clause key, %2$s contract type name, %3$s bullet list of points, %4$s current clause text.
+     */
+    public static final String DRAFT_VERIFY_REPAIR = """
+            You are revising one clause (%1$s) of a %2$s agreement.
+            Revise the clause MINIMALLY so that it satisfies every point below. Keep all existing provisions, \
+            party names, defined terms, amounts and dates exactly as they are unless a point requires changing them. \
+            Add new numbered sub-clauses where needed.
+
+            Points to satisfy:
+            %3$s
+            Current clause:
+            %4$s
+
+            Output ONLY the revised clause: numbered sub-clauses (e.g. "1.", "2."), one per line. \
+            No headings, commentary, JSON or markdown.""";
+
     public static final String DRAFT_SCRATCHPAD_SYSTEM = """
             You are preparing to draft a contract clause. Before writing, declare what mode you're in.
 
@@ -600,16 +618,15 @@ public final class PromptTemplates {
             Extract and output the 9 lines:
             """;
 
+    /** Checklist system prompt. {{CLAUSE_COUNT}} / {{CLAUSE_IDS}} are filled from risk_questions.yml checklist_clauses. */
     public static final String CHECKLIST_SYSTEM_GUIDED = """
-            You are a %LEGAL_REVIEWER%. Check the following 12 clauses in the contract.
+            You are a %LEGAL_REVIEWER%. Check the following {{CLAUSE_COUNT}} clauses in the contract.
 
             Clause IDs to check (use exactly as shown):
-            LIABILITY_LIMIT, INDEMNITY, TERMINATION_CONVENIENCE, TERMINATION_CAUSE,
-            FORCE_MAJEURE, CONFIDENTIALITY, GOVERNING_LAW, DISPUTE_RESOLUTION,
-            IP_OWNERSHIP, DATA_PROTECTION, PAYMENT_TERMS, ASSIGNMENT
+            {{CLAUSE_IDS}}
 
             For each clause provide:
-            - clause_id: one of the 12 IDs above
+            - clause_id: one of the {{CLAUSE_COUNT}} IDs above
             - status: PRESENT (clearly present), WEAK (present but incomplete or one-sided), MISSING (not found)
             - risk_level: HIGH (missing or dangerously weak), MEDIUM (present but improvable), LOW (clear and balanced)
             - section_ref: section number (e.g. "Section 8.1") or "MISSING" if absent
@@ -674,18 +691,20 @@ public final class PromptTemplates {
             """;
 
     // CSV format: STATUS-RISK per clause, comma-separated — avoids EOS after first newline.
-    // Completions prefix is "LIABILITY_LIMIT=" so model continues: PRESENT-LOW,INDEMNITY=...
+    // Completions prefix is "<first id>=" so the model continues the line.
+    // %s = file name, %s = contract text; {{CLAUSE_COUNT}} / {{CSV_SKELETON}} / {{CSV_EXAMPLE}}
+    // are filled from risk_questions.yml checklist_clauses.
     public static final String CHECKLIST_USER = """
             Contract: %s
 
             Contract excerpts:
             %s
 
-            Output exactly 12 ratings as a single comma-separated line (format CLAUSE=STATUS-RISK, no spaces):
-            LIABILITY_LIMIT=?-?,INDEMNITY=?-?,TERMINATION_CONVENIENCE=?-?,TERMINATION_CAUSE=?-?,FORCE_MAJEURE=?-?,CONFIDENTIALITY=?-?,GOVERNING_LAW=?-?,DISPUTE_RESOLUTION=?-?,IP_OWNERSHIP=?-?,DATA_PROTECTION=?-?,PAYMENT_TERMS=?-?,ASSIGNMENT=?-?
+            Output exactly {{CLAUSE_COUNT}} ratings as a single comma-separated line (format CLAUSE=STATUS-RISK, no spaces):
+            {{CSV_SKELETON}}
 
             Replace ? with STATUS (PRESENT/WEAK/MISSING) and RISK (HIGH/MEDIUM/LOW). Example:
-            LIABILITY_LIMIT=PRESENT-LOW,INDEMNITY=WEAK-MEDIUM,TERMINATION_CONVENIENCE=MISSING-HIGH,TERMINATION_CAUSE=PRESENT-LOW,FORCE_MAJEURE=MISSING-HIGH,CONFIDENTIALITY=PRESENT-LOW,GOVERNING_LAW=PRESENT-LOW,DISPUTE_RESOLUTION=WEAK-MEDIUM,IP_OWNERSHIP=MISSING-HIGH,DATA_PROTECTION=WEAK-MEDIUM,PAYMENT_TERMS=PRESENT-LOW,ASSIGNMENT=MISSING-HIGH
+            {{CSV_EXAMPLE}}
             """;
 
     // ── Section Planner ─────────────────────────────────────────────────────────
@@ -897,4 +916,501 @@ public final class PromptTemplates {
 
             Output the four labelled lines (RISK:, IMPACT:, FIX:, LANGUAGE:) now:
             """;
+
+    /** DealSpecExtractor: deal brief → DealSpec JSON. The brief is appended after this text. */
+    public static final String DEALSPEC_EXTRACTION = """
+            You are a legal deal-term extraction engine. Extract ALL structured data from the
+            deal brief below into a single JSON object. Output ONLY valid JSON, no markdown.
+
+            Schema (all fields nullable — omit or set to null if not mentioned):
+            {
+              "partyA": {
+                "name": "full legal entity name",
+                "type": "Corporation | LLC | LLP | Partnership | Individual",
+                "state": "state of incorporation",
+                "address": "full address",
+                "role": "Licensor | Provider | Seller | Employer | Disclosing Party"
+              },
+              "partyB": {
+                "name": "full legal entity name",
+                "type": "Corporation | LLC | LLP | Partnership | Individual",
+                "state": "state of incorporation",
+                "address": "full address",
+                "role": "Licensee | Customer | Buyer | Employee | Receiving Party"
+              },
+              "license": {
+                "type": "perpetual | subscription | term-based",
+                "users": 500,
+                "locations": 3,
+                "derivativeRights": true,
+                "deployment": "on-premise | cloud | hybrid",
+                "termDuration": "3 years"
+              },
+              "fees": {
+                "licenseFee": 750000,
+                "maintenanceFee": 150000,
+                "billingCycle": "monthly | quarterly | annually",
+                "currency": "USD",
+                "paymentTerms": "Net 30",
+                "subscriptionFee": 120000
+              },
+              "support": {
+                "coverage": "24/7 | business hours | extended hours",
+                "slaResponseHours": 4,
+                "patchFrequency": "monthly | quarterly | as-needed",
+                "uptimeSla": 99.9
+              },
+              "security": {
+                "escrow": true,
+                "soc2": true,
+                "iso27001": false,
+                "encryptionAtRest": true,
+                "encryptionInTransit": true
+              },
+              "legal": {
+                "jurisdiction": "State of Delaware",
+                "court": "Delaware Court of Chancery",
+                "arbitration": "ICC Rules",
+                "liabilityCap": "12 months of fees",
+                "noticeDays": 30,
+                "cureDays": 30,
+                "survivalYears": 5,
+                "noticePeriod": "one month"
+              },
+              "compensation": {
+                "salary": 185000,
+                "payFrequency": "monthly | bi-weekly",
+                "bonus": "up to 20% annual performance bonus"
+              },
+              "customRequirements": ["source code escrow", "quarterly business reviews"]
+            }
+
+            IMPORTANT:
+            - Monetary values must be plain numbers (750000 not "$750,000")
+            - Extract EVERY concrete value mentioned — amounts, counts, durations, standards
+            - For users/locations, extract the number only
+            - If the brief mentions "perpetual" or "subscription", set license.type accordingly
+            - If SOC 2, ISO 27001, escrow are mentioned, set the boolean to true
+            - customRequirements: list any special terms that don't fit the structured fields
+
+            Deal brief:
+            """;
+
+    /** ContextualRetrievalService: situate a chunk in its document. %s = document summary, %s = chunk text. */
+    public static final String CONTEXTUAL_RETRIEVAL_CHUNK = """
+            <document>
+            %s
+            </document>
+
+            Here is the chunk we want to situate within the whole document:
+            <chunk>
+            %s
+            </chunk>
+
+            Please give a short succinct context (2-3 sentences, <100 words) to situate
+            this chunk within the overall document. Mention the contract type, section
+            name/number, and what the chunk is about. Answer ONLY with the succinct
+            context and nothing else.
+            """;
+
+    /** SemanticRequirementChecker: answer one review question. %s = clause type, %s = clause text, %s = extracted provisions, %s = question. */
+    public static final String SEMANTIC_REQUIREMENT_QUESTION = """
+            Clause type: %s
+
+            Clause text:
+            %s
+
+            Extracted provisions:
+            %s
+
+            Question: %s
+
+            Instructions:
+            - If the clause addresses this question, answer PRESENT and quote the exact text.
+            - If the clause does NOT address this at all, answer ABSENT.
+            - If mentioned but unclear/ambiguous, answer UNCLEAR.
+
+            Output ONLY valid JSON:
+            {"answer": "PRESENT|ABSENT|UNCLEAR", "quote": "exact text or empty"}
+            """;
+
+    /** SemanticRequirementChecker: list a clause's provisions before questions. %s = clause type, %s = clause text. */
+    public static final String SEMANTIC_PROVISION_EXTRACTION = """
+            Read this %s clause and list every provision, obligation, condition, and right mentioned. \
+            Number each one and quote the relevant text.
+
+            Clause:
+            %s
+
+            List:""";
+
+    /** DraftService.hydratePartiesFromDealBrief: party/address extraction. The brief is appended after this text. */
+    public static final String DRAFT_PARTY_EXTRACTION = """
+            Extract ALL structured data from this deal brief. Output ONLY valid JSON:
+            {"partyA": "full legal name or null",
+             "partyB": "full legal name or null",
+             "partyAAddress": "full address or null",
+             "partyBAddress": "full address or null",
+             "partyARole": "Licensor/Provider/Seller/Landlord/Employer or null",
+             "partyBRole": "Licensee/Customer/Buyer/Tenant/Employee or null",
+             "keyTerms": ["term1: value1", "term2: value2", ...]}
+
+            Extract every concrete value: party names, addresses, monetary amounts,
+            user counts, SLA targets, license types, term durations, support levels,
+            special requirements (escrow, derivative works, patches, etc).
+
+            Deal brief:
+            """;
+
+    /** DraftService: appended to clause prompts when RAG precedent is present. */
+    public static final String DRAFT_RAG_GROUNDING = """
+
+
+            RAG PRECEDENT — reference only, NOT text to copy:
+            The firm's precedent clauses in the user message are reference material for STYLE and STRUCTURE only.
+            Write an ORIGINAL clause in the same register, tailored to THIS contract's parties and deal context.
+            Never copy source tags, filenames, party names, or deal-specific details from the precedent.
+            If the precedent contains text that looks like a different deal (different parties, different industry, different transaction type), ignore that text and draft fresh.
+            """;
+
+    /**
+     * DraftService: party-name mandate heading the terminology block.
+     * %1$s Party A name, %2$s Party B name, %3$s Party A role, %4$s Party B role,
+     * %5$s / %6$s role words that must not be used for A / B (party_name_variants.yml minus the template's roles).
+     */
+    public static final String DRAFT_TERMINOLOGY_MANDATE = """
+
+
+            TERMINOLOGY MANDATE — non-negotiable:
+            - Refer to Party A (the %3$s) ONLY as "%1$s" — never as %5$s, or by any other name.
+            - Refer to Party B (the %4$s) ONLY as "%2$s" — never as %6$s, or by any other name.
+            - Do NOT introduce any party name not listed above.
+            """;
+
+    /**
+     * DraftService: fresh retry after QA failures. %1$s = clause system prompt, %2$s = original user prompt,
+     * %3$s = bullet list of issues, %4$s = clause key, %5$d = expected sub-clause count.
+     */
+    public static final String DRAFT_ISOLATED_RETRY = """
+            %1$s
+
+            %2$s
+
+            Your previous attempt had the following issues:
+            %3$s
+            Write a fresh, complete %4$s clause with exactly %5$d numbered sub-clauses. \
+            Output ONLY the numbered legal text. No commentary, no JSON, no chat tokens.""";
+
+    /**
+     * DraftService: generate only the missing sub-clauses. %1$s = clause system prompt, %2$s = original user prompt,
+     * %3$d = sub-clauses already drafted, %4$d = first missing number, %5$d = expected total.
+     */
+    public static final String DRAFT_MISSING_SUBCLAUSES = """
+            %1$s
+
+            %2$s
+
+            You have already drafted %3$d sub-clauses for this clause. Now write ONLY sub-clauses %4$d through %5$d. \
+            Begin each with the appropriate number (e.g. "%4$d."). Output ONLY the new numbered sub-clauses as plain legal prose. \
+            Do not repeat the existing sub-clauses. Do not add commentary.""";
+
+    /** FixEngine: surgical fix. %1$s = issues list, %2$s = deal values, %3$s = original clause HTML. */
+    public static final String FIX_TARGETED_RETRY = """
+            You are fixing a legal contract clause. The clause below has specific issues.
+            Fix ONLY the listed issues. DO NOT change any other part of the clause.
+            Return the complete fixed clause in the same HTML format.
+
+            ISSUES TO FIX:
+            %1$s
+            DEAL VALUES TO USE:
+            %2$s
+            DO NOT CHANGE:
+            - Existing sub-clause numbering and structure
+            - Correct provisions that are already present
+            - HTML formatting and tag structure
+
+            ORIGINAL CLAUSE:
+            %3$s""";
+
+    /**
+     * FixEngine: full rewrite. %1$s = failed requirements, %2$s = deal values,
+     * %3$s = original instructions, %4$s = previous output.
+     */
+    public static final String FIX_FULL_RETRY = """
+            You previously generated this clause, but it failed quality validation.
+            Re-generate the clause fixing ALL of the following issues.
+
+            FAILED REQUIREMENTS:
+            %1$s
+            DEAL VALUES — use these exact values:
+            %2$s
+            ORIGINAL INSTRUCTIONS:
+            %3$s
+
+            PREVIOUS (REJECTED) OUTPUT:
+            %4$s
+
+            Generate a corrected version that passes all requirements above. Output ONLY the HTML clause, no explanation.""";
+
+    /**
+     * FixEngine: BLOCK violation retry. %1$d = attempt, %2$d = max attempts, %3$s = violations,
+     * %4$s = deal values, %5$s = rejected clause.
+     */
+    public static final String FIX_BLOCK_RETRY = """
+            CRITICAL: The following clause violates mandatory contract rules and WILL BE REJECTED.
+            This is retry attempt %1$d of %2$d.
+            You MUST fix ALL of the following violations or the clause will be replaced with deterministic text.
+
+            MANDATORY VIOLATIONS TO FIX:
+            %3$s
+            DEAL VALUES — these are non-negotiable:
+            %4$s
+            ORIGINAL (REJECTED) CLAUSE:
+            %5$s
+
+            Rewrite the clause fixing ALL block violations. Output ONLY the HTML clause.""";
+
+    /** FixEngine: system prompt when the clause has none. */
+    public static final String FIX_SYSTEM_DEFAULT =
+            "You are a legal contract drafting assistant. Fix the clause as instructed. Output ONLY valid HTML.";
+
+    /** AiService.complianceCheck: one playbook position vs contract. %s clause type, %s standard, %s minimum, %s non-negotiable, %s contract text. */
+    public static final String PLAYBOOK_COMPLIANCE_CHECK = """
+            Analyze this contract clause against the firm's standard.
+            Clause Type: %s
+            Firm Standard: %s
+            Minimum Acceptable: %s
+            Non-negotiable: %s
+
+            Contract text:
+            %s
+
+            Respond ONLY with JSON:
+            {"verdict": "MATCHES|DEVIATES|MISSING", "severity": "HIGH|MEDIUM|LOW", "explanation": "one sentence", "section_ref": "Section X.Y or MISSING"}
+            """;
+
+    /** AiService.extractObligations. %s = contract text (capped). */
+    public static final String OBLIGATIONS_EXTRACTION = """
+            Extract ALL obligations, deadlines, and key dates from this contract.
+            For each item, provide: type, description, date (if specified), party responsible, and section reference.
+
+            Types to look for:
+            - PAYMENT: amounts, payment dates, invoicing terms
+            - DEADLINE: deliverable due dates, milestones
+            - RENEWAL: renewal/expiry dates, auto-renewal terms
+            - NOTICE: notice periods for termination, renewal, breach
+            - REPORTING: reporting obligations, audit rights
+            - COMPLIANCE: regulatory compliance deadlines
+
+            Contract text:
+            %s
+
+            Respond ONLY with JSON:
+            {"obligations": [{"type": "PAYMENT|DEADLINE|RENEWAL|NOTICE|REPORTING|COMPLIANCE", "description": "...", "date": "YYYY-MM-DD or null", "party": "Party A|Party B|Both", "section_ref": "Section X.Y", "recurring": true|false}]}
+            """;
+
+    /** AiService: last-resort prose risk analysis when structured formats fail. %s = contract text. */
+    public static final String RISK_PROSE_FALLBACK = """
+            Analyze the risk in this contract. For each of these categories — Liability, Indemnity, Termination, \
+            IP Rights, Confidentiality, Governing Law, Force Majeure — state whether the risk is HIGH, MEDIUM, or LOW \
+            and briefly explain why.
+
+            Contract:
+            %s""";
+
+    /** AiService.extractObligations: system line (localized). */
+    public static final String OBLIGATIONS_SYSTEM =
+            "You are a legal obligation extraction specialist. Extract ALL actionable obligations with precision.";
+
+    /**
+     * AiService.draftClauseForWorkflow (DRAFT_CLAUSE workflow step, clause mode).
+     * %1$s clause type, %2$s contract type, %3$s ", governed by the laws of X" or "",
+     * %4$s Party A label, %5$s Party B label, %6$s governing-law rule line or "".
+     */
+    public static final String WORKFLOW_CLAUSE_SYSTEM = """
+            You are a senior commercial contracts lawyer.
+            Draft a complete, enforceable %1$s clause for a %2$s agreement%3$s.
+            STRICT RULES:
+            - Do NOT use placeholders like [Party Name], [DATE], [INSERT], [***], [__].
+            - Use "%4$s" and "%5$s" as the party names throughout. Do not substitute other names.
+            - Write at least 3 numbered sub-clauses with full legal text.
+            - Base your language on the PRECEDENT CONTEXT provided.
+            %6$s""";
+
+    /** DiscoveryPass: open-ended term discovery over a text window. %s = text. */
+    public static final String EXTRACTION_DISCOVERY_FULL = """
+            You are a contract analyst. Read this contract and extract ALL material terms, provisions, and key data points.
+
+            For each term found, provide:
+            - field_name: a short descriptive name in snake_case (e.g., "liability_cap", "governing_law", "renewal_terms")
+            - value: the extracted value
+            - evidence: the EXACT quoted text from the contract that contains this term
+            - section_ref: section number if identifiable (e.g., "Section 8.2"), or null
+
+            Be thorough — extract every date, amount, party name, obligation, restriction, cap, threshold, SLA, penalty, and defined term.
+
+            Contract text:
+            %s
+
+            Output ONLY valid JSON:
+            {"terms": [{"field_name": "...", "value": "...", "evidence": "exact quote", "section_ref": "..."}]}
+            """;
+
+    /** DiscoveryPass: second pass for missed terms. %s = terms found so far, %s = contract text. */
+    public static final String EXTRACTION_DISCOVERY_GAPS = """
+            You previously extracted these terms from the contract:
+            %s
+
+            Review the contract again. What material terms did you MISS? Look especially for:
+            - Auto-renewal, extension, or rollover provisions
+            - Price escalation or adjustment mechanisms
+            - Insurance requirements
+            - Audit rights
+            - Data residency or data handling obligations
+            - Non-compete or non-solicitation restrictions
+            - Assignment or transfer limitations
+            - Most favored nation clauses
+            - Service credits or penalties
+
+            Only output NEW terms not already listed above. Same JSON format.
+
+            Contract text:
+            %s
+
+            Output ONLY valid JSON:
+            {"terms": [{"field_name": "...", "value": "...", "evidence": "exact quote", "section_ref": "..."}]}
+            """;
+
+    /** DiscoveryPass: targeted extraction of one field. %s field id, %s description, %s section text, %s field id. */
+    public static final String EXTRACTION_DISCOVERY_FIELD = """
+            Extract the following from this contract section:
+            - %s: %s
+
+            Section:
+            %s
+
+            Output ONLY valid JSON:
+            {"terms": [{"field_name": "%s", "value": "extracted value or null if not found", "evidence": "exact quote or null", "section_ref": "section number or null"}]}
+            """;
+
+    /** QaSuggestionService: suggested review questions. %s = contract excerpt. */
+    public static final String QA_SUGGESTIONS = """
+            Read this contract excerpt and suggest the 8 most important questions a lawyer should ask during review.
+            Focus on: risks, missing protections, unusual terms, financial implications, and termination rights.
+            Make questions specific to THIS contract, not generic.
+
+            Contract:
+            %s
+
+            Output ONLY a JSON array of strings:
+            ["question 1", "question 2", ...]
+            """;
+
+    /** PlaybookComparisonService: compare one playbook position with the contract (see call site for argument order). */
+    public static final String PLAYBOOK_POSITION_COMPARISON = """
+            Analyze this contract against the firm's standard position.
+
+            Clause Type: %s
+            Firm's Standard Position: %s
+            Minimum Acceptable: %s
+            Non-negotiable: %s
+
+            Contract text:
+            %s
+
+            Respond ONLY with valid JSON:
+            {"verdict": "MATCHES|DEVIATES|MISSING", "severity": "HIGH|MEDIUM|LOW", "explanation": "one sentence", "section_ref": "Section X.Y or MISSING"}
+
+            Rules:
+            - DEVIATES but meets minimum → MEDIUM
+            - DEVIATES and below minimum → HIGH
+            - Non-negotiable and DEVIATES → always HIGH
+            - MISSING entirely → HIGH
+            - MATCHES → verdict is MATCHES
+            """;
+
+    /** ImportanceRanker: rank extracted terms. {{TERMS}} = "field: value" lines. */
+    public static final String EXTRACTION_IMPORTANCE_RANKING = """
+            Rate the importance of each contract term for legal review.
+            HIGH: critical for deal evaluation, risk, or compliance.
+            MEDIUM: useful context.
+            LOW: administrative or boilerplate.
+
+            Terms:
+            {{TERMS}}
+            Output JSON only:
+            {"rankings": [{"field": "field_name", "importance": "HIGH|MEDIUM|LOW"}]}
+            """;
+
+    /** ExtractionPipeline: top risks from findings. {{FINDINGS}} = one finding per line. */
+    public static final String EXTRACTION_TOP_RISKS = """
+            Based on these contract findings, identify the top 5 risks for legal review.
+            For each, provide a 1-line explanation and severity (HIGH/MEDIUM/LOW).
+
+            Findings:
+            {{FINDINGS}}
+            Output JSON only:
+            {"risks": [{"risk": "short description", "severity": "HIGH|MEDIUM|LOW", "explanation": "1-line why this matters"}]}
+            """;
+
+    /**
+     * Learning loop Reflector (CIPHER-style): infer the drafting preference behind a lawyer's edit.
+     * %1$s clause type, %2$s contract type, %3$s AI-drafted text, %4$s the lawyer's text.
+     */
+    public static final String LEARNING_REFLECT_EDIT = """
+            A lawyer at this firm edited an AI-drafted %1$s clause of a %2$s.
+            Infer the firm's drafting preferences that explain the edit — rules a drafter should follow
+            next time for this kind of clause.
+
+            AI DRAFT:
+            %3$s
+
+            LAWYER'S VERSION:
+            %4$s
+
+            Rules:
+            - Output 0 to 3 preferences, each one short imperative sentence (max 25 words).
+            - Generalise: never include party names, amounts, dates or other deal-specific facts.
+            - Ignore pure formatting, numbering, typo fixes and renaming of parties.
+            - If the edit reflects only this deal's facts, output no preferences.
+
+            Output ONLY JSON: {"preferences": ["...", "..."]}""";
+
+    /** Header of the learned-preferences block appended to clause prompts (one "- rule" line follows per insight). */
+    public static final String LEARNING_INSIGHTS_HEADER = """
+
+
+            FIRM DRAFTING PREFERENCES — learned from this firm's edits; follow them:
+            """;
+
+    /** Header of the few-shot corrections block appended to a review question. */
+    public static final String REVIEW_CORRECTIONS_HEADER = """
+
+            This firm's lawyers corrected earlier answers to this question:
+            """;
+
+    /**
+     * One correction line. %1$s PRESENT / ABSENT, %2$s " for text: \"…\"" or "", %3$s " (note)" or "".
+     */
+    public static final String REVIEW_CORRECTION_LINE = "- Correct answer was %1$s%2$s%3$s\n";
+
+    /** Deal terms injected into every clause prompt. %1$s the extracted terms. */
+    public static final String DRAFT_DEAL_TERMS_BLOCK = """
+
+            DEAL TERMS — weave these values naturally into your legal prose:
+            %1$s
+            IMPORTANT: Incorporate these values INTO your clause text. Do NOT copy this list, \
+            the deal brief, or any input parameters as a schedule, appendix, or separate section. \
+            Output ONLY the clause body.
+            """;
+
+    // Client position (DraftRequest.clientPosition) — DRAFT_POSITION_<value>, NEUTRAL when unknown.
+    public static final String DRAFT_POSITION_PARTY_A = "Firm represents Party A — draft clauses favourably for Party A.";
+    public static final String DRAFT_POSITION_PARTY_B = "Firm represents Party B — draft clauses favourably for Party B.";
+    public static final String DRAFT_POSITION_NEUTRAL = "Firm is acting as neutral drafter — balanced terms preferred.";
+
+    // Drafting stance (DraftRequest.draftStance) — DRAFT_STANCE_<value>, BALANCED when unknown.
+    public static final String DRAFT_STANCE_FIRST_DRAFT = "This is a first draft — maximise protections for the client; include strong caps, broad indemnity carve-outs, liberal termination rights.";
+    public static final String DRAFT_STANCE_FINAL_OFFER = "This is a final offer — use firm but commercially reasonable language; avoid overreaching terms that may cause deadlock.";
+    public static final String DRAFT_STANCE_BALANCED = "Use balanced, commercially standard terms acceptable to both parties.";
 }

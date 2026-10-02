@@ -28,6 +28,8 @@ import java.util.stream.Collectors;
 public class DiscoveryPass {
 
     private final ChatLanguageModel jsonChatModel;
+
+    private final com.legalpartner.config.PromptRepository prompts;
     private final ChatLanguageModel shortChatModel;
     private final RiskQuestionEngine riskQuestionEngine;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -43,7 +45,9 @@ public class DiscoveryPass {
 
     public DiscoveryPass(@Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
                           @Qualifier("shortChatModel") ChatLanguageModel shortChatModel,
-                          RiskQuestionEngine riskQuestionEngine) {
+                          RiskQuestionEngine riskQuestionEngine,
+            com.legalpartner.config.PromptRepository prompts) {
+        this.prompts = prompts;
         this.jsonChatModel = jsonChatModel;
         this.shortChatModel = shortChatModel;
         this.riskQuestionEngine = riskQuestionEngine;
@@ -88,23 +92,7 @@ public class DiscoveryPass {
             String chunkLabel = chunks.size() > 1 ? " (chunk " + (i + 1) + "/" + chunks.size() + ")" : "";
             log.debug("Discovery Pass 1{}: {} chars", chunkLabel, chunk.length());
 
-            String prompt = String.format("""
-                    You are a contract analyst. Read this contract and extract ALL material terms, provisions, and key data points.
-
-                    For each term found, provide:
-                    - field_name: a short descriptive name in snake_case (e.g., "liability_cap", "governing_law", "renewal_terms")
-                    - value: the extracted value
-                    - evidence: the EXACT quoted text from the contract that contains this term
-                    - section_ref: section number if identifiable (e.g., "Section 8.2"), or null
-
-                    Be thorough — extract every date, amount, party name, obligation, restriction, cap, threshold, SLA, penalty, and defined term.
-
-                    Contract text:
-                    %s
-
-                    Output ONLY valid JSON:
-                    {"terms": [{"field_name": "...", "value": "...", "evidence": "exact quote", "section_ref": "..."}]}
-                    """, chunk);
+            String prompt = String.format(prompts.get("EXTRACTION_DISCOVERY_FULL"), chunk);
 
             results.addAll(callAndParse(prompt, "DISCOVERED"));
         }
@@ -123,29 +111,7 @@ public class DiscoveryPass {
         // Use first chunk for context (self-review is about recall, not full coverage)
         String contextText = fullText.length() > windowSize ? fullText.substring(0, windowSize) : fullText;
 
-        String prompt = String.format("""
-                You previously extracted these terms from the contract:
-                %s
-
-                Review the contract again. What material terms did you MISS? Look especially for:
-                - Auto-renewal, extension, or rollover provisions
-                - Price escalation or adjustment mechanisms
-                - Insurance requirements
-                - Audit rights
-                - Data residency or data handling obligations
-                - Non-compete or non-solicitation restrictions
-                - Assignment or transfer limitations
-                - Most favored nation clauses
-                - Service credits or penalties
-
-                Only output NEW terms not already listed above. Same JSON format.
-
-                Contract text:
-                %s
-
-                Output ONLY valid JSON:
-                {"terms": [{"field_name": "...", "value": "...", "evidence": "exact quote", "section_ref": "..."}]}
-                """, foundSummary, contextText);
+        String prompt = String.format(prompts.get("EXTRACTION_DISCOVERY_GAPS"), foundSummary, contextText);
 
         return callAndParse(prompt, "SELF_REVIEW");
     }
@@ -172,16 +138,7 @@ public class DiscoveryPass {
                 section = fullText.substring(start, Math.min(start + 3000, fullText.length()));
             }
 
-            String prompt = String.format("""
-                    Extract the following from this contract section:
-                    - %s: %s
-
-                    Section:
-                    %s
-
-                    Output ONLY valid JSON:
-                    {"terms": [{"field_name": "%s", "value": "extracted value or null if not found", "evidence": "exact quote or null", "section_ref": "section number or null"}]}
-                    """, fieldId, field.description(), section, fieldId);
+            String prompt = String.format(prompts.get("EXTRACTION_DISCOVERY_FIELD"), fieldId, field.description(), section, fieldId);
 
             try {
                 List<ExtractionEntry> extracted = callAndParse(prompt, "TARGETED");

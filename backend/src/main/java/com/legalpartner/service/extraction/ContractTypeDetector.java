@@ -15,34 +15,12 @@ import java.util.*;
 @Slf4j
 public class ContractTypeDetector {
 
-    private record TypeSignals(String type, List<String> strong, List<String> weak) {}
+    /** Type signals and threshold from config/vocabulary.yml (contract_type_detection). */
+    private final com.legalpartner.config.LegalVocabulary vocabulary;
 
-    private static final List<TypeSignals> TYPE_DEFINITIONS = List.of(
-            new TypeSignals("NDA",
-                    List.of("non-disclosure agreement", "confidentiality agreement", "mutual nda"),
-                    List.of("confidential information", "receiving party", "disclosing party")),
-            new TypeSignals("SAAS",
-                    List.of("software as a service", "saas agreement", "subscription agreement"),
-                    List.of("subscription", "uptime", "service level", "cloud", "hosted")),
-            new TypeSignals("SOFTWARE_LICENSE",
-                    List.of("software license agreement", "license agreement", "perpetual license"),
-                    List.of("license fee", "licensor", "licensee", "software")),
-            new TypeSignals("EMPLOYMENT",
-                    List.of("employment agreement", "offer letter", "employment contract"),
-                    List.of("employee", "employer", "salary", "probation", "termination of employment")),
-            new TypeSignals("MSA",
-                    List.of("master services agreement", "master agreement", "framework agreement"),
-                    List.of("statement of work", "sow", "services", "professional services")),
-            new TypeSignals("SUPPLY",
-                    List.of("supply agreement", "purchase agreement", "procurement agreement"),
-                    List.of("delivery", "supplier", "purchase order", "goods")),
-            new TypeSignals("IP_LICENSE",
-                    List.of("intellectual property license", "patent license", "ip license agreement"),
-                    List.of("royalty", "patent", "trademark", "copyright license")),
-            new TypeSignals("LEASE",
-                    List.of("lease agreement", "rental agreement", "commercial lease"),
-                    List.of("landlord", "tenant", "rent", "premises"))
-    );
+    public ContractTypeDetector(com.legalpartner.config.LegalVocabulary vocabulary) {
+        this.vocabulary = vocabulary;
+    }
 
     public ContractTypeDetection detect(String fullText) {
         String lower = fullText.toLowerCase();
@@ -50,18 +28,18 @@ public class ContractTypeDetector {
         double bestScore = 0;
         List<String> bestSignals = List.of();
 
-        for (TypeSignals td : TYPE_DEFINITIONS) {
+        for (var td : vocabulary.typeSignals()) {
             List<String> matchedSignals = new ArrayList<>();
             double score = 0;
-            double maxPossible = td.strong.size() * 2.0 + td.weak.size();
+            double maxPossible = td.strong().size() * 2.0 + td.weak().size();
 
-            for (String kw : td.strong) {
+            for (String kw : td.strong()) {
                 if (lower.contains(kw)) {
                     score += 2;
                     matchedSignals.add(kw);
                 }
             }
-            for (String kw : td.weak) {
+            for (String kw : td.weak()) {
                 if (lower.contains(kw)) {
                     score += 1;
                     matchedSignals.add(kw);
@@ -71,13 +49,13 @@ public class ContractTypeDetector {
             double confidence = maxPossible > 0 ? score / maxPossible : 0;
             if (confidence > bestScore) {
                 bestScore = confidence;
-                bestType = td.type;
+                bestType = td.type();
                 bestSignals = matchedSignals;
             }
         }
 
-        // Minimum threshold — at least one strong keyword or two weak ones
-        if (bestScore < 0.15) {
+        // Minimum confidence (vocabulary.yml min_confidence)
+        if (bestScore < vocabulary.typeMinConfidence()) {
             bestType = "_default";
             bestScore = 0;
             bestSignals = List.of();

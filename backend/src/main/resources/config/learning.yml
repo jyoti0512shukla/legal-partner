@@ -1,0 +1,114 @@
+# Firm learning loop — policy and tuning (docs/LEARNING_LOOP_ARCHITECTURE.md).
+# Ops switches (on/off, mining schedule) stay in application.yml:
+#   legalpartner.learning.enabled, legalpartner.learning.mining.cron
+# Everything a firm or product owner may want to tune or extend lives here.
+
+# Contract lifecycle statuses that count as "signed" — the delayed outcome treated as
+# ground truth (mining of AI drafts, insight outcome counters, firm norms, eval export).
+signed_statuses: [EXECUTED, ACTIVE, EXPIRING, RENEWED]
+
+# Document sources.
+sources:
+  never_precedent: [EDGAR]                 # never used as drafting precedent or mined
+  ai_generated: [DRAFTED, DRAFT_ASYNC]      # unreviewed AI output — excluded until signed
+
+# ── Firm clause bank ────────────────────────────────────────────────────────
+firm_clauses:
+  # Negotiation positions a lawyer can assign to an approved clause (first = default).
+  positions: [PRIMARY, FALLBACK_1, FALLBACK_2]
+  # Which approved position the drafter prefers for each draft stance (first available wins).
+  stance_position_order:
+    FIRST_DRAFT: [PRIMARY, FALLBACK_1, FALLBACK_2]
+    BALANCED: [PRIMARY, FALLBACK_1, FALLBACK_2]
+    FINAL_OFFER: [FALLBACK_2, FALLBACK_1, PRIMARY]
+    _default: [PRIMARY, FALLBACK_1, FALLBACK_2]
+
+mining:
+  min_support: 2            # distinct documents a wording must appear in
+  similarity: 0.6           # estimated Jaccard for two clauses to be the same wording
+  min_clause_chars: 200     # ignore fragments shorter than this
+  max_clause_chars: 6000    # clause text kept per observation (longer sections are truncated)
+  cluster_match_overlap: 0.5  # share of source documents for a new cluster to update an existing firm clause
+  minhash:                  # changing these requires re-observing documents
+    num_hashes: 128
+    bands: 32
+    shingle_words: 5
+    seed: 42
+
+# Turning a client's clause into a reusable firm clause (lawyer reviews before approval).
+templating:
+  party_a_placeholder: "{{partyA.name}}"
+  party_b_placeholder: "{{partyB.name}}"
+  other_entity_placeholder: "{{detail}}"
+  # Stripped to find a party's short name ("Northwind Systems, Inc." → "Northwind Systems").
+  corporate_suffixes: [inc, llc, ltd, limited, corp, corporation, plc, llp, pvt, private, gmbh, "s.a."]
+  # Never treated as a party's short name — too common in contract prose.
+  generic_name_words: [the, general, global, national, international, united, american, first, new,
+                       north, south, east, west, central, advanced, digital, data, systems, software,
+                       services, solutions, group, capital, bank, health, energy, medical, financial,
+                       technology, technologies, company, party, customer, client, provider, supplier]
+
+# ── Edits and learned insights ──────────────────────────────────────────────
+edits:
+  # Version sources that are the firm's own edits (DocumentVersion.source). Others — e.g.
+  # COUNTERPARTY redlines — never teach drafting preferences.
+  firm_edit_sources: [EDIT, UPLOAD, INTERNAL]
+  significant_ratio: 0.15   # edit ratio at which an edit is sent to the Reflector
+  helpful_ratio: 0.10       # signed with ≤ this much editing → insights in the prompt were helpful
+  harmful_ratio: 0.30       # signed with ≥ this much editing → harmful
+
+insights:
+  auto_activate: true       # false = every learned insight needs a lawyer's approval
+  auto_activate_documents: 3
+  max_per_clause: 5
+  similarity: 0.6           # rule similarity for merging a new rule into an existing insight
+  retire_after_harmful: 3   # and harmful > 2 × helpful
+
+# ── Review calibration ──────────────────────────────────────────────────────
+calibration:
+  prior_correct: 8          # Beta prior on answer precision (8/(8+2) = 0.8)
+  prior_wrong: 2
+  min_multiplier: 0.3
+  few_shot: 3               # latest corrections shown to the model per question
+  contract_type_min_answered: 5
+  needs_rewrite:
+    min_answered: 10
+    max_precision: 0.6
+
+# ── Firm norms (deal-point benchmark within the firm) ───────────────────────
+norms:
+  min_support: 5            # signed contracts needed before a norm is used
+  # Each rule reads a DocumentMetadata property of signed contracts.
+  #   numeric:     flag when |value − median| / median ≥ min_relative_deviation
+  #   categorical: flag when the firm's most common value has share ≥ min_share and the contract differs
+  # Message variables: {value} {norm} {n} {share} {type}
+  # drafting_default (numeric rules): DealSpec property path set to the firm median when empty.
+  rules:
+    - field: noticePeriodDays
+      kind: numeric
+      label: notice period
+      min_relative_deviation: 0.5
+      message: "FIRM NORM: notice period {value} days vs your usual {norm} days ({n} signed {type} contracts)."
+      drafting_default: legal.noticeDays   # DealSpec property filled with the firm median when the brief is silent
+    - field: governingLawJurisdiction
+      kind: categorical
+      label: governing law
+      min_share: 0.6
+      message: "FIRM NORM: governing law {value}; {share}% of your signed {type} contracts use {norm}."
+    - field: liabilityCap
+      kind: categorical
+      label: liability cap
+      min_share: 0.6
+      message: "FIRM NORM: liability cap \"{value}\"; {share}% of your signed {type} contracts use \"{norm}\"."
+    - field: arbitrationVenue
+      kind: categorical
+      label: arbitration venue
+      min_share: 0.6
+      message: "FIRM NORM: arbitration venue {value}; {share}% of your signed {type} contracts use {norm}."
+
+# ── Access and reporting ────────────────────────────────────────────────────
+access:
+  curate: [ADMIN, PARTNER]              # approve/reject firm clauses and insights, run mining
+  dispute: [ADMIN, PARTNER, ASSOCIATE]  # correct a review answer
+metrics:
+  window_days: 90

@@ -24,13 +24,16 @@ import org.springframework.stereotype.Service;
 public class ContextualRetrievalService {
 
     private final ChatLanguageModel contextModel;
+    private final com.legalpartner.config.PromptRepository prompts;
 
     @Value("${legalpartner.text.contextual-summary-cap-chars:4000}")
     private int contextualSummaryCapChars;
 
     public ContextualRetrievalService(
-            @Qualifier("shortChatModel") ChatLanguageModel shortChatModel) {
+            @Qualifier("shortChatModel") ChatLanguageModel shortChatModel,
+            com.legalpartner.config.PromptRepository prompts) {
         this.contextModel = shortChatModel;
+        this.prompts = prompts;
     }
 
     /**
@@ -46,21 +49,7 @@ public class ContextualRetrievalService {
     public String contextualise(String documentSummary, String chunkText) {
         if (chunkText == null || chunkText.isBlank()) return chunkText;
 
-        String prompt = """
-                <document>
-                %s
-                </document>
-
-                Here is the chunk we want to situate within the whole document:
-                <chunk>
-                %s
-                </chunk>
-
-                Please give a short succinct context (2-3 sentences, <100 words) to situate
-                this chunk within the overall document. Mention the contract type, section
-                name/number, and what the chunk is about. Answer ONLY with the succinct
-                context and nothing else.
-                """.formatted(summaryOf(documentSummary), chunkText);
+        String prompt = prompts.get("CONTEXTUAL_RETRIEVAL_CHUNK").formatted(summaryOf(documentSummary), chunkText);
 
         try {
             AiMessage response = contextModel.generate(UserMessage.from(prompt)).content();

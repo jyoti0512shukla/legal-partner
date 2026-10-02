@@ -71,6 +71,7 @@ public class DocumentFullTextRetriever {
                        metadata->>'section_path'       AS section_path
                 FROM   embeddings
                 WHERE  metadata->>'document_id' = ?
+                  AND  COALESCE(metadata->>'pool', 'RAW') = 'RAW'
                 ORDER  BY (metadata->>'chunk_index')::int
                 """,
                 documentId.toString()
@@ -140,18 +141,7 @@ public class DocumentFullTextRetriever {
             byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(htmlPath));
             String html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
             // Strip HTML tags, decode entities, normalize whitespace
-            String plain = html
-                    .replaceAll("<style[^>]*>[\\s\\S]*?</style>", "")
-                    .replaceAll("<script[^>]*>[\\s\\S]*?</script>", "")
-                    .replaceAll("<[^>]+>", " ")
-                    .replaceAll("&amp;", "&")
-                    .replaceAll("&lt;", "<")
-                    .replaceAll("&gt;", ">")
-                    .replaceAll("&nbsp;", " ")
-                    .replaceAll("&#x23F3;", "")
-                    .replaceAll("\\s{2,}", " ")
-                    .replaceAll("\\n{3,}", "\n\n")
-                    .trim();
+            String plain = HtmlText.toPlainText(html);
             return plain;
         } catch (Exception e) {
             log.debug("HTML fallback read failed for {}: {}", documentId, e.getMessage());
@@ -173,6 +163,7 @@ public class DocumentFullTextRetriever {
                        metadata->>'section_path'       AS section_path
                 FROM   embeddings
                 WHERE  metadata->>'document_id' = ?
+                  AND  COALESCE(metadata->>'pool', 'RAW') = 'RAW'
                 ORDER  BY (metadata->>'chunk_index')::int
                 """,
                 documentId.toString()
@@ -184,13 +175,7 @@ public class DocumentFullTextRetriever {
             try {
                 byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Path.of(htmlPath));
                 String html = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-                String plain = html
-                        .replaceAll("<style[^>]*>[\\s\\S]*?</style>", "")
-                        .replaceAll("<script[^>]*>[\\s\\S]*?</script>", "")
-                        .replaceAll("<[^>]+>", " ")
-                        .replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">")
-                        .replaceAll("&nbsp;", " ").replaceAll("&#160;", " ").replaceAll("&#x23F3;", "")
-                        .replaceAll("\\s{2,}", " ").replaceAll("\\n{3,}", "\n\n").trim();
+                String plain = HtmlText.toPlainText(html);
                 log.info("Full-text uncapped retrieval for doc {} via HTML: {} chars", documentId, plain.length());
                 return plain;
             } catch (Exception e) {

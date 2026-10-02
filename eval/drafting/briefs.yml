@@ -1,0 +1,203 @@
+# Drafting eval set — deal briefs run through the real drafting API, then reviewed by
+# our own review (round-trip). Target: 30–50 briefs; this is the seed set.
+#
+# Fields:
+#   id              unique, stable (used to compare runs)
+#   templateId      contract_types.yml key
+#   clientPosition  PARTY_A | PARTY_B | NEUTRAL
+#   draftStance     FIRST_DRAFT | BALANCED | FINAL_OFFER
+#   jurisdiction    governing law as a user would type it
+#   partyA/partyB   optional form fields (the brief should also name them)
+#   dealBrief       free text, as a lawyer would write it
+#   expect:
+#     terms_present   strings that MUST appear in the draft (case-insensitive;
+#                     money matched on digits, so "$750,000" also matches "750,000")
+#     terms_absent    strings that must NOT appear (wrong-domain vocabulary, other deals)
+#     min_articles    minimum number of ARTICLE headings
+#
+# Use fictitious parties only. Never put client data in this file.
+
+briefs:
+
+  - id: swl-perpetual-onprem
+    templateId: software_license
+    clientPosition: PARTY_A
+    draftStance: FIRST_DRAFT
+    jurisdiction: "State of Delaware"
+    partyA: "Northwind Systems, Inc."
+    partyB: "Contoso Retail LLC"
+    dealBrief: >
+      Northwind Systems, Inc. (Delaware corporation, Licensor) licenses its InventoryIQ software to
+      Contoso Retail LLC (Licensee) on a perpetual, non-exclusive, on-premise basis for up to 500
+      authorized users across 3 locations. License fee $750,000 payable on execution; annual
+      maintenance and support $150,000, 24/7 support with a 4-hour response SLA for critical issues,
+      quarterly patches. Source code escrow required. No derivative works. Liability capped at
+      12 months of fees. Delaware law, Delaware Court of Chancery. 30 days' notice to cure breaches.
+    expect:
+      terms_present: ["Northwind Systems", "Contoso Retail", "$750,000", "$150,000", "500", "escrow", "Delaware"]
+      terms_absent: ["Statement of Work", "subscription fee", "landlord"]
+      min_articles: 8
+
+  - id: swl-term-licensee-balanced
+    templateId: software_license
+    clientPosition: PARTY_B
+    draftStance: BALANCED
+    jurisdiction: "New York"
+    dealBrief: >
+      Fabrikam Analytics Corp. licenses its forecasting engine to Tailspin Airlines, Inc. for a
+      3-year term, 1,200 named users, cloud-hosted by the licensee. Annual license fee $420,000
+      invoiced annually, Net 45. Business-hours support, 8-hour response. Licensee may create
+      derivative works for internal use only. New York law.
+    expect:
+      terms_present: ["Fabrikam Analytics", "Tailspin Airlines", "$420,000", "1,200", "New York"]
+      terms_absent: ["perpetual license", "landlord"]
+      min_articles: 8
+
+  - id: saas-provider-first-draft
+    templateId: saas
+    clientPosition: PARTY_A
+    draftStance: FIRST_DRAFT
+    jurisdiction: "California, United States"
+    dealBrief: >
+      Adatum Cloud, Inc. (Provider) provides its HR analytics platform as SaaS to Litware Health LLC
+      (Customer) for 800 users. Subscription fee $180,000 per year, payable annually in advance,
+      Net 30, 1.5% monthly late interest, right to suspend after 14 days' notice of non-payment.
+      99.9% monthly uptime SLA with service credits. SOC 2 Type II. Customer data processed under a
+      DPA; breach notification within 72 hours. California law.
+    expect:
+      terms_present: ["Adatum Cloud", "Litware Health", "$180,000", "99.9", "SOC 2", "72 hours"]
+      terms_absent: ["Statement of Work", "perpetual license", "landlord", "tenant"]
+      min_articles: 9
+
+  - id: saas-customer-final-offer
+    templateId: saas
+    clientPosition: PARTY_B
+    draftStance: FINAL_OFFER
+    jurisdiction: "State of Delaware"
+    dealBrief: >
+      Wingtip Software LLC provides its procurement SaaS to Woodgrove Bank, N.A. for 2,000 users,
+      $600,000 per year. Customer requires 99.95% uptime, 30-day data export on termination, audit
+      rights once a year, and a liability cap of 2x annual fees for data breaches. Delaware law.
+    expect:
+      terms_present: ["Wingtip Software", "Woodgrove Bank", "$600,000", "99.95", "audit"]
+      terms_absent: ["Statement of Work", "landlord"]
+      min_articles: 9
+
+  - id: msa-provider-balanced
+    templateId: msa
+    clientPosition: NEUTRAL
+    draftStance: BALANCED
+    jurisdiction: "New York"
+    dealBrief: >
+      Proseware Consulting LLC will provide IT implementation services to Coho Winery, Inc. under
+      statements of work. Time-and-materials billing monthly, Net 30. Provider owns pre-existing IP;
+      client owns deliverables on full payment. Mutual confidentiality. Either party may terminate
+      for convenience on 60 days' notice. New York law.
+    expect:
+      terms_present: ["Proseware Consulting", "Coho Winery", "Statement of Work", "60 days", "New York"]
+      terms_absent: ["uptime", "authorized users", "landlord"]
+      min_articles: 10
+
+  - id: fintech-msa-client
+    templateId: fintech_msa
+    clientPosition: PARTY_B
+    draftStance: FIRST_DRAFT
+    jurisdiction: "India (Maharashtra)"
+    dealBrief: >
+      Trey Research Pvt Ltd provides payment reconciliation services to Blue Yonder Finance Ltd
+      (an RBI-regulated NBFC). Fees INR 45,00,000 per year billed quarterly. Data must be stored in
+      India; RBI audit and inspection rights; breach notification within 6 hours; DPDPA 2023
+      compliance. Arbitration seated in Mumbai.
+    expect:
+      terms_present: ["Trey Research", "Blue Yonder Finance", "RBI", "Mumbai"]
+      terms_absent: ["landlord", "Delaware"]
+      min_articles: 10
+
+  - id: nda-mutual-neutral
+    templateId: nda
+    clientPosition: NEUTRAL
+    draftStance: BALANCED
+    jurisdiction: "State of Delaware"
+    dealBrief: >
+      Mutual NDA between Relecloud, Inc. and Humongous Insurance Co. to evaluate a potential
+      claims-automation partnership. Confidentiality obligations survive 3 years after termination;
+      trade secrets protected for as long as they remain trade secrets. Delaware law.
+    expect:
+      terms_present: ["Relecloud", "Humongous Insurance", "3 years", "trade secret", "Delaware"]
+      terms_absent: ["uptime", "subscription fee", "Statement of Work", "source code escrow"]
+      min_articles: 5
+
+  - id: nda-one-way-discloser
+    templateId: nda
+    clientPosition: PARTY_A
+    draftStance: FIRST_DRAFT
+    jurisdiction: "England and Wales"
+    dealBrief: >
+      One-way NDA: Contoso Pharmaceuticals Ltd discloses clinical trial data to Alpine Ski House
+      Consulting Ltd for a due diligence review. Recipient may not use the data for any other
+      purpose, must return or destroy it within 10 business days of request. 5-year term.
+      English law.
+    expect:
+      terms_present: ["Contoso Pharmaceuticals", "Alpine Ski House", "10 business days", "5"]
+      terms_absent: ["uptime", "subscription fee", "Delaware"]
+      min_articles: 5
+
+  - id: employment-exec
+    templateId: employment
+    clientPosition: PARTY_A
+    draftStance: BALANCED
+    jurisdiction: "California, United States"
+    dealBrief: >
+      Datum Corporation employs Jordan Lee as Vice President of Engineering starting 1 March 2027.
+      Base salary $285,000 per year paid semi-monthly, annual bonus up to 30% of base, 50,000 stock
+      options vesting over 4 years with a 1-year cliff. Invention assignment (subject to California
+      Labor Code 2870). At-will employment. California law.
+    expect:
+      terms_present: ["Datum Corporation", "Jordan Lee", "$285,000", "2870", "at-will"]
+      terms_absent: ["uptime", "subscription", "Statement of Work", "non-compete"]
+      min_articles: 7
+
+  - id: supply-buyer
+    templateId: supply
+    clientPosition: PARTY_B
+    draftStance: FIRST_DRAFT
+    jurisdiction: "State of Delaware"
+    dealBrief: >
+      Lamna Components, Inc. supplies precision bearings to Fourth Coffee Machinery LLC. Minimum
+      annual volume 120,000 units at $14.50 per unit, delivered DDP buyer's plant, 30-day payment
+      terms. Defect rate above 0.5% triggers a corrective action plan and credit. 18-month
+      warranty. Force majeure excludes supplier's labor disputes. Delaware law.
+    expect:
+      terms_present: ["Lamna Components", "Fourth Coffee", "120,000", "$14.50", "DDP", "0.5%"]
+      terms_absent: ["software license", "uptime", "SaaS"]
+      min_articles: 8
+
+  - id: ip-license-royalty
+    templateId: ip_license
+    clientPosition: PARTY_A
+    draftStance: BALANCED
+    jurisdiction: "New York"
+    dealBrief: >
+      Graphic Design Institute LLC licenses its registered trademarks and design patents to
+      VanArsdel Ltd for apparel in North America. Exclusive in the territory, 5-year term,
+      6% royalty on net sales with a $100,000 annual minimum, quarterly royalty reports and annual
+      audit right. No sublicensing without consent. New York law.
+    expect:
+      terms_present: ["Graphic Design Institute", "VanArsdel", "6%", "$100,000", "royalt"]
+      terms_absent: ["uptime", "Statement of Work", "subscription fee"]
+      min_articles: 7
+
+  - id: clinical-services
+    templateId: clinical_services
+    clientPosition: PARTY_B
+    draftStance: BALANCED
+    jurisdiction: "State of Delaware"
+    dealBrief: >
+      Southridge Video CRO, Inc. will run Phase II site monitoring for Nod Publishers Biotech, Inc.
+      across 12 US sites. Fees per the budget in Exhibit A, $2,400,000 total, milestone billing.
+      HIPAA and 21 CFR Part 11 compliance, GCP standards, sponsor owns all study data, 15-year record
+      retention. Delaware law.
+    expect:
+      terms_present: ["Southridge Video", "Nod Publishers", "HIPAA", "Part 11", "$2,400,000"]
+      terms_absent: ["landlord", "uptime"]
+      min_articles: 10

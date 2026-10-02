@@ -1,5 +1,7 @@
 package com.legalpartner.service;
 
+import com.legalpartner.service.review.ClauseInventory;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.config.LegalSystemConfig;
@@ -56,6 +58,15 @@ public class AiService {
     private final com.legalpartner.repository.PlaybookRepository playbookRepository;
     private final com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final com.legalpartner.service.review.DraftManifestStore draftManifestStore;
+    private final com.legalpartner.service.review.ClauseSpecRegistry clauseSpecRegistry;
+    private final com.legalpartner.service.review.SemanticRequirementChecker semanticChecker;
+    private final com.legalpartner.config.PromptRepository prompts;
+    /** Legal vocabulary (vocabulary.yml): risk categories, phrases, context queries, clause hints. */
+    private final com.legalpartner.config.LegalVocabulary vocabulary;
+    private final com.legalpartner.service.extraction.ContractTypeDetector contractTypeDetector;
+    private final com.legalpartner.service.learning.ReviewCalibrationService reviewCalibration;
+    private final com.legalpartner.service.learning.FirmNormsService firmNorms;
 
     @Value("${legalpartner.rag.candidate-count:20}")
     private int candidateCount;
@@ -147,7 +158,15 @@ public class AiService {
             TokenBudgetService tokenBudget,
             EthicalWallService ethicalWallService,
             com.legalpartner.repository.PlaybookRepository playbookRepository,
-            com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository) {
+            com.legalpartner.repository.PlaybookPositionRepository playbookPositionRepository,
+            com.legalpartner.service.review.DraftManifestStore draftManifestStore,
+            com.legalpartner.service.review.ClauseSpecRegistry clauseSpecRegistry,
+            com.legalpartner.service.review.SemanticRequirementChecker semanticChecker,
+            com.legalpartner.config.PromptRepository prompts,
+            com.legalpartner.config.LegalVocabulary vocabulary,
+            com.legalpartner.service.extraction.ContractTypeDetector contractTypeDetector,
+            com.legalpartner.service.learning.ReviewCalibrationService reviewCalibration,
+            com.legalpartner.service.learning.FirmNormsService firmNorms) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
         this.chatModel = openAiChatModel;
@@ -173,6 +192,14 @@ public class AiService {
         this.ethicalWallService = ethicalWallService;
         this.playbookRepository = playbookRepository;
         this.playbookPositionRepository = playbookPositionRepository;
+        this.draftManifestStore = draftManifestStore;
+        this.clauseSpecRegistry = clauseSpecRegistry;
+        this.semanticChecker = semanticChecker;
+        this.prompts = prompts;
+        this.vocabulary = vocabulary;
+        this.contractTypeDetector = contractTypeDetector;
+        this.reviewCalibration = reviewCalibration;
+        this.firmNorms = firmNorms;
     }
 
     public QueryResult query(QueryRequest request, String username) {
@@ -227,7 +254,11 @@ public class AiService {
         // - RAW pool: matter-scoped only (original text with real entity names)
         // - ANONYMIZED pool: firm-wide (entity-stripped, for "what's market standard?" queries)
         // Both filtered by ethical walls
-        List<EmbeddingMatch<TextSegment>> scoped = merged;
+        // No matter selected: only the ANONYMIZED pool (plus legacy untagged chunks) —
+        // RAW chunks carry real client names and are matter-scoped by design.
+        List<EmbeddingMatch<TextSegment>> scoped = merged.stream()
+                .filter(m -> !"RAW".equals(m.embedded().metadata().getString("pool")))
+                .toList();
         Set<String> ethicalWallExcluded = Set.of();
         if (request.matterId() != null && !request.matterId().isBlank()) {
             UUID matterId = UUID.fromString(request.matterId());
@@ -374,9 +405,6 @@ public class AiService {
         return new CompareResult(dimensions);
     }
 
-    private static final java.util.Set<String> COMPARE_DIMENSIONS = java.util.Set.of(
-            "liability", "indemnity", "termination", "confidentiality",
-            "governing law", "force majeure", "ip rights");
 
     private List<ComparisonDimension> parseCompareResponse(String raw) {
         if (raw == null) return List.of();
@@ -391,7 +419,7 @@ public class AiService {
 
             String name = parts[0].trim();
             // Validate it's one of our 7 known dimensions (case-insensitive)
-            if (!COMPARE_DIMENSIONS.contains(name.toLowerCase())) continue;
+            if (vocabulary.riskCategoryByLabel(name) == null) continue;
             if (!seen.add(name.toLowerCase())) continue; // dedup
 
             String doc1Summary  = parts[1].trim();
@@ -418,8 +446,9 @@ public class AiService {
             try {
                 DocumentMetadata doc = documentRepository.findById(documentId)
                         .orElseThrow(() -> new NoSuchElementException("Document not found"));
-                String context = fullTextRetriever.retrieveFullTextUncapped(documentId);
-                if (context.isBlank()) {
+                var manifest = draftManifestStore.read(documentId);
+                String context = manifest.isPresent() ? "" : fullTextRetriever.retrieveFullTextUncapped(documentId);
+                if (manifest.isEmpty() && context.isBlank()) {
                     emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
                             .name("error").data("{\"message\":\"Document not indexed yet\"}"));
                     emitter.complete();
@@ -430,7 +459,9 @@ public class AiService {
                         .name("status").data("{\"status\":\"analyzing\"}"));
 
                 String docType = doc.getDocumentType() != null ? doc.getDocumentType().name() : null;
-                RiskAssessmentResult result = assessRiskBatched(context, docType, emitter);
+                RiskAssessmentResult result = withFirmNorms(manifest.isPresent()
+                        ? assessRiskFromManifest(manifest.get(), emitter, documentId)
+                        : assessRiskBatched(context, docType, emitter, documentId), doc);
 
                 // Cache
                 if (result != null && !result.categories().isEmpty()) {
@@ -471,6 +502,17 @@ public class AiService {
         // individually (4K chars per clause). It only needs the full text for
         // clause heading detection (Pass 1), not for sending to LLM in one shot.
         // So we read the FULL document without any char cap — the batching handles size.
+        // Our own drafts: review exactly what the drafter produced (see DraftManifest).
+        var manifest = draftManifestStore.read(documentId);
+        if (manifest.isPresent()) {
+            RiskAssessmentResult fromManifest = withFirmNorms(assessRiskFromManifest(manifest.get(), null, documentId), doc);
+            if (!fromManifest.categories().isEmpty()) {
+                cacheAndAuditRisk(doc, documentId, username, fromManifest);
+                return fromManifest;
+            }
+            log.warn("Manifest review for draft {} produced no categories — falling back to text review", documentId);
+        }
+
         String context = fullTextRetriever.retrieveFullTextUncapped(documentId);
 
         if (context.isBlank()) {
@@ -485,7 +527,7 @@ public class AiService {
         RiskAssessmentResult result = null;
         try {
             String docType = doc.getDocumentType() != null ? doc.getDocumentType().name() : null;
-            RiskAssessmentResult batched = assessRiskBatched(context, docType);
+            RiskAssessmentResult batched = assessRiskBatched(context, docType, null, documentId);
             if (!batched.categories().isEmpty()) {
                 log.info("[prompt={}] batched risk assessment succeeded with {} categories",
                         PromptTemplates.PROMPT_VERSION, batched.categories().size());
@@ -530,9 +572,7 @@ public class AiService {
                     } else {
                         // Last resort: ask for prose analysis and run through proximity scanner
                         log.info("[prompt={}] all structured formats failed — trying prose fallback", PromptTemplates.PROMPT_VERSION);
-                        String prosePrompt = "Analyze the risk in this contract. For each of these categories — " +
-                                "Liability, Indemnity, Termination, IP Rights, Confidentiality, Governing Law, Force Majeure — " +
-                                "state whether the risk is HIGH, MEDIUM, or LOW and briefly explain why.\n\nContract:\n" + context;
+                        String prosePrompt = String.format(prompts.get("RISK_PROSE_FALLBACK"), context);
                         String prose = stripResponsePrefix(vllmClient.generateProse(legalSystemConfig.localize(PromptTemplates.RISK_SYSTEM), prosePrompt, 400));
                         log.info("[prompt={}] prose fallback length={}, preview={}", PromptTemplates.PROMPT_VERSION,
                                 prose.length(), prose.substring(0, Math.min(200, prose.length())).replace('\n', ' '));
@@ -542,6 +582,29 @@ public class AiService {
             }
         }
 
+        result = withFirmNorms(result, doc);
+        cacheAndAuditRisk(doc, documentId, username, result);
+        return result;
+    }
+
+    /** Adds notes where the contract departs from what this firm usually signs (firm norms). */
+    private RiskAssessmentResult withFirmNorms(RiskAssessmentResult result, DocumentMetadata doc) {
+        if (result == null || result.categories().isEmpty()) return result;
+        try {
+            List<String> notes = firmNorms.deviations(doc);
+            if (notes.isEmpty()) return result;
+            List<String> findings = new ArrayList<>(result.keyFindings() != null ? result.keyFindings() : List.of());
+            findings.addAll(notes);
+            return new RiskAssessmentResult(result.overallRisk(), result.categories(), result.riskScore(),
+                    result.clauseResults(), result.missingClauses(), findings);
+        } catch (Exception e) {
+            log.warn("Firm norms skipped for {}: {}", doc.getId(), e.getMessage());
+            return result;
+        }
+    }
+
+    /** Cache a non-empty result on the document and publish the audit event. */
+    private void cacheAndAuditRisk(DocumentMetadata doc, UUID documentId, String username, RiskAssessmentResult result) {
         // Cache only if result has meaningful content — don't cache empty/failed results
         if (result != null && !result.categories().isEmpty()) {
             try {
@@ -570,26 +633,10 @@ public class AiService {
             log.debug("Failed to publish risk audit event: {}", e.getMessage());
         }
 
-        return result;
     }
 
     // ── Structured risk assessment (question-based) ──────────────────────────
 
-    /** Clause type keys (YAML keys) → keywords for keyword-based clause inventory. */
-    private static final java.util.Map<String, String[]> CLAUSE_INVENTORY_KEYWORDS = java.util.Map.ofEntries(
-            java.util.Map.entry("LIABILITY",       new String[]{"liability", "limitation of liability"}),
-            java.util.Map.entry("INDEMNIFICATION", new String[]{"indemnity", "indemnification", "indemnif", "hold harmless"}),
-            java.util.Map.entry("TERMINATION",     new String[]{"termination", "expiry", "term and termination"}),
-            java.util.Map.entry("CONFIDENTIALITY", new String[]{"confidential", "non-disclosure", "nda"}),
-            java.util.Map.entry("IP_RIGHTS",       new String[]{"intellectual property", "ip rights", "copyright", "ownership of"}),
-            java.util.Map.entry("WARRANTIES",      new String[]{"warranties", "warranty", "representations and warranties"}),
-            java.util.Map.entry("FORCE_MAJEURE",   new String[]{"force majeure", "act of god"}),
-            java.util.Map.entry("DATA_PROTECTION", new String[]{"data protection", "data privacy", "personal data", "gdpr", "dpdp"}),
-            java.util.Map.entry("PAYMENT",         new String[]{"payment", "fees and payment", "invoice", "consideration", "compensation"}),
-            java.util.Map.entry("GOVERNING_LAW",   new String[]{"governing law", "jurisdiction", "dispute resolution", "arbitration"}),
-            java.util.Map.entry("SLA",             new String[]{"service level", "sla", "uptime", "availability"}),
-            java.util.Map.entry("GENERAL_PROVISIONS", new String[]{"general provisions", "miscellaneous", "entire agreement", "boilerplate"})
-    );
 
     /**
      * 5-step structured risk assessment:
@@ -599,12 +646,9 @@ public class AiService {
      *   Step 4: Flag missing clauses (no LLM)
      *   Step 5: Aggregate into overall risk + per-clause breakdown
      */
-    private RiskAssessmentResult assessRiskBatched(String fullText, String documentType) {
-        return assessRiskBatched(fullText, documentType, null);
-    }
-
     private RiskAssessmentResult assessRiskBatched(String fullText, String documentType,
-                                                    org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter) {
+                                                    org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter,
+                                                    UUID documentId) {
         // ── Step 1: Clause inventory (no LLM) ─────────────────────────────────
         java.util.Map<String, String> presentClauses = inventoryClauses(fullText);
         log.info("Risk structured: step 1 inventoried {} clauses: {}",
@@ -624,6 +668,34 @@ public class AiService {
             contractType = detectContractType(fullText);
         }
         log.info("Risk assessment: detected contract type = {}", contractType);
+        return assessRiskOnClauses(presentClauses, contractType, null, emitter, documentId);
+    }
+
+    /**
+     * Review of one of our own drafts: clause texts come straight from the draft manifest,
+     * the contract type is the template's review type, and position-sensitive questions
+     * are waived when the draft was written for one party.
+     */
+    private RiskAssessmentResult assessRiskFromManifest(com.legalpartner.service.review.DraftManifest manifest,
+                                                         org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter,
+                                                         UUID documentId) {
+        java.util.Map<String, String> presentClauses = new java.util.LinkedHashMap<>();
+        clauseSpecRegistry.reviewSections(manifest).forEach((k, v) -> {
+            if (v != null && v.strip().length() > 100) presentClauses.put(k, v);
+        });
+        String reviewType = manifest.reviewType() != null ? manifest.reviewType()
+                : clauseSpecRegistry.reviewType(manifest.templateId());
+        log.info("Risk assessment (draft manifest): template={}, reviewType={}, position={}, clauses={}",
+                manifest.templateId(), reviewType, manifest.clientPosition(), presentClauses.keySet());
+        if (presentClauses.isEmpty()) return new RiskAssessmentResult("UNKNOWN", List.of());
+        return assessRiskOnClauses(presentClauses, reviewType, manifest.clientPosition(), emitter, documentId);
+    }
+
+    /** Steps 2–5 of the structured assessment, shared by the text and manifest paths. */
+    private RiskAssessmentResult assessRiskOnClauses(java.util.Map<String, String> presentClauses,
+                                                      String contractType, String clientPosition,
+                                                      org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter,
+                                                      UUID documentId) {
 
         // ── Step 2+3: For each clause, ask questions and compute risk ──────────
         List<RiskQuestionEngine.ClauseRiskResult> clauseResults = new ArrayList<>();
@@ -644,7 +716,7 @@ public class AiService {
             }
 
             List<RiskQuestionEngine.QuestionResult> questionResults =
-                    evaluateClauseQuestions(clauseType, clauseText, questions, emitter);
+                    evaluateClauseQuestions(clauseType, clauseText, questions, clientPosition, emitter);
             totalQuestionsEvaluated += questionResults.size();
 
             // Step 3: deterministic risk from answers
@@ -665,8 +737,23 @@ public class AiService {
         }
 
         // ── Step 5: Aggregate into full report ────────────────────────────────
+        // Review calibration: questions this firm's lawyers keep correcting weigh less.
+        Map<String, Double> multipliers = Map.of();
+        try {
+            multipliers = reviewCalibration.multipliers(contractType);
+        } catch (Exception e) {
+            log.warn("Review calibration unavailable: {}", e.getMessage());
+        }
         RiskQuestionEngine.FullRiskReport report =
-                riskQuestionEngine.computeFullReport(clauseResults, missingClauses);
+                riskQuestionEngine.computeFullReport(clauseResults, missingClauses, multipliers);
+        try {
+            reviewCalibration.recordAnswers(documentId, contractType, clauseResults.stream()
+                    .flatMap(cr -> cr.results().stream())
+                    .filter(qr -> qr.answered() && !RiskQuestionEngine.isWaived(qr))
+                    .map(qr -> qr.question().id()).toList());
+        } catch (Exception e) {
+            log.warn("Review calibration: answer counts not recorded: {}", e.getMessage());
+        }
 
         log.info("Risk assessment: {} clauses found, {} missing, {} questions evaluated, score: {}/100",
                 presentClauses.size(), missingClauses.size(),
@@ -715,128 +802,28 @@ public class AiService {
     }
 
     /**
-     * Two-stage, per-question evaluation to eliminate false negatives.
-     *
-     * Stage 1: Pre-extract all provisions from the clause (one LLM call).
-     * Stage 2: For each question, match against extracted provisions (one call per question).
-     *
-     * Why not batch: batching 8+ questions causes "lazy NO cascade" where the model
-     * defaults to NO for all questions. AWQ quantization compounds this per decoding step.
-     * Research: requiring evidence before answering reduces false negatives by 40-60%.
-     *
-     * Optional SSE emitter: if provided, streams each question result as it completes.
+     * Per-question evaluation — delegated to {@link com.legalpartner.service.review.SemanticRequirementChecker},
+     * the same evaluator drafting uses to verify clauses. Streams each answer over SSE when an emitter is given.
      */
     private List<RiskQuestionEngine.QuestionResult> evaluateClauseQuestions(
             String clauseType, String clauseText,
-            List<RiskQuestionEngine.RiskQuestion> questions) {
-        return evaluateClauseQuestions(clauseType, clauseText, questions, null);
-    }
-
-    private List<RiskQuestionEngine.QuestionResult> evaluateClauseQuestions(
-            String clauseType, String clauseText,
-            List<RiskQuestionEngine.RiskQuestion> questions,
+            List<RiskQuestionEngine.RiskQuestion> questions, String clientPosition,
             org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter) {
-
-        String truncated = fitToTokenBudget(
-                "You are a legal analyst.", clauseText, 400, null);
-
-        // ── Stage 1: Pre-extract provisions from the clause ──
-        String provisions = "";
-        try {
-            String extractPrompt = "Read this " + clauseType + " clause and list every provision, obligation, " +
-                    "condition, and right mentioned. Number each one and quote the relevant text.\n\n" +
-                    "Clause:\n" + truncated + "\n\nList:";
-            AiMessage extractResponse = riskChatModel.generate(UserMessage.from(extractPrompt)).content();
-            provisions = extractResponse.text().trim();
-            log.info("Risk eval [{}]: extracted {} chars of provisions", clauseType, provisions.length());
-        } catch (Exception e) {
-            log.warn("Risk pre-extraction failed for {}: {}", clauseType, e.getMessage());
-        }
-
-        // ── Stage 2: One question at a time with NLI framing ──
-        List<RiskQuestionEngine.QuestionResult> results = new ArrayList<>();
-
-        for (RiskQuestionEngine.RiskQuestion q : questions) {
+        java.util.function.Consumer<RiskQuestionEngine.QuestionResult> listener = emitter == null ? null : qr -> {
             try {
-                String questionPrompt = String.format("""
-                        Clause type: %s
-
-                        Clause text:
-                        %s
-
-                        Extracted provisions:
-                        %s
-
-                        Question: %s
-
-                        Instructions:
-                        - If the clause addresses this question, answer PRESENT and quote the exact text.
-                        - If the clause does NOT address this at all, answer ABSENT.
-                        - If mentioned but unclear/ambiguous, answer UNCLEAR.
-
-                        Output ONLY valid JSON:
-                        {"answer": "PRESENT|ABSENT|UNCLEAR", "quote": "exact text or empty"}
-                        """, clauseType, truncated,
-                        provisions.length() > 50 ? provisions : "(no provisions extracted)",
-                        q.question());
-
-                AiMessage response = riskChatModel.generate(UserMessage.from(questionPrompt)).content();
-                String raw = response.text().trim();
-
-                // Parse response
-                String answer = "NO";
-                String quote = "";
-                try {
-                    int jsonStart = raw.indexOf('{');
-                    int jsonEnd = raw.lastIndexOf('}');
-                    if (jsonStart >= 0 && jsonEnd > jsonStart) {
-                        var node = new com.fasterxml.jackson.databind.ObjectMapper()
-                                .readTree(raw.substring(jsonStart, jsonEnd + 1));
-                        String a = node.path("answer").asText("ABSENT").toUpperCase();
-                        answer = "PRESENT".equals(a) ? "YES" : "NO";
-                        quote = node.path("quote").asText("");
-                    }
-                } catch (Exception parseEx) {
-                    // Fallback: check if response contains PRESENT
-                    answer = raw.toUpperCase().contains("PRESENT") ? "YES" : "NO";
-                }
-
-                RiskQuestionEngine.QuestionResult qr =
-                        new RiskQuestionEngine.QuestionResult(q, true, answer, quote);
-                results.add(qr);
-
-                // Stream result if SSE emitter provided
-                if (emitter != null) {
-                    try {
-                        String eventData = new com.fasterxml.jackson.databind.ObjectMapper()
-                                .writeValueAsString(java.util.Map.of(
-                                        "clauseType", clauseType,
-                                        "questionId", q.id(),
-                                        "question", q.question(),
-                                        "answer", answer,
-                                        "quote", quote
-                                ));
-                        emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
-                                .name("question_result").data(eventData));
-                    } catch (Exception sseEx) {
-                        log.debug("SSE send failed: {}", sseEx.getMessage());
-                    }
-                }
-
-                log.debug("Risk eval [{}] Q:{} → {} (quote: {})",
-                        clauseType, q.id(), answer, quote.length() > 0 ? quote.substring(0, Math.min(50, quote.length())) : "none");
-
-            } catch (Exception e) {
-                log.warn("Risk question {} failed for clause {}: {}", q.id(), clauseType, e.getMessage());
-                results.add(new RiskQuestionEngine.QuestionResult(q, false, null, null));
+                String eventData = objectMapper.writeValueAsString(java.util.Map.of(
+                        "clauseType", clauseType,
+                        "questionId", qr.question().id(),
+                        "question", qr.question().question(),
+                        "answer", qr.answer() != null ? qr.answer() : "",
+                        "quote", qr.quotedEvidence() != null ? qr.quotedEvidence() : ""));
+                emitter.send(org.springframework.web.servlet.mvc.method.annotation.SseEmitter.event()
+                        .name("question_result").data(eventData));
+            } catch (Exception sseEx) {
+                log.debug("SSE send failed: {}", sseEx.getMessage());
             }
-        }
-
-        long yes = results.stream().filter(r -> "YES".equals(r.answer())).count();
-        long no = results.stream().filter(r -> "NO".equals(r.answer())).count();
-        log.info("Risk eval [{}]: {} questions → {} YES, {} NO", clauseType, questions.size(), yes, no);
-
-        return results;
+        };
+        return semanticChecker.evaluate(clauseType, clauseText, questions, clientPosition, listener);
     }
 
     /**
@@ -937,70 +924,21 @@ public class AiService {
     }
 
     /** Best-effort contract type detection from which clauses are present. */
+    /** Contract type from which clauses were found — vocabulary.yml contract_type_detection.clause_hints. */
     private String detectContractType(Map<String, String> presentClauses) {
-        boolean hasSla = presentClauses.containsKey("SLA");
-        boolean hasDataProtection = presentClauses.containsKey("DATA_PROTECTION");
-        boolean hasIp = presentClauses.containsKey("IP_RIGHTS");
-
-        if (hasSla && hasDataProtection) return "SAAS";
-        if (hasIp && !hasSla) return "MSA";
+        for (var hint : vocabulary.clauseHints()) {
+            if (hint.matches(presentClauses.keySet())) return hint.type();
+        }
         return null; // unknown — return all questions
     }
 
-    /**
-     * Pass 1: Find which standard clauses are present in the document.
-     * Returns map of clause type key → extracted text for that clause.
-     */
+    /** Pass 1: which standard clauses are present, and their text. See {@link ClauseInventory}. */
     private java.util.Map<String, String> inventoryClauses(String fullText) {
-        java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
-        String lowerText = fullText.toLowerCase();
-
-        for (Map.Entry<String, String[]> entry : CLAUSE_INVENTORY_KEYWORDS.entrySet()) {
-            String clauseType = entry.getKey();
-            String[] keywords = entry.getValue();
-            int matchIdx = -1;
-            for (String kw : keywords) {
-                int idx = lowerText.indexOf(kw);
-                if (idx >= 0 && (matchIdx < 0 || idx < matchIdx)) matchIdx = idx;
-            }
-
-            if (matchIdx >= 0) {
-                String extracted = extractClauseText(fullText, matchIdx);
-                if (extracted.length() > 100) {
-                    result.put(clauseType, extracted);
-                }
-            }
-        }
-        return result;
+        return ClauseInventory.inventory(fullText, riskQuestionEngine.getClauseKeywords(), sectionCapChars);
     }
 
-    /**
-     * Extract text from match position to the next article header.
-     * Uses Article/ARTICLE/Section/SECTION heading patterns as boundaries.
-     */
     private String extractClauseText(String fullText, int startIdx) {
-        java.util.regex.Pattern headerPattern = java.util.regex.Pattern.compile(
-                "(?im)^(?:ARTICLE|Article|SECTION|Section|Clause|CLAUSE)\\s+\\d+");
-        java.util.regex.Matcher m = headerPattern.matcher(fullText);
-
-        int sectionStart = startIdx;
-        int sectionEnd = fullText.length();
-
-        java.util.List<Integer> headerPositions = new java.util.ArrayList<>();
-        while (m.find()) headerPositions.add(m.start());
-
-        for (int i = 0; i < headerPositions.size(); i++) {
-            int pos = headerPositions.get(i);
-            if (pos <= startIdx) {
-                sectionStart = pos;
-            } else {
-                sectionEnd = pos;
-                break;
-            }
-        }
-
-        int end = Math.min(sectionEnd, sectionStart + sectionCapChars);
-        return fullText.substring(sectionStart, end).trim();
+        return ClauseInventory.extractClauseText(fullText, startIdx, sectionCapChars);
     }
 
     /**
@@ -1024,17 +962,6 @@ public class AiService {
         return hasHigh ? "HIGH" : (hasMedium ? "MEDIUM" : "LOW");
     }
 
-    // Maps LABEL= keys to display names
-    private static final java.util.Map<String, String> RISK_LABEL_NAMES = java.util.Map.of(
-            "OVERALL",         "Overall",
-            "LIABILITY",       "Liability",
-            "INDEMNITY",       "Indemnity",
-            "TERMINATION",     "Termination",
-            "IP_RIGHTS",       "IP Rights",
-            "CONFIDENTIALITY", "Confidentiality",
-            "GOVERNING_LAW",   "Governing Law",
-            "FORCE_MAJEURE",   "Force Majeure"
-    );
 
     /** Parse guided_json response: {"overall_risk":"HIGH","categories":[{"name":"...","rating":"HIGH",...}]} */
     private RiskAssessmentResult parseRiskJson(com.fasterxml.jackson.databind.JsonNode root) {
@@ -1075,8 +1002,8 @@ public class AiService {
             if (!val.matches("HIGH|MEDIUM|LOW")) continue;
             if ("OVERALL".equals(key)) {
                 overallRisk = val;
-            } else if (RISK_LABEL_NAMES.containsKey(key)) {
-                categories.add(new RiskCategory(RISK_LABEL_NAMES.get(key), val, "", ""));
+            } else if (vocabulary.riskCategories().containsKey(key)) {
+                categories.add(new RiskCategory(vocabulary.riskCategories().get(key).label(), val, "", ""));
             }
         }
         if (!categories.isEmpty()) {
@@ -1236,16 +1163,9 @@ public class AiService {
     }
 
     /** Detect contract type from document text using keyword heuristics. */
+    /** Contract type from text signals — delegates to ContractTypeDetector (vocabulary.yml). */
     private String detectContractType(String text) {
-        String lower = text.toLowerCase();
-        if (lower.contains("non-disclosure") || lower.contains("nda") || lower.contains("confidentiality agreement")) return "NDA";
-        if (lower.contains("subscription") && lower.contains("saas")) return "SAAS";
-        if (lower.contains("software license") || lower.contains("license agreement")) return "SOFTWARE_LICENSE";
-        if (lower.contains("employment agreement") || lower.contains("offer letter")) return "EMPLOYMENT";
-        if (lower.contains("supply agreement") || lower.contains("purchase order")) return "SUPPLY";
-        if (lower.contains("master service") || lower.contains("msa")) return "MSA";
-        if (lower.contains("intellectual property") && lower.contains("license")) return "IP_LICENSE";
-        return "_default";
+        return contractTypeDetector.detect(text).contractType();
     }
 
     /** Find the start position of a clause by keyword search. Returns -1 if not found. */
@@ -1409,41 +1329,18 @@ public class AiService {
         return new RiskAssessmentResult(overallRisk, categories);
     }
 
-    // Maps prose keywords → canonical category labels
-    private static final java.util.Map<String, String> PROXIMITY_KEYWORDS = java.util.Map.of(
-        "liabilit",       "LIABILITY",
-        "indemnit",       "INDEMNITY",
-        "terminat",       "TERMINATION",
-        "intellectual",   "IP_RIGHTS",
-        "ip rights",      "IP_RIGHTS",
-        "confidential",   "CONFIDENTIALITY",
-        "governing law",  "GOVERNING_LAW",
-        "force majeure",  "FORCE_MAJEURE"
-    );
 
     private static final java.util.regex.Pattern PROX_RATING =
             java.util.regex.Pattern.compile("\\b(HIGH|MEDIUM|LOW)\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    // Prose phrases that imply HIGH risk when no explicit rating found (model often skips the word)
-    private static final List<String> HIGH_RISK_PHRASES = List.of(
-        "no ", "not found", "not defined", "not present", "missing", "absent",
-        "no cap", "unlimited", "one-sided", "unilateral", "undefined", "does not",
-        "no provision", "not addressed"
-    );
-    // Prose phrases that imply LOW risk
-    private static final List<String> LOW_RISK_PHRASES = List.of(
-        "clear", "balanced", "mutual", "standard", "well-defined", "explicitly",
-        "both parties", "adequate", "comprehensive"
-    );
 
     private void proximityFallbackScan(String flat, java.util.Set<String> seen, List<RiskCategory> categories) {
         String[] segments = flat.split("(?<=[.!?])\\s+|\\n|\\d+\\.\\s+");
         for (String seg : segments) {
             String lower = seg.toLowerCase();
-            for (var entry : PROXIMITY_KEYWORDS.entrySet()) {
-                String keyword = entry.getKey();
-                String canonical = entry.getValue();
-                if (!lower.contains(keyword)) continue;
+            for (var category : vocabulary.riskCategories().values()) {
+                if (category.stems().stream().noneMatch(lower::contains)) continue;
+                String canonical = category.key();
                 if (!seen.add(canonical)) continue;
 
                 // Try explicit HIGH/MEDIUM/LOW first
@@ -1452,8 +1349,8 @@ public class AiService {
 
                 // If no explicit rating, infer from prose
                 if (rating == null) {
-                    boolean impliesHigh = HIGH_RISK_PHRASES.stream().anyMatch(lower::contains);
-                    boolean impliesLow  = LOW_RISK_PHRASES.stream().anyMatch(lower::contains);
+                    boolean impliesHigh = vocabulary.highRiskPhrases().stream().anyMatch(lower::contains);
+                    boolean impliesLow  = vocabulary.lowRiskPhrases().stream().anyMatch(lower::contains);
                     if (impliesHigh) rating = "HIGH";
                     else if (impliesLow) rating = "LOW";
                     else rating = "MEDIUM"; // default for known category without rating
@@ -1462,16 +1359,7 @@ public class AiService {
                 String justification = seg.trim();
                 if (justification.length() > 150) justification = justification.substring(0, 150).trim();
 
-                String name = switch (canonical) {
-                    case "IP_RIGHTS"       -> "IP Rights";
-                    case "GOVERNING_LAW"   -> "Governing Law";
-                    case "FORCE_MAJEURE"   -> "Force Majeure";
-                    case "CONFIDENTIALITY" -> "Confidentiality";
-                    case "TERMINATION"     -> "Termination";
-                    case "INDEMNITY"       -> "Indemnity";
-                    case "LIABILITY"       -> "Liability";
-                    default -> canonical.charAt(0) + canonical.substring(1).toLowerCase();
-                };
+                String name = category.label();
                 categories.add(new RiskCategory(name, rating,
                         justification, ""));
             }
@@ -1594,18 +1482,9 @@ public class AiService {
     private String extractRelevantSection(String fullText, String categoryName, int maxChars) {
         if (fullText.length() <= maxChars) return fullText;
 
-        // Map risk category names to keywords likely to appear in section headers
-        java.util.Map<String, String[]> categoryKeywords = java.util.Map.of(
-                "Liability",       new String[]{"liability", "limitation of liability", "limit of liability"},
-                "Indemnity",       new String[]{"indemnity", "indemnification", "indemnif"},
-                "Termination",     new String[]{"termination", "expiry", "expiration"},
-                "IP Rights",       new String[]{"intellectual property", "ip rights", "copyright", "patent"},
-                "Confidentiality", new String[]{"confidential", "non-disclosure", "nda"},
-                "Governing Law",   new String[]{"governing law", "jurisdiction", "dispute resolution", "arbitration"},
-                "Force Majeure",   new String[]{"force majeure", "act of god", "frustration"}
-        );
-
-        String[] keywords = categoryKeywords.getOrDefault(categoryName, new String[]{categoryName.toLowerCase()});
+        // Section keywords per category from vocabulary.yml (risk_categories)
+        var category = vocabulary.riskCategoryByLabel(categoryName);
+        List<String> keywords = category != null ? category.sectionKeywords() : List.of(categoryName.toLowerCase());
         String lowerText = fullText.toLowerCase();
 
         // Find the earliest match for any keyword
@@ -1705,12 +1584,7 @@ public class AiService {
     }
 
     private String retrieveContextForDocument(UUID docId) {
-        List<String> queries = List.of(
-                "liability termination indemnity confidentiality governing law",
-                "contract agreement obligations breach consideration sections",
-                "warranties representations covenants conditions",
-                "payment fees schedule annexure"
-        );
+        List<String> queries = vocabulary.documentContextQueries();
         Set<String> seen = new HashSet<>();
         List<EmbeddingMatch<TextSegment>> forDoc = new ArrayList<>();
 
@@ -2141,19 +2015,7 @@ public class AiService {
         int matches = 0;
 
         for (var position : positions) {
-            String prompt = String.format("""
-                    Analyze this contract clause against the firm's standard.
-                    Clause Type: %s
-                    Firm Standard: %s
-                    Minimum Acceptable: %s
-                    Non-negotiable: %s
-
-                    Contract text:
-                    %s
-
-                    Respond ONLY with JSON:
-                    {"verdict": "MATCHES|DEVIATES|MISSING", "severity": "HIGH|MEDIUM|LOW", "explanation": "one sentence", "section_ref": "Section X.Y or MISSING"}
-                    """,
+            String prompt = String.format(prompts.get("PLAYBOOK_COMPLIANCE_CHECK"),
                     position.getClauseType(),
                     position.getStandardPosition(),
                     position.getMinimumAcceptable() != null ? position.getMinimumAcceptable() : "N/A",
@@ -2224,28 +2086,11 @@ public class AiService {
 
         String truncated = contractText.length() > 10000 ? contractText.substring(0, 10000) : contractText;
 
-        String prompt = String.format("""
-                Extract ALL obligations, deadlines, and key dates from this contract.
-                For each item, provide: type, description, date (if specified), party responsible, and section reference.
-
-                Types to look for:
-                - PAYMENT: amounts, payment dates, invoicing terms
-                - DEADLINE: deliverable due dates, milestones
-                - RENEWAL: renewal/expiry dates, auto-renewal terms
-                - NOTICE: notice periods for termination, renewal, breach
-                - REPORTING: reporting obligations, audit rights
-                - COMPLIANCE: regulatory compliance deadlines
-
-                Contract text:
-                %s
-
-                Respond ONLY with JSON:
-                {"obligations": [{"type": "PAYMENT|DEADLINE|RENEWAL|NOTICE|REPORTING|COMPLIANCE", "description": "...", "date": "YYYY-MM-DD or null", "party": "Party A|Party B|Both", "section_ref": "Section X.Y", "recurring": true|false}]}
-                """, truncated);
+        String prompt = String.format(prompts.get("OBLIGATIONS_EXTRACTION"), truncated);
 
         try {
             String response = chatModel.generate(dev.langchain4j.data.message.UserMessage.from(
-                    legalSystemConfig.localize("You are a legal obligation extraction specialist. Extract ALL actionable obligations with precision.")
+                    legalSystemConfig.localize(prompts.get("OBLIGATIONS_SYSTEM"))
                     + "\n\n" + prompt)).content().text();
             com.fasterxml.jackson.databind.JsonNode node = parseJsonResponse(response);
             List<Map<String, Object>> obligations = new java.util.ArrayList<>();
@@ -2295,21 +2140,9 @@ public class AiService {
         String partyALabel = partyA.isBlank() ? "the Service Provider" : partyA;
         String partyBLabel = partyB.isBlank() ? "the Client" : partyB;
         String jurisdictionLabel = jurisdiction.isBlank() ? "" : ", governed by the laws of " + jurisdiction;
-        StringBuilder systemPrompt = new StringBuilder();
-        systemPrompt.append("You are a senior commercial contracts lawyer.\n");
-        systemPrompt.append("Draft a complete, enforceable ").append(clauseType)
-                    .append(" clause for a ").append(contractTypeName).append(" agreement")
-                    .append(jurisdictionLabel).append(".\n");
-        systemPrompt.append("STRICT RULES:\n");
-        systemPrompt.append("- Do NOT use placeholders like [Party Name], [DATE], [INSERT], [***], [__].\n");
-        systemPrompt.append("- Use \"").append(partyALabel).append("\" and \"").append(partyBLabel)
-                    .append("\" as the party names throughout. Do not substitute other names.\n");
-        systemPrompt.append("- Write at least 3 numbered sub-clauses with full legal text.\n");
-        systemPrompt.append("- Base your language on the PRECEDENT CONTEXT provided.\n");
-        if (!jurisdiction.isBlank()) {
-            systemPrompt.append("- Governing law is ").append(jurisdiction)
-                        .append(". Do NOT reference any other jurisdiction.\n");
-        }
+        String systemPrompt = String.format(prompts.get("WORKFLOW_CLAUSE_SYSTEM"),
+                clauseType, contractTypeName, jurisdictionLabel, partyALabel, partyBLabel,
+                jurisdiction.isBlank() ? "" : "- Governing law is " + jurisdiction + ". Do NOT reference any other jurisdiction.\n");
 
         StringBuilder userPrompt = new StringBuilder();
         if (ragContext != null && !ragContext.isBlank()) {
@@ -2330,7 +2163,7 @@ public class AiService {
             userPrompt.append("\n\n").append(feedbackContext);
         }
 
-        String localizedSystem = legalSystemConfig.localizeForJurisdiction(systemPrompt.toString(), jurisdiction);
+        String localizedSystem = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction);
         AiMessage response = chatModel.generate(
                 UserMessage.from(localizedSystem + "\n\n" + userPrompt)
         ).content();

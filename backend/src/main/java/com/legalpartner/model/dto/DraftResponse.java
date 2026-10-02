@@ -22,6 +22,8 @@ public class DraftResponse {
     private Map<String, List<String>> qaWarnings;
     /** Cross-clause coherence issues found by the post-generation coherence scan. */
     private List<String> coherenceIssues;
+    /** Pass back on /draft/save so review and learning get this draft's structured record. */
+    private String draftToken;
 
     @Data
     @Builder

@@ -1,5 +1,7 @@
 package com.legalpartner.service;
 
+import com.legalpartner.config.ContractTypeRegistry;
+
 import com.legalpartner.model.dto.TemplateInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.ClassPathResource;
@@ -13,22 +15,19 @@ import java.util.List;
 @Slf4j
 public class TemplateService {
 
-    private static final List<TemplateInfo> TEMPLATES = List.of(
-            TemplateInfo.builder().id("nda").name("Non-Disclosure Agreement").description("Mutual NDA for protecting confidential information during business discussions").build(),
-            TemplateInfo.builder().id("msa").name("Master Services Agreement").description("Framework agreement for ongoing professional services engagements").build(),
-            TemplateInfo.builder().id("saas").name("SaaS Subscription Agreement").description("Cloud software subscription with SLAs, data processing, and usage terms").build(),
-            TemplateInfo.builder().id("software_license").name("Software License Agreement").description("Commercial software license — perpetual or term, with support and IP ownership").build(),
-            TemplateInfo.builder().id("vendor").name("Vendor Agreement").description("Standard vendor terms for procurement of goods or services").build(),
-            TemplateInfo.builder().id("supply").name("Supply Agreement").description("Manufacturing or supply chain contract with delivery, quality, and force majeure terms").build(),
-            TemplateInfo.builder().id("employment").name("Employment Agreement").description("Executive or senior employee contract with compensation, IP assignment, and restrictive covenants").build(),
-            TemplateInfo.builder().id("ip_license").name("IP License Agreement").description("License of patents, trademarks, or copyrights with royalty and sublicense terms").build(),
-            TemplateInfo.builder().id("clinical_services").name("Clinical Services Agreement").description("Pharma / healthcare services contract with regulatory, data privacy, and compliance terms").build(),
-            TemplateInfo.builder().id("fintech_msa").name("Fintech Master Services Agreement").description("Financial services MSA with regulatory references, data protection, and audit rights").build(),
-            TemplateInfo.builder().id("custom").name("Custom Contract").description("Enter your own contract type — AI drafts appropriate clauses based on your description").build()
-    );
+    private final ContractTypeRegistry contractTypes;
 
+    public TemplateService(ContractTypeRegistry contractTypes) {
+        this.contractTypes = contractTypes;
+    }
+
+    /** Template picker entries — contract_types.yml is the single source (YAML order). */
     public List<TemplateInfo> listTemplates() {
-        return TEMPLATES;
+        return contractTypes.allTemplateIds().stream()
+                .map(contractTypes::get)
+                .map(c -> TemplateInfo.builder().id(c.templateId()).name(c.displayName())
+                        .description(c.description()).build())
+                .toList();
     }
 
     public String loadTemplate(String templateId) {

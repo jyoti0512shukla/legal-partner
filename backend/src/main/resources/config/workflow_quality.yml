@@ -1,0 +1,161 @@
+# Workflow step quality rubric (WorkflowQualityScorer) — no LLM calls.
+#
+# Score = base + points of each passing check (capped at 100). A failing check contributes
+# its `gap`, which is fed back to the model on the next self-refine iteration, so gap text
+# is prompt wording. A step passes at legalpartner.workflows.quality.passing-score.
+#
+# Check kinds (paths are JSON field names in the step result):
+#   min_items         array at `path` has ≥ min items; `per_item` partial points below min;
+#                     `gap_when_empty` replaces `gap` when there are none.   vars: {count}
+#   each_item_min_length  every item's `field` text is ≥ min chars (vacuously true when empty)
+#   any_item_has      some item has a non-blank value in one of `fields`, not in `exclude`
+#   min_length        first non-blank of `paths` is ≥ min chars
+#   not_blank         `path` is non-blank
+#   equals            `path` equals `value`                                   vars: {actual}
+#   min_number        numeric `path` ≥ min
+#   fields_present    `points` for each of `fields` that is non-blank and not in `empty_values`;
+#                     gap lists the missing ones                              vars: {missing}
+#   no_match          first non-blank of `paths` matches none of `patterns` (regex)
+#   min_sentences     first non-blank of `paths` has ≥ min "."-separated parts
+
+on_error_score: 75          # result couldn't be parsed — assume OK rather than loop
+
+steps:
+  RISK_ASSESSMENT:
+    base: 30
+    checks:
+      - kind: min_items
+        path: categories
+        min: 5
+        points: 25
+        per_item: 5
+        gap: "Only {count} risk categories identified — need at least 5 (LIABILITY, INDEMNITY, TERMINATION, IP_RIGHTS, CONFIDENTIALITY, GOVERNING_LAW, FORCE_MAJEURE)"
+      - kind: each_item_min_length
+        path: categories
+        field: justification
+        min: 21
+        points: 20
+        gap: "Some risk categories have no justification — explain WHY each rating was assigned with reference to the contract text"
+      - kind: any_item_has
+        path: categories
+        fields: [sectionRef, section_ref]
+        exclude: ["See contract"]
+        points: 15
+        gap: "No specific section references — cite the actual clause number or section name from the contract (e.g. 'Clause 8.2', 'Section 12 — Force Majeure')"
+      - kind: not_blank
+        path: overallRisk
+        points: 10
+        gap: "Overall risk level (HIGH/MEDIUM/LOW) not set"
+
+  COMPLIANCE_CHECK:
+    base: 50
+    checks:
+      - kind: equals
+        path: status
+        value: COMPLETED
+        points: 20
+        gap: "Compliance check did not complete — {actual}"
+      - kind: min_number
+        path: totalChecked
+        min: 3
+        points: 15
+        gap: "Fewer than 3 playbook positions checked"
+      # Violations are expected — quality is completeness, not absence of issues.
+      - kind: min_number
+        path: totalChecked
+        min: 1
+        points: 15
+
+  OBLIGATION_EXTRACT:
+    base: 40
+    checks:
+      - kind: equals
+        path: status
+        value: COMPLETED
+        points: 20
+      - kind: min_items
+        path: obligations
+        min: 3
+        points: 25
+        per_item: 8
+        gap: "Only {count} obligation(s) found — check for payments, deadlines, renewals, notice periods"
+        gap_when_empty: "No obligations extracted — scan for payment terms, deliverable dates, renewal clauses, notice requirements"
+      - kind: each_item_min_length
+        path: obligations
+        field: type
+        min: 1
+        points: 15
+
+  REDLINE_SUGGESTIONS:
+    base: 25
+    checks:
+      - kind: min_items
+        path: suggestions
+        min: 3
+        points: 30
+        per_item: 8
+        gap: "Only {count} suggestion(s) — provide at least 3, one per weak/missing clause"
+        gap_when_empty: "No redline suggestions — if clause issues were identified, provide specific improved language for each"
+      - kind: each_item_min_length
+        path: suggestions
+        field: suggestedLanguage
+        min: 61
+        points: 25
+        gap: "Suggested language is too brief or generic — write full clause-level text (minimum 2 sentences) that could be inserted directly into the contract"
+      - kind: each_item_min_length
+        path: suggestions
+        field: rationale
+        min: 21
+        points: 20
+        gap: "Rationale is missing or too brief — explain why the suggested language is legally superior"
+
+  GENERATE_SUMMARY:
+    base: 35
+    checks:
+      - kind: min_length
+        paths: [executiveSummary]
+        min: 150
+        points: 25
+        gap: "Executive summary too short — write at least 3-4 sentences covering: contract purpose, key parties, primary obligations, and main risks"
+      - kind: min_items
+        path: topConcerns
+        min: 2
+        points: 20
+        gap: "Fewer than 2 top concerns — identify the most significant legal or commercial risks from the analysis"
+      - kind: min_items
+        path: recommendations
+        min: 1
+        points: 20
+        gap: "No actionable recommendations — suggest specific negotiation points or protective clauses the party should request"
+
+  EXTRACT_KEY_TERMS:
+    base: 35
+    checks:
+      - kind: fields_present
+        fields: [partyA, partyB, effectiveDate, governingLaw]
+        empty_values: ["N/A"]
+        points: 15
+        gap: "Could not extract: {missing} — search the full contract text for these values"
+
+  DRAFT_CLAUSE:
+    base: 30
+    checks:
+      - kind: min_length
+        paths: [content, html]
+        min: 601
+        points: 35
+        gap: "Draft clause is too short — expand each sub-clause with complete, commercially reasonable legal text (minimum 3 sub-clauses)"
+      - kind: no_match
+        paths: [content, html]
+        patterns: ['(?is).*\[[^\]]{1,50}\].*', '(?s).*INSERT.*', '(?s).*TBD.*']
+        points: 25
+        gap: "Draft contains unfilled placeholders ([...], INSERT, TBD) — replace every placeholder with generic but legally sound language"
+      - kind: min_sentences
+        paths: [content, html]
+        min: 3
+        points: 10
+        gap: "Draft appears to be heading-only — write the full substantive clause text, not just titles"
+
+  APPROVAL_GATE:
+    base: 100               # human gate — no quality loop
+    checks: []

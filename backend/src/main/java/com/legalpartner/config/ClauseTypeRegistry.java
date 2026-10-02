@@ -42,7 +42,11 @@ public class ClauseTypeRegistry {
             List<String> searchQueries,
             Set<String> acceptableClauseTypes,
             List<String> semanticRequirements,
-            List<String> forbiddenHeadings
+            List<String> forbiddenHeadings,
+            /** Review clause keys (risk_questions.yml) this drafted clause is reviewed as. */
+            List<String> reviewKeys,
+            /** Render from golden clauses (no LLM) when available and a DealSpec exists. */
+            boolean goldenFirst
     ) {}
 
     private Map<String, ClauseTypeConfig> byKey = Map.of();
@@ -92,7 +96,10 @@ public class ClauseTypeRegistry {
                 stringListOrEmpty(raw.get("acceptable_clause_types")).stream()
                         .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new)),
                 stringListOrEmpty(raw.get("semantic_requirements")),
-                stringListOrEmpty(raw.get("forbidden_headings"))
+                stringListOrEmpty(raw.get("forbidden_headings")),
+                // Absent → reviewed under its own key; explicit [] → not reviewed (e.g. DEFINITIONS).
+                raw.containsKey("review_keys") ? stringListOrEmpty(raw.get("review_keys")) : List.of(key),
+                !Boolean.FALSE.equals(raw.get("golden_first"))
         );
     }
 

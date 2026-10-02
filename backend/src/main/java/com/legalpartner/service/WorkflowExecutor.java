@@ -273,7 +273,7 @@ public class WorkflowExecutor {
             log.info("Workflow {}: step {} iter {}/{} quality={}/100 gaps={}",
                     runId, step.getType(), iter + 1, maxIter, quality.score(), quality.gaps());
 
-            if (quality.isPassing() || iter == maxIter - 1) break;
+            if (qualityScorer.isPassing(quality) || iter == maxIter - 1) break;
 
             // Build targeted feedback for next iteration
             feedbackContext = buildFeedbackContext(quality, iter + 1);

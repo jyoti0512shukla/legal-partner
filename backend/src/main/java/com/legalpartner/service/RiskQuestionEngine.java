@@ -20,10 +20,23 @@ public class RiskQuestionEngine {
 
     // ── Records ──────────────────────────────────────────────────────────────
 
+    /**
+     * @param positionSensitive true when the "right" answer depends on which party we
+     *        represent (e.g. mutual caps). Such questions are waived for drafts written
+     *        in favour of one party — see {@link #isWaivedFor(RiskQuestion, String)}.
+     */
     public record RiskQuestion(
             String id, String question, String riskIfNo, String riskIfYes,
-            String category, List<String> appliesTo, int weight
-    ) {}
+            String category, List<String> appliesTo, int weight, boolean positionSensitive
+    ) {
+        public RiskQuestion(String id, String question, String riskIfNo, String riskIfYes,
+                            String category, List<String> appliesTo, int weight) {
+            this(id, question, riskIfNo, riskIfYes, category, appliesTo, weight, false);
+        }
+    }
+
+    /** Answer recorded for a position-sensitive question that does not apply to a one-sided draft. */
+    public static final String WAIVED = "WAIVED";
 
     public record QuestionResult(
             RiskQuestion question, boolean answered, String answer,
@@ -49,6 +62,12 @@ public class RiskQuestionEngine {
     /** contractType → list of required clause types */
     private final Map<String, List<String>> requiredClauses = new LinkedHashMap<>();
 
+    /** Checklist clause id → display name (YAML order preserved). */
+    private final Map<String, String> checklistClauses = new LinkedHashMap<>();
+
+    /** clauseType → keywords used by the text-based clause inventory (YAML order preserved). */
+    private final Map<String, List<String>> clauseKeywords = new LinkedHashMap<>();
+
     /** Configurable prompts loaded from YAML */
     private String systemPrompt = "";
     private String userPromptTemplate = "";
@@ -69,6 +88,16 @@ public class RiskQuestionEngine {
     @PostConstruct
     public void init() {
         loadQuestions();
+        if (!requiredClauses.containsKey("_default")) {
+            throw new IllegalStateException(
+                    "risk_questions.yml must define required_clauses._default (no code fallback)");
+        }
+        if (checklistClauses.isEmpty()) {
+            throw new IllegalStateException("risk_questions.yml must define checklist_clauses");
+        }
+        if (clauseKeywords.isEmpty()) {
+            throw new IllegalStateException("risk_questions.yml must define clause_keywords");
+        }
         log.info("RiskQuestionEngine loaded: {} clause types, {} total questions",
                 questionsByClause.size(),
                 questionsByClause.values().stream().mapToInt(List::size).sum());
@@ -135,10 +164,24 @@ public class RiskQuestionEngine {
                                 (String) q.get("risk_if_yes"),
                                 (String) q.get("category"),
                                 appliesTo,
-                                weight
+                                weight,
+                                Boolean.TRUE.equals(q.get("position_sensitive"))
                         ));
                     }
                     questionsByClause.put(clauseType, questions);
+                }
+            }
+
+            // Load checklist clauses
+            Map<String, Object> cl = (Map<String, Object>) root.get("checklist_clauses");
+            if (cl != null) cl.forEach((k, v) -> checklistClauses.put(k, String.valueOf(v)));
+
+            // Load clause inventory keywords
+            Map<String, Object> kw = (Map<String, Object>) root.get("clause_keywords");
+            if (kw != null) {
+                for (Map.Entry<String, Object> entry : kw.entrySet()) {
+                    clauseKeywords.put(entry.getKey(), ((List<?>) entry.getValue()).stream()
+                            .map(o -> o.toString().toLowerCase()).collect(Collectors.toList()));
                 }
             }
 
@@ -177,13 +220,44 @@ public class RiskQuestionEngine {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * A position-sensitive question (e.g. "is the cap mutual?") is waived when the document
+     * was drafted in favour of one party: one-sidedness is then intentional, not a risk.
+     * Limitation: this does not detect a one-sided term that favours the *other* party.
+     */
+    public static boolean isWaivedFor(RiskQuestion q, String clientPosition) {
+        if (q == null || !q.positionSensitive() || clientPosition == null) return false;
+        String p = clientPosition.trim().toUpperCase();
+        return p.equals("PARTY_A") || p.equals("PARTY_B");
+    }
+
+    public static boolean isWaived(QuestionResult qr) {
+        return qr != null && qr.answer() != null && WAIVED.equalsIgnoreCase(qr.answer().trim());
+    }
+
     /** Get required clauses for a contract type. Falls back to _default. */
     public List<String> getRequiredClauses(String contractType) {
         if (contractType != null && requiredClauses.containsKey(contractType)) {
             return requiredClauses.get(contractType);
         }
-        return requiredClauses.getOrDefault("_default",
-                List.of("LIABILITY", "TERMINATION", "CONFIDENTIALITY", "GOVERNING_LAW"));
+        return requiredClauses.get("_default");
+    }
+
+    /** Checklist clause id → display name, from risk_questions.yml {@code checklist_clauses}. */
+    public Map<String, String> getChecklistClauses() {
+        return Collections.unmodifiableMap(checklistClauses);
+    }
+
+    /** Clause type → inventory keywords, from risk_questions.yml {@code clause_keywords}. */
+    public Map<String, List<String>> getClauseKeywords() {
+        return Collections.unmodifiableMap(clauseKeywords);
+    }
+
+    /** Contract-type codes that have a required-clause list (excluding _default). */
+    public Set<String> getKnownContractTypes() {
+        Set<String> out = new java.util.LinkedHashSet<>(requiredClauses.keySet());
+        out.remove("_default");
+        return Collections.unmodifiableSet(out);
     }
 
     /** Get the configurable system prompt for risk assessment. */
@@ -219,21 +293,33 @@ public class RiskQuestionEngine {
      * @param missingClauses clause types that are required but not found in the contract
      */
     public FullRiskReport computeFullReport(List<ClauseRiskResult> clauseResults, List<String> missingClauses) {
+        return computeFullReport(clauseResults, missingClauses, Map.of());
+    }
+
+    /**
+     * @param weightMultipliers question id → multiplier in (0, 1] from review calibration: questions
+     *                          this firm's lawyers often correct count for less in the score.
+     */
+    public FullRiskReport computeFullReport(List<ClauseRiskResult> clauseResults, List<String> missingClauses,
+                                            Map<String, Double> weightMultipliers) {
         double totalWeightedScore = 0;
         double totalWeight = 0;
 
         for (ClauseRiskResult cr : clauseResults) {
             if (!cr.clausePresent()) {
-                // Missing required clause = penalty of 100 * weight 10
-                totalWeightedScore += 100.0 * 10;
-                totalWeight += 10;
+                // Missing required clause = fixed penalty. Kept below the
+                // theoretical max so a single gap flags clearly without
+                // swamping an otherwise well-scored contract.
+                totalWeightedScore += 80.0 * 8;
+                totalWeight += 8;
                 continue;
             }
             for (QuestionResult qr : cr.results()) {
-                if (!qr.answered()) continue;
+                if (!qr.answered() || isWaived(qr)) continue;
                 double riskPoints = computeRiskPoints(qr);
-                totalWeightedScore += riskPoints * qr.question().weight();
-                totalWeight += qr.question().weight();
+                double weight = qr.question().weight() * weightMultipliers.getOrDefault(qr.question().id(), 1.0);
+                totalWeightedScore += riskPoints * weight;
+                totalWeight += weight;
             }
         }
 
@@ -272,30 +358,38 @@ public class RiskQuestionEngine {
 
     // ── Private helpers ──────────────────────────────────────────────────────
 
+    /**
+     * Weight-aware clause risk level. A clause is HIGH only when a heavyweight
+     * (weight >= 9) HIGH-risk answer fires, or when 2+ HIGH-risk answers fire.
+     * A single lower-weight HIGH-risk answer yields MEDIUM — previously any
+     * single HIGH-risk answer made the whole clause HIGH, which cascaded into
+     * HIGH overall ratings for well-drafted contracts.
+     */
     private String computeClauseRiskLevel(List<QuestionResult> results) {
-        boolean anyHighNo = false;
-        boolean anyMediumNo = false;
+        int highHits = 0;
+        boolean heavyweightHigh = false;
+        boolean anyMedium = false;
 
         for (QuestionResult qr : results) {
-            if (!qr.answered()) continue;
+            if (!qr.answered() || isWaived(qr)) continue;
             String answer = qr.answer() != null ? qr.answer().toUpperCase().trim() : "";
             boolean isYes = answer.startsWith("YES");
             boolean isNo = answer.startsWith("NO");
 
-            if (isNo) {
-                String riskIfNo = qr.question().riskIfNo();
-                if ("HIGH".equals(riskIfNo)) anyHighNo = true;
-                else if ("MEDIUM".equals(riskIfNo)) anyMediumNo = true;
-            }
-            if (isYes) {
-                String riskIfYes = qr.question().riskIfYes();
-                if ("HIGH".equals(riskIfYes)) anyHighNo = true;
-                else if ("MEDIUM".equals(riskIfYes)) anyMediumNo = true;
+            String firedRisk = null;
+            if (isNo) firedRisk = qr.question().riskIfNo();
+            else if (isYes) firedRisk = qr.question().riskIfYes();
+
+            if ("HIGH".equals(firedRisk)) {
+                highHits++;
+                if (qr.question().weight() >= 9) heavyweightHigh = true;
+            } else if ("MEDIUM".equals(firedRisk)) {
+                anyMedium = true;
             }
         }
 
-        if (anyHighNo) return "HIGH";
-        if (anyMediumNo) return "MEDIUM";
+        if (heavyweightHigh || highHits >= 2) return "HIGH";
+        if (highHits == 1 || anyMedium) return "MEDIUM";
         return "LOW";
     }
 

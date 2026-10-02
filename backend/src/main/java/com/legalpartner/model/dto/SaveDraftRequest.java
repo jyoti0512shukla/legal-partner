@@ -23,4 +23,7 @@ public class SaveDraftRequest {
     private String partyA;
     private String partyB;
     private String jurisdiction;
+
+    /** Optional — the draftToken from /draft or /draft/stream; attaches the draft manifest and exposure log. */
+    private String draftToken;
 }
