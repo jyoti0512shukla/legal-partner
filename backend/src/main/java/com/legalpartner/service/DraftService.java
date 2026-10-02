@@ -72,6 +72,17 @@ public class DraftService {
     private final IndustryRegulationRegistry industryRegulationRegistry;
     private final PartyNameVariantsConfig partyNameVariantsConfig;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
+    private final com.legalpartner.service.review.ClauseSpecRegistry clauseSpecRegistry;
+    private final com.legalpartner.service.review.DraftVerifier draftVerifier;
+    private final com.legalpartner.service.review.DraftManifestStore draftManifestStore;
+    private final com.legalpartner.config.DraftingDefaults draftingDefaults;
+    private final com.legalpartner.config.PromptRepository prompts;
+    private final LlmOutputSanitizer outputSanitizer;
+    private final com.legalpartner.service.learning.FirmClauseBankService firmClauseBank;
+    private final com.legalpartner.service.learning.InsightService insightService;
+    private final com.legalpartner.service.learning.ExposureService exposureService;
+    private final com.legalpartner.service.learning.FirmNormsService firmNorms;
+    private final com.legalpartner.service.review.PendingDraftStore pendingDrafts;
     private final String defaultJurisdiction;
     private final String storagePath;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -100,6 +111,17 @@ public class DraftService {
                         IndustryRegulationRegistry industryRegulationRegistry,
                         PartyNameVariantsConfig partyNameVariantsConfig,
                         org.springframework.context.ApplicationEventPublisher eventPublisher,
+                        com.legalpartner.service.review.ClauseSpecRegistry clauseSpecRegistry,
+                        com.legalpartner.service.review.DraftVerifier draftVerifier,
+                        com.legalpartner.service.review.DraftManifestStore draftManifestStore,
+                        com.legalpartner.config.DraftingDefaults draftingDefaults,
+                        com.legalpartner.config.PromptRepository prompts,
+                        LlmOutputSanitizer outputSanitizer,
+                        com.legalpartner.service.learning.FirmClauseBankService firmClauseBank,
+                        com.legalpartner.service.learning.InsightService insightService,
+                        com.legalpartner.service.learning.ExposureService exposureService,
+                        com.legalpartner.service.learning.FirmNormsService firmNorms,
+                        com.legalpartner.service.review.PendingDraftStore pendingDrafts,
                         @Value("${legalpartner.draft.max-concurrent:2}") int maxConcurrent,
                         @Value("${legalpartner.defaults.jurisdiction:United States (Delaware)}") String defaultJurisdiction,
                         @Value("${legalpartner.storage.path:/data/documents}") String storagePath) {
@@ -125,6 +147,17 @@ public class DraftService {
         this.industryRegulationRegistry = industryRegulationRegistry;
         this.partyNameVariantsConfig = partyNameVariantsConfig;
         this.eventPublisher = eventPublisher;
+        this.clauseSpecRegistry = clauseSpecRegistry;
+        this.draftVerifier = draftVerifier;
+        this.draftManifestStore = draftManifestStore;
+        this.draftingDefaults = draftingDefaults;
+        this.prompts = prompts;
+        this.outputSanitizer = outputSanitizer;
+        this.firmClauseBank = firmClauseBank;
+        this.insightService = insightService;
+        this.exposureService = exposureService;
+        this.firmNorms = firmNorms;
+        this.pendingDrafts = pendingDrafts;
         this.fileStorageService = fileStorageService;
         this.defaultJurisdiction = defaultJurisdiction;
         this.storagePath = storagePath;
@@ -193,7 +226,7 @@ public class DraftService {
                     "Draft generation is busy. Please try again in a moment.");
         }
         try {
-            return doGenerateDraft(request);
+            return doGenerateDraft(request, username);
         } finally {
             draftSemaphore.release();
         }
@@ -212,7 +245,7 @@ public class DraftService {
             return emitter;
         }
         new Thread(() -> {
-            try { doStreamDraft(request, emitter); }
+            try { doStreamDraft(request, emitter, username); }
             catch (Exception e) {
                 try {
                     emitter.send(SseEmitter.event().data(toJson(Map.of("type", "error", "message", e.getMessage() != null ? e.getMessage() : "Generation failed"))));
@@ -254,10 +287,230 @@ public class DraftService {
         }
     }
 
-    private void doAsyncDraft(UUID docId, DraftRequest request, String username) throws Exception {
-        hydrateFromMatter(request);
+    // ── Shared drafting pipeline (async, streaming and sync drafts) ───────────────
 
-        // ── Phase 0a: Extract structured deal spec (single source of truth) ──
+    /** Progress callbacks: each entry point reports in its own way (document row, SSE, nothing). */
+    private interface PipelineListener {
+        default void planned(List<String> sections, String skeletonHtml) {}
+        default void clauseStarted(int index, String key, String title) {}
+        default void clauseDone(int index, String key, String title, ClauseResult result, String partialHtml) {}
+    }
+
+    /** Everything one drafting run produced. */
+    private record PipelineResult(
+            List<String> plannedSections, String fullHtml, String parametersHtml,
+            Map<String, List<String>> qaWarnings, List<String> coherenceIssues, List<ClauseSuggestion> suggestions,
+            com.legalpartner.service.review.DraftManifest draftManifest, Map<String, ClauseOrigin> origins) {}
+
+    /** One drafted section and the precedent documents the LLM saw for it (empty for firm/golden clauses). */
+    private record SectionDraft(ClauseResult result, List<String> sources) {}
+
+    /**
+     * The drafting pipeline every entry point runs: deal spec → section plan → per section
+     * (approved firm clause → golden clause → LLM, then rule engine, deterministic templates
+     * and review-rubric verification) → coherence scan → normalization → draft manifest.
+     */
+    private PipelineResult runDraftPipeline(DraftRequest request, PipelineListener listener, SseEmitter emitter) {
+        final com.legalpartner.model.dto.DealSpec finalDealSpec = extractDealSpec(request);
+
+        String[] templateParts = loadTemplateParts(request.getTemplateId(), buildPlaceholderMap(request));
+        List<String> plannedSections = planSections(request);
+        log.info("Draft pipeline: section planner chose {} sections: {}", plannedSections.size(), plannedSections);
+
+        Map<String, String> sectionValues = new LinkedHashMap<>();
+        for (String key : plannedSections) {
+            ClauseTypeConfig spec = clauseRegistry.get(key);
+            sectionValues.put(key, "<em style='color:#9CA3AF'>&#x23F3; Generating " + spec.title() + " clause…</em>");
+        }
+        listener.planned(plannedSections, buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
+
+        TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
+        Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
+        Map<String, List<ClauseRuleEngine.RuleResult>> allRuleResults = new LinkedHashMap<>();
+        List<FixEngine.AuditEntry> allAuditEntries = new ArrayList<>();
+        Map<String, ClauseOrigin> origins = new LinkedHashMap<>();
+        List<ClauseSuggestion> suggestions = new ArrayList<>();
+
+        for (int i = 0; i < plannedSections.size(); i++) {
+            String key = plannedSections.get(i);
+            ClauseTypeConfig spec = clauseRegistry.get(key);
+            listener.clauseStarted(i, key, spec.title());
+
+            SectionDraft drafted = draftSection(key, spec, request, finalDealSpec, manifest, origins,
+                    allRuleResults, allAuditEntries, emitter);
+            ClauseResult result = drafted.result();
+
+            sectionValues.put(key, result.html());
+            if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(result.html()));
+            manifest = manifest.withAppendedClause(
+                    summarizeClauseOutline(i + 1, spec.title(), result.html()),
+                    stripToPlainWithCap(result.html(), 1500));
+            if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
+            suggestions.add(suggestionFor(spec, origins.get(key), drafted.sources()));
+
+            listener.clauseDone(i, key, spec.title(), result,
+                    buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
+        }
+
+        List<String> coherenceSummary = runCoherenceScan(plannedSections, sectionValues, manifest, request.getTemplateId())
+                .stream().map(ci -> "[" + ci.clause() + "] " + ci.type() + ": " + ci.detail()).collect(Collectors.toList());
+        if (!coherenceSummary.isEmpty()) log.warn("Coherence scan found {} issue(s)", coherenceSummary.size());
+
+        // Final normalization pass (dedup, meta-strip, numbering, cross-refs, amounts)
+        sectionValues = draftNormalizer.normalize(sectionValues, finalDealSpec);
+        String fullHtml = buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues);
+        if (finalDealSpec != null) fullHtml = stripHallucinatedAmounts(fullHtml, finalDealSpec);
+
+        List<String> missingTerms = detectMissingTerms(fullHtml, request);
+        if (!missingTerms.isEmpty()) {
+            log.warn("Draft: {} deal terms not found in output: {}", missingTerms.size(), missingTerms);
+        }
+        if (finalDealSpec != null && !allRuleResults.isEmpty()) {
+            DealCoverageScore.CoverageReport coverage = dealCoverageScore.compute(
+                    allRuleResults, allAuditEntries, finalDealSpec);
+            log.info("Draft: coverage={}, risk={}, blockers={}, fixes={}",
+                    String.format("%.0f%%", coverage.overallCoverage() * 100),
+                    coverage.overallRisk(), coverage.blockers().size(), coverage.fixesApplied().size());
+        }
+
+        return new PipelineResult(plannedSections, fullHtml, buildInputSummaryHtml(request), allQaWarnings,
+                coherenceSummary, suggestions, buildManifest(request, plannedSections, sectionValues, finalDealSpec), origins);
+    }
+
+    /** Draft one section: approved firm clause → golden clause → LLM, then rules and rubric verification. */
+    private SectionDraft draftSection(String key, ClauseTypeConfig spec, DraftRequest request,
+                                      com.legalpartner.model.dto.DealSpec finalDealSpec, TerminologyManifest manifest,
+                                      Map<String, ClauseOrigin> origins,
+                                      Map<String, List<ClauseRuleEngine.RuleResult>> allRuleResults,
+                                      List<FixEngine.AuditEntry> allAuditEntries, SseEmitter emitter) {
+        List<String> sources = new ArrayList<>();
+        // ── Firm-first: a lawyer-approved clause from this firm's own contracts ──
+        ClauseResult result = null;
+        FirmPick firmPick = firmClauseFor(key, request);
+        if (firmPick != null) {
+            result = firmPick.result();
+            origins.put(key, firmPick.origin());
+        }
+
+        // ── Deterministic-first: use golden clause if available for critical clauses ──
+        // golden_first (clauses.yml): render deterministically when golden clauses exist.
+        if (result == null && spec.goldenFirst() && finalDealSpec != null) {
+            var goldenClauses = goldenClauseLibrary.retrieveAll(
+                    key, request.getTemplateId(),
+                    finalDealSpec.getLegal() != null ? finalDealSpec.getLegal().getJurisdiction() : null,
+                    request.getIndustry());
+            if (!goldenClauses.isEmpty()) {
+                StringBuilder goldenHtml = new StringBuilder();
+                for (var gc : goldenClauses) {
+                    String resolved = goldenClauseLibrary.resolve(gc, finalDealSpec, request.getIndustry());
+                    if (!resolved.isBlank()) goldenHtml.append(GoldenClauseLibrary.toHtml(resolved));
+                }
+                if (goldenHtml.length() > 100) {
+                    result = new ClauseResult(goldenHtml.toString(), List.of());
+                    origins.put(key, new ClauseOrigin(com.legalpartner.service.learning.ExposureService.GOLDEN, null, List.of()));
+                    log.info("Deterministic-first [{}]: rendered from {} golden clause(s), skipping LLM",
+                            key, goldenClauses.size());
+                }
+            }
+        }
+
+        // ── Fallback to LLM generation if no golden clause available ──
+        if (result == null) {
+            origins.put(key, new ClauseOrigin(com.legalpartner.service.learning.ExposureService.LLM, null,
+                    insightsFor(key, request).stream().map(com.legalpartner.model.entity.learning.DraftingInsight::getId).toList()));
+            DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
+            sources.addAll(ctx.sourceDocuments());
+            result = generateClauseWithQa(
+                    request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(),
+                    spec.expectedSubclauses(), emitter, manifest);
+        }
+
+        // ── Rule engine: validate + fix ──
+        if (finalDealSpec != null) {
+            List<ClauseRuleEngine.RuleResult> ruleResults = clauseRuleEngine.validate(
+                    result.html(), key, finalDealSpec);
+            List<ClauseRuleEngine.RuleResult> failures = ruleResults.stream()
+                    .filter(r -> !r.passed()).toList();
+            if (!failures.isEmpty()) {
+                log.info("Rule engine [{}]: {}/{} rules failed — running fix engine",
+                        key, failures.size(), ruleResults.size());
+                FixEngine.FixResult fixResult = fixEngine.fix(
+                        result.html(), failures, finalDealSpec,
+                        spec.systemPrompt(), spec.userPromptTemplate());
+                if (fixResult.wasModified()) {
+                    result = new ClauseResult(fixResult.fixedHtml(), result.qaWarnings());
+                    log.info("Rule engine [{}]: fix applied ({} audit entries)",
+                            key, fixResult.auditTrail().size());
+                }
+                allAuditEntries.addAll(fixResult.auditTrail());
+
+                // ── Post-fix BLOCK check: re-validate to catch unresolved BLOCK violations ──
+                List<ClauseRuleEngine.RuleResult> postFixResults = clauseRuleEngine.validate(
+                        result.html(), key, finalDealSpec);
+                List<ClauseRuleEngine.RuleResult> residualBlocks = clauseRuleEngine.getBlockViolations(postFixResults);
+                if (!residualBlocks.isEmpty()) {
+                    log.warn("Rule engine [{}]: {} BLOCK violation(s) still present after fix — applying deterministic templates",
+                            key, residualBlocks.size());
+                    String fixedHtml = applyDeterministicFallback(result.html(), key, residualBlocks, finalDealSpec);
+                    if (!fixedHtml.equals(result.html())) {
+                        result = new ClauseResult(fixedHtml, result.qaWarnings());
+                        for (ClauseRuleEngine.RuleResult block : residualBlocks) {
+                            allAuditEntries.add(new FixEngine.AuditEntry(
+                                    block.rule().id(),
+                                    block.message(),
+                                    "Deterministic template fallback applied after BLOCK retries exhausted",
+                                    "BLOCK",
+                                    "CRITICAL"
+                            ));
+                        }
+                    }
+                }
+                // Update rule results with post-fix validation
+                ruleResults = postFixResults;
+            }
+
+            // ── Deterministic template injection (for structured deal values) ──
+            List<ClauseRuleEngine.DeterministicTemplate> templates =
+                    clauseRuleEngine.getDeterministicTemplates(key, finalDealSpec);
+            if (!templates.isEmpty()) {
+                String enhanced = applyDeterministicTemplates(result.html(), templates, finalDealSpec);
+                if (!enhanced.equals(result.html())) {
+                    result = new ClauseResult(enhanced, result.qaWarnings());
+                    log.info("Rule engine [{}]: {} deterministic template(s) applied",
+                            key, templates.size());
+                }
+            }
+
+            allRuleResults.put(key, ruleResults);
+        }
+
+        // ── Review-rubric verification: same questions + evaluator review will use ──
+        result = verifyAgainstReviewRubric(key, result, request, finalDealSpec);
+
+        return new SectionDraft(result, sources);
+    }
+
+    private static ClauseSuggestion suggestionFor(ClauseTypeConfig spec, ClauseOrigin origin, List<String> sources) {
+        String provenance = origin == null ? com.legalpartner.service.learning.ExposureService.LLM : origin.provenance();
+        String reasoning;
+        if (com.legalpartner.service.learning.ExposureService.FIRM_BANK.equals(provenance)) {
+            reasoning = "Approved firm clause from your firm's own contracts.";
+        } else if (com.legalpartner.service.learning.ExposureService.GOLDEN.equals(provenance)) {
+            reasoning = "Rendered from the golden clause library with this deal's terms.";
+        } else {
+            reasoning = "Generated using RAG from firm's corpus.";
+            if (!sources.isEmpty()) reasoning += " Sources: " + String.join(", ", sources.subList(0, Math.min(3, sources.size())));
+        }
+        return ClauseSuggestion.builder()
+                .clauseRef(spec.title() + " clause")
+                .currentText("(" + provenance + ")")
+                .suggestion("Review and customize for your specific matter and client.")
+                .reasoning(reasoning)
+                .build();
+    }
+
+    /** Structured deal terms from the brief, overlaid with form fields and firm-norm defaults; null without a brief. */
+    private com.legalpartner.model.dto.DealSpec extractDealSpec(DraftRequest request) {
         String brief = request.getDealBrief() != null ? request.getDealBrief() : request.getDealContext();
         com.legalpartner.model.dto.DealSpec dealSpec = null;
         if (brief != null && !brief.isBlank()) {
@@ -284,6 +537,13 @@ public class DraftService {
                 if (dealSpec.getLegal() == null) dealSpec.setLegal(new com.legalpartner.model.dto.DealSpec.LegalTerms());
                 try { dealSpec.getLegal().setNoticeDays(Integer.parseInt(request.getNoticeDays())); } catch (Exception ignored) {}
             }
+            // Firm norms: values the brief and form left empty default to what this firm usually signs.
+            try {
+                var applied = firmNorms.applyDraftingDefaults(dealSpec, learningDocumentType(request));
+                if (!applied.isEmpty()) log.info("DealSpec: firm-norm defaults applied {}", applied);
+            } catch (Exception e) {
+                log.warn("DealSpec: firm-norm defaults skipped: {}", e.getMessage());
+            }
             log.info("DealSpec extracted: partyA={}, partyB={}, jurisdiction={}, fees={}, license={}",
                     dealSpec.getPartyA() != null ? dealSpec.getPartyA().getName() : "?",
                     dealSpec.getPartyB() != null ? dealSpec.getPartyB().getName() : "?",
@@ -294,199 +554,55 @@ public class DraftService {
         // Keep old extraction as fallback
         hydratePartiesFromDealBrief(request);
 
-        DocumentMetadata doc = documentRepository.findById(docId)
+        return dealSpec;
+    }
+
+    private void doAsyncDraft(UUID docId, DraftRequest request, String username) throws Exception {
+        hydrateFromMatter(request);
+        DocumentMetadata doc0 = documentRepository.findById(docId)
                 .orElseThrow(() -> new IllegalStateException("Async draft row " + docId + " vanished"));
+        doc0.setProcessingStatus(ProcessingStatus.PROCESSING);
+        doc0.setLastProgressAt(Instant.now());
+        doc0.setCurrentClauseLabel("Planning sections");
+        final DocumentMetadata[] docRef = {documentRepository.save(doc0)};
 
-        // ── Phase 0: move PENDING → PROCESSING ──
-        doc.setProcessingStatus(ProcessingStatus.PROCESSING);
-        doc.setLastProgressAt(Instant.now());
-        doc.setCurrentClauseLabel("Planning sections");
-        doc = documentRepository.save(doc);
-
-        // ── Phase 1: plan sections ──
-        String[] templateParts = loadTemplateParts(request.getTemplateId(), buildPlaceholderMap(request));
-        List<String> plannedSections = planSections(request);
-        log.info("Async draft {} section planner chose {} sections: {}", docId, plannedSections.size(), plannedSections);
-
-        Map<String, String> sectionValues = new LinkedHashMap<>();
-        for (String key : plannedSections) {
-            ClauseTypeConfig spec = clauseRegistry.get(key);
-            sectionValues.put(key, "<em style='color:#9CA3AF'>&#x23F3; Generating " + spec.title() + " clause…</em>");
-        }
-        // Persist initial skeleton + totals
-        doc.setTotalClauses(plannedSections.size());
-        doc.setCompletedClauses(0);
-        doc.setLastProgressAt(Instant.now());
-        storeHtml(doc, buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
-        doc = documentRepository.save(doc);
-
-        // ── Phase 2: generate each section with rule enforcement ──
-        TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
-        Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
-        Map<String, List<ClauseRuleEngine.RuleResult>> allRuleResults = new LinkedHashMap<>();
-        List<FixEngine.AuditEntry> allAuditEntries = new ArrayList<>();
-        final com.legalpartner.model.dto.DealSpec finalDealSpec = dealSpec;
-
-        // Clause types that should be rendered deterministically when golden clause exists.
-        // These are high-risk clauses where LLM hallucination causes legal errors.
-        // All 9 types now have golden clauses — DEFINITIONS, CONFIDENTIALITY, LIABILITY
-        // and GENERAL_PROVISIONS were the last 4 to be added.
-        Set<String> deterministicPreferred = Set.of(
-                "IP_RIGHTS", "PAYMENT", "SERVICES", "TERMINATION", "GOVERNING_LAW",
-                "DEFINITIONS", "CONFIDENTIALITY", "LIABILITY", "GENERAL_PROVISIONS",
-                "WARRANTIES", "FORCE_MAJEURE");
-
-        for (int i = 0; i < plannedSections.size(); i++) {
-            String key = plannedSections.get(i);
-            ClauseTypeConfig spec = clauseRegistry.get(key);
-
-            doc.setCurrentClauseLabel(spec.title() + " (" + (i + 1) + "/" + plannedSections.size() + ")");
-            doc.setLastProgressAt(Instant.now());
-            doc = documentRepository.save(doc);
-
-            // ── Deterministic-first: use golden clause if available for critical clauses ──
-            ClauseResult result = null;
-            if (deterministicPreferred.contains(key) && finalDealSpec != null) {
-                var goldenClauses = goldenClauseLibrary.retrieveAll(
-                        key, request.getTemplateId(),
-                        finalDealSpec.getLegal() != null ? finalDealSpec.getLegal().getJurisdiction() : null,
-                        request.getIndustry());
-                if (!goldenClauses.isEmpty()) {
-                    StringBuilder goldenHtml = new StringBuilder();
-                    for (var gc : goldenClauses) {
-                        String resolved = goldenClauseLibrary.resolve(gc, finalDealSpec, request.getIndustry());
-                        if (!resolved.isBlank()) {
-                            for (String line : resolved.split("\n")) {
-                                if (line.isBlank()) continue;
-                                goldenHtml.append("<p class=\"clause-sub\">").append(escapeHtmlText(line.trim())).append("</p>\n");
-                            }
-                        }
-                    }
-                    if (goldenHtml.length() > 100) {
-                        result = new ClauseResult(goldenHtml.toString(), List.of());
-                        log.info("Deterministic-first [{}]: rendered from {} golden clause(s), skipping LLM",
-                                key, goldenClauses.size());
-                    }
-                }
+        PipelineResult r = runDraftPipeline(request, new PipelineListener() {
+            @Override public void planned(List<String> sections, String skeletonHtml) {
+                DocumentMetadata d = docRef[0];
+                d.setTotalClauses(sections.size());
+                d.setCompletedClauses(0);
+                d.setLastProgressAt(Instant.now());
+                storeHtml(d, skeletonHtml);
+                docRef[0] = documentRepository.save(d);
             }
-
-            // ── Fallback to LLM generation if no golden clause available ──
-            if (result == null) {
-                DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-                result = generateClauseWithQa(
-                        request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(),
-                        spec.expectedSubclauses(), null, manifest);
+            @Override public void clauseStarted(int index, String key, String title) {
+                DocumentMetadata d = docRef[0];
+                d.setCurrentClauseLabel(title + " (" + (index + 1) + "/" + d.getTotalClauses() + ")");
+                d.setLastProgressAt(Instant.now());
+                docRef[0] = documentRepository.save(d);
             }
-
-            // ── Rule engine: validate + fix ──
-            if (finalDealSpec != null) {
-                List<ClauseRuleEngine.RuleResult> ruleResults = clauseRuleEngine.validate(
-                        result.html(), key, finalDealSpec);
-                List<ClauseRuleEngine.RuleResult> failures = ruleResults.stream()
-                        .filter(r -> !r.passed()).toList();
-                if (!failures.isEmpty()) {
-                    log.info("Rule engine [{}]: {}/{} rules failed — running fix engine",
-                            key, failures.size(), ruleResults.size());
-                    FixEngine.FixResult fixResult = fixEngine.fix(
-                            result.html(), failures, finalDealSpec,
-                            spec.systemPrompt(), spec.userPromptTemplate());
-                    if (fixResult.wasModified()) {
-                        result = new ClauseResult(fixResult.fixedHtml(), result.qaWarnings());
-                        log.info("Rule engine [{}]: fix applied ({} audit entries)",
-                                key, fixResult.auditTrail().size());
-                    }
-                    allAuditEntries.addAll(fixResult.auditTrail());
-
-                    // ── Post-fix BLOCK check: re-validate to catch unresolved BLOCK violations ──
-                    List<ClauseRuleEngine.RuleResult> postFixResults = clauseRuleEngine.validate(
-                            result.html(), key, finalDealSpec);
-                    List<ClauseRuleEngine.RuleResult> residualBlocks = clauseRuleEngine.getBlockViolations(postFixResults);
-                    if (!residualBlocks.isEmpty()) {
-                        log.warn("Rule engine [{}]: {} BLOCK violation(s) still present after fix — applying deterministic templates",
-                                key, residualBlocks.size());
-                        String fixedHtml = applyDeterministicFallback(result.html(), key, residualBlocks, finalDealSpec);
-                        if (!fixedHtml.equals(result.html())) {
-                            result = new ClauseResult(fixedHtml, result.qaWarnings());
-                            for (ClauseRuleEngine.RuleResult block : residualBlocks) {
-                                allAuditEntries.add(new FixEngine.AuditEntry(
-                                        block.rule().id(),
-                                        block.message(),
-                                        "Deterministic template fallback applied after BLOCK retries exhausted",
-                                        "BLOCK",
-                                        "CRITICAL"
-                                ));
-                            }
-                        }
-                    }
-                    // Update rule results with post-fix validation
-                    ruleResults = postFixResults;
-                }
-
-                // ── Deterministic template injection (for structured deal values) ──
-                List<ClauseRuleEngine.DeterministicTemplate> templates =
-                        clauseRuleEngine.getDeterministicTemplates(key, finalDealSpec);
-                if (!templates.isEmpty()) {
-                    String enhanced = applyDeterministicTemplates(result.html(), templates, finalDealSpec);
-                    if (!enhanced.equals(result.html())) {
-                        result = new ClauseResult(enhanced, result.qaWarnings());
-                        log.info("Rule engine [{}]: {} deterministic template(s) applied",
-                                key, templates.size());
-                    }
-                }
-
-                allRuleResults.put(key, ruleResults);
+            @Override public void clauseDone(int index, String key, String title, ClauseResult result, String partialHtml) {
+                DocumentMetadata d = docRef[0];
+                d.setCompletedClauses(index + 1);
+                d.setLastProgressAt(Instant.now());
+                storeHtml(d, partialHtml);
+                docRef[0] = documentRepository.save(d);
             }
-            sectionValues.put(key, result.html());
-            if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(result.html()));
-            manifest = manifest.withAppendedClause(
-                    summarizeClauseOutline(i + 1, spec.title(), result.html()),
-                    stripToPlainWithCap(result.html(), 1500));
-            if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
+        }, null);
+        DocumentMetadata doc = docRef[0];
 
-            // Persist partial HTML + progress after each clause
-            doc.setCompletedClauses(i + 1);
-            doc.setLastProgressAt(Instant.now());
-            storeHtml(doc, buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
-            doc = documentRepository.save(doc);
-        }
+        // Input summary is stored separately (not inside the contract HTML/DOCX)
+        storeParametersHtml(doc, r.parametersHtml());
+        storeHtml(doc, r.fullHtml());
 
-        // ── Phase 3: post-processing + mark complete ──
-        runCoherenceScan(plannedSections, sectionValues, manifest); // log-only; result ignored for async
-
-        // Run final normalization pass (dedup, meta-strip, numbering, cross-refs, amounts)
-        sectionValues = draftNormalizer.normalize(sectionValues, finalDealSpec);
-
-        // Build the full HTML, strip hallucinated amounts, then run missing terms detector
-        String fullHtml = buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues);
-
-        // Numeric consistency: strip any dollar amounts not in the DealSpec
-        if (finalDealSpec != null) {
-            fullHtml = stripHallucinatedAmounts(fullHtml, finalDealSpec);
-        }
-
-        List<String> missingTerms = detectMissingTerms(fullHtml, request);
-        if (!missingTerms.isEmpty()) {
-            log.warn("Draft {}: {} deal terms not found in output: {}", docId, missingTerms.size(), missingTerms);
-        }
-
-        // Compute deal coverage score
-        if (finalDealSpec != null && !allRuleResults.isEmpty()) {
-            DealCoverageScore.CoverageReport coverage = dealCoverageScore.compute(
-                    allRuleResults, allAuditEntries, finalDealSpec);
-            log.info("Draft {}: coverage={}, risk={}, blockers={}, fixes={}",
-                    docId, String.format("%.0f%%", coverage.overallCoverage() * 100),
-                    coverage.overallRisk(), coverage.blockers().size(), coverage.fixesApplied().size());
-        }
-
-        // Store input summary separately (not inside the contract HTML/DOCX)
-        String inputSummary = buildInputSummaryHtml(request);
-        storeParametersHtml(doc, inputSummary);
-
-        storeHtml(doc, fullHtml);
+        // Draft → review handoff (exact sections) and the learning loop's exposure log.
+        draftManifestStore.write(docId, r.draftManifest());
+        exposureService.record(docId, request.getTemplateId(), learningTypeName(request),
+                buildExposures(r.draftManifest(), r.origins()));
 
         // Also generate DOCX version for Word/OnlyOffice editing
         try {
-            byte[] docxBytes = htmlToDocxConverter.convert(fullHtml);
+            byte[] docxBytes = htmlToDocxConverter.convert(r.fullHtml());
             String docxPath = storagePath + "/" + docId + ".docx";
             java.nio.file.Files.write(java.nio.file.Path.of(docxPath), docxBytes);
             log.info("DOCX generated for draft {}: {} bytes", docId, docxBytes.length);
@@ -499,7 +615,7 @@ public class DraftService {
         doc.setLastProgressAt(Instant.now());
         documentRepository.save(doc);
         log.info("Async draft {} completed ({} clauses, {} qa warnings)",
-                 docId, plannedSections.size(), allQaWarnings.size());
+                 docId, r.plannedSections().size(), r.qaWarnings().size());
 
         // Publish event for proactive agent triggers
         try {
@@ -508,6 +624,119 @@ public class DraftService {
         } catch (Exception e) {
             log.warn("Failed to publish DraftCompletedEvent for {}: {}", docId, e.getMessage());
         }
+    }
+
+    // ── Learning loop (docs/LEARNING_LOOP_ARCHITECTURE.md) ─────────────────────
+
+    /** Where a drafted clause came from — logged as its exposure. */
+    private record ClauseOrigin(String provenance, UUID firmClauseId, List<UUID> insightIds) {}
+
+    private record FirmPick(ClauseResult result, ClauseOrigin origin) {}
+
+    /** DocumentType name a template's drafts are learned under (same key as firm documents). */
+    private com.legalpartner.model.enums.DocumentType learningDocumentType(DraftRequest request) {
+        String t = contractRegistry.documentType(request.getTemplateId());
+        if (t == null) return null;
+        try { return com.legalpartner.model.enums.DocumentType.valueOf(t); } catch (IllegalArgumentException e) { return null; }
+    }
+
+    private List<com.legalpartner.model.entity.learning.DraftingInsight> insightsFor(String clauseKey, DraftRequest request) {
+        var type = learningDocumentType(request);
+        if (type == null) return List.of();
+        try {
+            return insightService.activeFor(clauseKey, type.name());
+        } catch (Exception e) {
+            log.warn("Learned insights for [{}] skipped: {}", clauseKey, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /** Approved firm clause for this section and stance, rendered for this deal; null when none. */
+    private FirmPick firmClauseFor(String clauseKey, DraftRequest request) {
+        var type = learningDocumentType(request);
+        if (type == null) return null;
+        try {
+            var sel = firmClauseBank.selectForDraft(clauseKey, type.name(), request.getDraftStance());
+            if (sel.isEmpty()) return null;
+            String html = GoldenClauseLibrary.toHtml(
+                    firmClauseBank.render(sel.get().text(), request.getPartyA(), request.getPartyB()));
+            if (html.isBlank()) return null;
+            firmClauseBank.recordUse(sel.get().firmClauseId());
+            log.info("Firm-first [{}]: approved firm clause {} used", clauseKey, sel.get().firmClauseId());
+            return new FirmPick(new ClauseResult(html, List.of()),
+                    new ClauseOrigin(com.legalpartner.service.learning.ExposureService.FIRM_BANK, sel.get().firmClauseId(), List.of()));
+        } catch (Exception e) {
+            log.warn("Firm clause for [{}] skipped: {}", clauseKey, e.getMessage());
+            return null;
+        }
+    }
+
+    /** Exposure log entries: the final text of each article and what it was built from. */
+    private List<com.legalpartner.service.learning.ExposureService.Exposure> buildExposures(
+            com.legalpartner.service.review.DraftManifest manifest, Map<String, ClauseOrigin> origins) {
+        List<com.legalpartner.service.learning.ExposureService.Exposure> list = new ArrayList<>();
+        for (var sec : manifest.sections()) {
+            ClauseOrigin o = origins.getOrDefault(sec.key(),
+                    new ClauseOrigin(com.legalpartner.service.learning.ExposureService.LLM, null, List.of()));
+            list.add(new com.legalpartner.service.learning.ExposureService.Exposure(
+                    sec.key(), sec.article(), sec.title(), o.provenance(), o.firmClauseId(), o.insightIds(), sec.text()));
+        }
+        return list;
+    }
+
+    private String learningTypeName(DraftRequest request) {
+        var t = learningDocumentType(request);
+        return t != null ? t.name() : null;
+    }
+
+    /**
+     * Verify a finished clause against the review rubric and repair once if needed.
+     * Residual unmet requirements become QA warnings so the lawyer sees them.
+     */
+    private ClauseResult verifyAgainstReviewRubric(String key, ClauseResult result, DraftRequest request,
+                                                   com.legalpartner.model.dto.DealSpec dealSpec) {
+        if (!draftVerifier.isEnabled()) return result;
+        try {
+            var outcome = draftVerifier.verifyAndRepair(
+                    key, result.html(), resolveContractTypeName(request),
+                    clauseSpecRegistry.reviewType(request.getTemplateId()),
+                    request.getClientPosition(), dealSpec,
+                    raw -> sanitizeClauseText(stripLlmArtifacts(raw)));
+            if (outcome.warnings().isEmpty() && !outcome.repaired()) return result;
+            List<String> warnings = new ArrayList<>(result.qaWarnings());
+            warnings.addAll(outcome.warnings());
+            return new ClauseResult(outcome.html(), warnings);
+        } catch (Exception e) {
+            log.warn("Draft verify [{}] skipped: {}", key, e.getMessage());
+            return result;
+        }
+    }
+
+    /** Structured record of the draft for review — see {@link com.legalpartner.service.review.DraftManifest}. */
+    private com.legalpartner.service.review.DraftManifest buildManifest(
+            DraftRequest request, List<String> plannedSections, Map<String, String> sectionValues,
+            com.legalpartner.model.dto.DealSpec dealSpec) {
+        List<com.legalpartner.service.review.DraftManifest.Section> sections = new ArrayList<>();
+        for (int i = 0; i < plannedSections.size(); i++) {
+            String key = plannedSections.get(i);
+            String html = sectionValues.getOrDefault(key, "");
+            if (dealSpec != null) html = stripHallucinatedAmounts(html, dealSpec);
+            sections.add(new com.legalpartner.service.review.DraftManifest.Section(
+                    key, clauseRegistry.get(key).title(), i + 1,
+                    clauseSpecRegistry.reviewKeysFor(key),
+                    com.legalpartner.rag.HtmlText.toPlainText(html)));
+        }
+        String jurisdiction = dealSpec != null && dealSpec.getLegal() != null && dealSpec.getLegal().getJurisdiction() != null
+                ? dealSpec.getLegal().getJurisdiction() : request.getJurisdiction();
+        return new com.legalpartner.service.review.DraftManifest(
+                com.legalpartner.service.review.DraftManifest.CURRENT_VERSION,
+                request.getTemplateId(),
+                clauseSpecRegistry.reviewType(request.getTemplateId()),
+                request.getClientPosition(),
+                request.getDraftStance(),
+                jurisdiction,
+                sections,
+                request.getDealBrief() != null ? request.getDealBrief() : request.getDealContext());
     }
 
     private void storeHtml(DocumentMetadata doc, String html) {
@@ -572,150 +801,94 @@ public class DraftService {
 
     // ── Core generation ────────────────────────────────────────────────────────
 
-    private DraftResponse doGenerateDraft(DraftRequest request) {
-        String[] templateParts = loadTemplateParts(request.getTemplateId(), buildPlaceholderMap(request));
-
-        List<String> plannedSections = planSections(request);
-        log.info("Section planner (sync) chose {} sections: {}", plannedSections.size(), plannedSections);
-
-        Map<String, String> sectionValues = new LinkedHashMap<>();
-        List<ClauseSuggestion> suggestions = new ArrayList<>();
-        Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
-
-        TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
-        int articleIndex = 0;
-        for (String key : plannedSections) {
-            ClauseTypeConfig spec = clauseRegistry.get(key);
-            articleIndex++;
-            DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), null, manifest);
-            sectionValues.put(key, result.html());
-            if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(result.html()));
-            manifest = manifest.withAppendedClause(
-                    summarizeClauseOutline(articleIndex, spec.title(), result.html()),
-                    stripToPlainWithCap(result.html(), 1500));
-            if (!result.qaWarnings().isEmpty()) allQaWarnings.put(key, result.qaWarnings());
-
-            String reasoning = "Generated using RAG from firm's corpus.";
-            if (!ctx.sourceDocuments().isEmpty()) {
-                reasoning += " Sources: " + String.join(", ", ctx.sourceDocuments().subList(0, Math.min(3, ctx.sourceDocuments().size())));
-            }
-            suggestions.add(ClauseSuggestion.builder()
-                    .clauseRef(spec.title() + " clause (AI-generated)")
-                    .currentText("(AI-generated)")
-                    .suggestion("Review and customize for your specific matter and client.")
-                    .reasoning(reasoning)
-                    .build());
-        }
-
-        List<CoherenceIssue> coherenceIssues = runCoherenceScan(plannedSections, sectionValues, manifest);
-        if (!coherenceIssues.isEmpty()) {
-            log.warn("Coherence scan found {} issue(s) across {} clauses", coherenceIssues.size(), plannedSections.size());
-        }
-
-        List<String> coherenceSummary = coherenceIssues.stream()
-                .map(ci -> "[" + ci.clause() + "] " + ci.type() + ": " + ci.detail())
-                .collect(Collectors.toList());
-
+    private DraftResponse doGenerateDraft(DraftRequest request, String username) {
+        PipelineResult r = runDraftPipeline(request, new PipelineListener() {}, null);
         return DraftResponse.builder()
-                .draftHtml(buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues))
-                .draftParametersHtml(buildInputSummaryHtml(request))
-                .suggestions(suggestions)
-                .qaWarnings(allQaWarnings.isEmpty() ? null : allQaWarnings)
-                .coherenceIssues(coherenceSummary.isEmpty() ? null : coherenceSummary)
+                .draftHtml(r.fullHtml())
+                .draftParametersHtml(r.parametersHtml())
+                .suggestions(r.suggestions())
+                .qaWarnings(r.qaWarnings().isEmpty() ? null : r.qaWarnings())
+                .coherenceIssues(r.coherenceIssues().isEmpty() ? null : r.coherenceIssues())
+                .draftToken(holdForSave(request, r, username))
                 .build();
     }
 
-    private void doStreamDraft(DraftRequest request, SseEmitter emitter) throws Exception {
-        String[] templateParts = loadTemplateParts(request.getTemplateId(), buildPlaceholderMap(request));
-
-        // Phase 1: plan sections
+    private void doStreamDraft(DraftRequest request, SseEmitter emitter, String username) throws Exception {
         emitter.send(SseEmitter.event().data(toJson(Map.of("type", "planning"))));
 
-        List<String> plannedSections = planSections(request);
-        log.info("Section planner chose {} sections: {}", plannedSections.size(), plannedSections);
-
-        // Initialise all section slots with "Generating…" placeholders
-        Map<String, String> sectionValues = new LinkedHashMap<>();
-        for (String key : plannedSections) {
-            ClauseTypeConfig spec = clauseRegistry.get(key);
-            sectionValues.put(key, "<em style='color:#9CA3AF'>&#x23F3; Generating " + spec.title() + " clause…</em>");
-        }
-
-        emitter.send(SseEmitter.event().data(toJson(Map.of(
-                "type", "start",
-                "totalClauses", plannedSections.size(),
-                "plannedSections", plannedSections,
-                "partialHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues)))));
-
-        List<ClauseSuggestion> suggestions = new ArrayList<>();
-        Map<String, List<String>> allQaWarnings = new LinkedHashMap<>();
-
-        // Phase 2: generate each planned section
-        TerminologyManifest manifest = buildInitialManifest(request, plannedSections);
-        for (int i = 0; i < plannedSections.size(); i++) {
-            String key = plannedSections.get(i);
-            ClauseTypeConfig spec = clauseRegistry.get(key);
-
-            emitter.send(SseEmitter.event().data(toJson(Map.of(
-                    "type", "clause_start",
-                    "clauseType", key,
-                    "label", spec.title(),
-                    "index", i + 1,
-                    "totalClauses", plannedSections.size()))));
-
-            DraftContext ctx = draftContextRetriever.retrieveForClause(key, request);
-            ClauseResult result = generateClauseWithQa(request, ctx, key, spec.systemPrompt(), spec.userPromptTemplate(), spec.expectedSubclauses(), emitter, manifest);
-            sectionValues.put(key, result.html());
-            if ("DEFINITIONS".equals(key)) manifest = manifest.withDefinedTerms(extractDefinedTerms(result.html()));
-            manifest = manifest.withAppendedClause(
-                    summarizeClauseOutline(i + 1, spec.title(), result.html()),
-                    stripToPlainWithCap(result.html(), 1500));
-            List<String> qaWarnings = result.qaWarnings();
-            if (!qaWarnings.isEmpty()) allQaWarnings.put(key, qaWarnings);
-
-            Map<String, Object> clauseDonePayload = new LinkedHashMap<>();
-            clauseDonePayload.put("type", "clause_done");
-            clauseDonePayload.put("clauseType", key);
-            clauseDonePayload.put("label", spec.title());
-            clauseDonePayload.put("index", i + 1);
-            clauseDonePayload.put("totalClauses", plannedSections.size());
-            clauseDonePayload.put("qaWarnings", qaWarnings);
-            clauseDonePayload.put("partialHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
-            emitter.send(SseEmitter.event().data(toJson(clauseDonePayload)));
-
-            String reasoning = "Generated using RAG from firm's corpus.";
-            if (!ctx.sourceDocuments().isEmpty()) {
-                reasoning += " Sources: " + String.join(", ", ctx.sourceDocuments().subList(0, Math.min(3, ctx.sourceDocuments().size())));
+        PipelineResult r = runDraftPipeline(request, new PipelineListener() {
+            private int total;
+            @Override public void planned(List<String> sections, String skeletonHtml) {
+                total = sections.size();
+                send(emitter, Map.of("type", "start", "totalClauses", total,
+                        "plannedSections", sections, "partialHtml", skeletonHtml));
             }
-            suggestions.add(ClauseSuggestion.builder()
-                    .clauseRef(spec.title() + " clause (AI-generated)")
-                    .currentText("(AI-generated)")
-                    .suggestion("Review and customize for your specific matter and client.")
-                    .reasoning(reasoning)
-                    .build());
-        }
-
-        List<CoherenceIssue> coherenceIssues = runCoherenceScan(plannedSections, sectionValues, manifest);
-        if (!coherenceIssues.isEmpty()) {
-            log.warn("Coherence scan found {} issue(s)", coherenceIssues.size());
-        }
-
-        List<String> coherenceSummary = coherenceIssues.stream()
-                .map(ci -> "[" + ci.clause() + "] " + ci.type() + ": " + ci.detail())
-                .collect(Collectors.toList());
+            @Override public void clauseStarted(int index, String key, String title) {
+                send(emitter, Map.of("type", "clause_start", "clauseType", key, "label", title,
+                        "index", index + 1, "totalClauses", total));
+            }
+            @Override public void clauseDone(int index, String key, String title, ClauseResult result, String partialHtml) {
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("type", "clause_done");
+                payload.put("clauseType", key);
+                payload.put("label", title);
+                payload.put("index", index + 1);
+                payload.put("totalClauses", total);
+                payload.put("qaWarnings", result.qaWarnings());
+                payload.put("partialHtml", partialHtml);
+                send(emitter, payload);
+            }
+        }, emitter);
 
         Map<String, Object> completePayload = new LinkedHashMap<>();
         completePayload.put("type", "complete");
-        completePayload.put("draftHtml", buildDynamicHtml(templateParts[0], templateParts[1], plannedSections, sectionValues));
-        completePayload.put("draftParametersHtml", buildInputSummaryHtml(request));
-        completePayload.put("suggestions", suggestions);
-        completePayload.put("qaWarnings", allQaWarnings);
-        if (!coherenceSummary.isEmpty()) {
-            completePayload.put("coherenceIssues", coherenceSummary);
-        }
+        completePayload.put("draftHtml", r.fullHtml());
+        completePayload.put("draftParametersHtml", r.parametersHtml());
+        completePayload.put("suggestions", r.suggestions());
+        completePayload.put("qaWarnings", r.qaWarnings());
+        if (!r.coherenceIssues().isEmpty()) completePayload.put("coherenceIssues", r.coherenceIssues());
+        completePayload.put("draftToken", holdForSave(request, r, username));
         emitter.send(SseEmitter.event().data(toJson(completePayload)));
         emitter.complete();
+    }
+
+    private void send(SseEmitter emitter, Map<String, Object> payload) {
+        try {
+            emitter.send(SseEmitter.event().data(toJson(payload)));
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    /** Keep the manifest + exposures of an unsaved draft until it is saved (see PendingDraftStore). */
+    private String holdForSave(DraftRequest request, PipelineResult r, String username) {
+        try {
+            return pendingDrafts.put(new com.legalpartner.service.review.PendingDraftStore.PendingDraft(
+                    username, request.getTemplateId(), learningTypeName(request), r.draftManifest(),
+                    buildExposures(r.draftManifest(), r.origins()), normalizedPlain(r.fullHtml()), Instant.now()));
+        } catch (Exception e) {
+            log.warn("Draft handoff token not created: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Attach a saved sync/stream draft's manifest and exposure log to its new document.
+     * The manifest is only attached when the saved HTML is the generated draft unchanged —
+     * otherwise review reads the saved text. Exposures always record the AI's original text.
+     */
+    public void attachSavedDraft(String draftToken, UUID docId, String savedHtml, String username) {
+        pendingDrafts.take(draftToken, username).ifPresent(p -> {
+            boolean unchanged = p.generatedPlainText().equals(normalizedPlain(savedHtml));
+            if (unchanged) draftManifestStore.write(docId, p.manifest());
+            exposureService.record(docId, p.templateId(), p.contractType(), p.exposures());
+            log.info("Saved draft {}: manifest {}, {} exposure(s) attached", docId,
+                    unchanged ? "attached" : "skipped (edited before save)", p.exposures().size());
+        });
+    }
+
+    private static String normalizedPlain(String html) {
+        return com.legalpartner.rag.HtmlText.toPlainText(html == null ? "" : html).replaceAll("\\s+", " ").trim();
     }
 
     // ── Section planner ────────────────────────────────────────────────────────
@@ -729,9 +902,9 @@ public class DraftService {
                 resolveContractTypeName(request),
                 nullToDefault(request.getPartyA(), defaultPartyA(request)),
                 nullToDefault(request.getPartyB(), defaultPartyB(request)),
-                nullToDefault(request.getPracticeArea(), "general"),
-                nullToDefault(request.getIndustry(), "GENERAL"),
-                nullToDefault(request.getDealBrief(), "standard contract"));
+                nullToDefault(request.getPracticeArea(), draftingDefaults.prompt("practice_area")),
+                nullToDefault(request.getIndustry(), draftingDefaults.prompt("industry")),
+                nullToDefault(request.getDealBrief(), draftingDefaults.prompt("deal_brief")));
 
         try {
             AiMessage response = chatModel.generate(
@@ -819,10 +992,16 @@ public class DraftService {
 
     // ── Clause generation ──────────────────────────────────────────────────────
 
-    private static final int QA_MAX_RETRIES = 2;
+    /** legalpartner.draft.qa.max-retries — QA-driven regeneration attempts per clause. */
+    @Value("${legalpartner.draft.qa.max-retries:2}")
+    private int qaMaxRetries = 2;
+
+    /** legalpartner.draft.qa.subclause-overage — extra sub-clauses tolerated before truncation. */
+    @Value("${legalpartner.draft.qa.subclause-overage:2}")
+    private int subclauseOverage = 2;
 
     /**
-     * Generates a clause and auto-retries up to QA_MAX_RETRIES times if the QA pass
+     * Generates a clause and auto-retries up to qaMaxRetries times if the QA pass
      * detects unfilled placeholders or incomplete sub-clauses.
      * Returns the best result (last attempt) along with any residual QA warnings.
      */
@@ -875,14 +1054,11 @@ public class DraftService {
         return out;
     }
 
+    /** Style directive from drafting_defaults.yml; register from jurisdictions.yml (DRAFTING_REGISTER). */
     private String buildStyleFingerprint(DraftRequest request) {
-        String jurisdiction = nullToDefault(request.getJurisdiction(), defaultJurisdiction).toLowerCase();
-        String register = jurisdiction.contains("india")
-                ? "formal Indian legal English (Indian Contract Act, 1872 conventions)"
-                : "formal legal English appropriate to the governing law";
-        return register
-                + "; sentences \u2264 35 words; sub-clause numbering \"<article>.<sub>\" (e.g. 2.1, 2.2, 2.3); "
-                + "use defined terms with exact capitalisation; cite any article by number and title (e.g., \"Clause 8 (Termination)\") \u2014 forward references permitted.";
+        String jurisdiction = nullToDefault(request.getJurisdiction(), defaultJurisdiction);
+        String register = legalSystemConfig.localizeForJurisdiction("%DRAFTING_REGISTER%", jurisdiction);
+        return draftingDefaults.styleFingerprint(Map.of("DRAFTING_REGISTER", register));
     }
 
     private List<String> extractDefinedTerms(String definitionsHtml) {
@@ -975,12 +1151,14 @@ public class DraftService {
         }
     }
 
-    private String buildManifestConstraint(TerminologyManifest manifest) {
-        StringBuilder sb = new StringBuilder(
-                "\n\nTERMINOLOGY MANDATE \u2014 non-negotiable:\n" +
-                "- Refer to the service provider/vendor ONLY as \"" + manifest.partyAName() + "\" \u2014 never Vendor, Supplier, Company, or any other name.\n" +
-                "- Refer to the client/customer ONLY as \"" + manifest.partyBName() + "\" \u2014 never Customer, Buyer, or any other name.\n" +
-                "- Do NOT introduce any party name not listed above.\n");
+    private String buildManifestConstraint(TerminologyManifest manifest, String templateId) {
+        java.util.Set<String> ownRoles = new java.util.HashSet<>();
+        contractRegistry.partyRoles(templateId).forEach(r -> ownRoles.add(r.toLowerCase()));
+        StringBuilder sb = new StringBuilder(String.format(prompts.get("DRAFT_TERMINOLOGY_MANDATE"),
+                manifest.partyAName(), manifest.partyBName(),
+                contractRegistry.get(templateId).partyARole(), contractRegistry.get(templateId).partyBRole(),
+                String.join(", ", driftSynonyms(partyNameVariantsConfig.partyAVariants(), ownRoles)),
+                String.join(", ", driftSynonyms(partyNameVariantsConfig.partyBVariants(), ownRoles))));
         if (!manifest.definedTerms().isEmpty()) {
             sb.append("- Use these defined terms consistently (exact capitalisation): ")
               .append(String.join(", ", manifest.definedTerms())).append(".\n");
@@ -1009,8 +1187,8 @@ public class DraftService {
                                                SseEmitter emitter, TerminologyManifest manifest) {
         String contractType = resolveContractTypeName(request);
         String jurisdiction = nullToDefault(request.getJurisdiction(), defaultJurisdiction);
-        String counterparty = nullToDefault(request.getCounterpartyType(), "general");
-        String practiceArea = nullToDefault(request.getPracticeArea(), "general");
+        String counterparty = nullToDefault(request.getCounterpartyType(), draftingDefaults.prompt("counterparty_type"));
+        String practiceArea = nullToDefault(request.getPracticeArea(), draftingDefaults.prompt("practice_area"));
         String dealContext = buildDealContext(request);
 
         String initialPrompt = String.format(userPromptTemplate, contractType, jurisdiction, counterparty, practiceArea, dealContext, ctx.structuredContext());
@@ -1024,14 +1202,8 @@ public class DraftService {
         // blur. Graceful-degrades to empty string on failure.
         int articleIndex = (manifest != null) ? manifest.sectionOutlines().size() + 1 : 1;
         String scratchpadConstraint = buildScratchpadConstraint(contractType, clauseKey, articleIndex);
-        String manifestConstraint = (manifest != null) ? buildManifestConstraint(manifest) : "";
-        String ragGrounding = ctx.chunkCount() > 0
-                ? "\n\nRAG PRECEDENT — reference only, NOT text to copy:\n" +
-                  "The firm's precedent clauses in the user message are reference material for STYLE and STRUCTURE only.\n" +
-                  "Write an ORIGINAL clause in the same register, tailored to THIS contract's parties and deal context.\n" +
-                  "Never copy source tags, filenames, party names, or deal-specific details from the precedent.\n" +
-                  "If the precedent contains text that looks like a different deal (different parties, different industry, different transaction type), ignore that text and draft fresh.\n"
-                : "";
+        String manifestConstraint = (manifest != null) ? buildManifestConstraint(manifest, request.getTemplateId()) : "";
+        String ragGrounding = ctx.chunkCount() > 0 ? prompts.get("DRAFT_RAG_GROUNDING") : "";
         // Prompt assembly is ordered for vLLM prefix-cache reuse. Structure:
         //   [invariant across all requests]      ← GUARDRAILS (universal cache hit)
         //   [invariant across clauses in 1 draft] ← manifest + ragGrounding (within-draft hit)
@@ -1046,12 +1218,23 @@ public class DraftService {
             dealRequirements = clauseRuleEngine.buildRequirementsPrompt(clauseKey, null);
         }
 
-        String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction);
+        // Review checklist: the semantic requirements this clause will be reviewed against.
+        String reviewChecklist = "";
+        if (draftVerifier.isEnabled()) {
+            reviewChecklist = clauseSpecRegistry.requirementsPrompt(clauseSpecRegistry.semanticRequirements(
+                    clauseKey, clauseSpecRegistry.reviewType(request.getTemplateId()),
+                    request.getClientPosition(), draftVerifier.minWeight()));
+        }
+
+        // Learned firm preferences go with the clause-specific system prompt so retries keep them.
+        String localizedSystemPrompt = legalSystemConfig.localizeForJurisdiction(systemPrompt, jurisdiction)
+                + insightService.promptBlock(insightsFor(clauseKey, request));
         String fullSystemAndInitial = PromptTemplates.DRAFT_CONTENT_GUARDRAILS
                 + manifestConstraint
                 + ragGrounding
                 + scratchpadConstraint
                 + dealRequirements
+                + reviewChecklist
                 + "\n\n" + localizedSystemPrompt
                 + "\n\n" + initialPrompt;
 
@@ -1059,7 +1242,7 @@ public class DraftService {
         String generated = sanitizeClauseText(stripLlmArtifacts(
                 chatModel.generate(UserMessage.from(fullSystemAndInitial)).content().text().trim()));
         // Truncate excess sub-clauses — model sometimes generates 10+ when spec says 3
-        if (expectedSubclauses > 0 && countSubClauses(generated) > expectedSubclauses + 2) {
+        if (expectedSubclauses > 0 && countSubClauses(generated) > expectedSubclauses + subclauseOverage) {
             log.warn("Clause [{}]: {} sub-clauses generated, truncating to {}", clauseKey,
                     countSubClauses(generated), expectedSubclauses + 1);
             generated = truncateToNSubClauses(generated, expectedSubclauses + 1);
@@ -1071,9 +1254,9 @@ public class DraftService {
         List<String> bestWarnings = qaWarnings;
         int bestScore = scoreAttempt(generated, qaWarnings);
 
-        for (int attempt = 1; attempt <= QA_MAX_RETRIES && !qaWarnings.isEmpty(); attempt++) {
+        for (int attempt = 1; attempt <= qaMaxRetries && !qaWarnings.isEmpty(); attempt++) {
             log.warn("QA [{}] attempt {}/{}: {} issues — retrying (current best score: {})",
-                    clauseKey, attempt, QA_MAX_RETRIES, qaWarnings.size(), bestScore);
+                    clauseKey, attempt, qaMaxRetries, qaWarnings.size(), bestScore);
 
             if (emitter != null) {
                 try {
@@ -1124,7 +1307,7 @@ public class DraftService {
         qaWarnings = bestWarnings;
 
         if (!qaWarnings.isEmpty()) {
-            log.warn("QA [{}]: {} residual warning(s) after {} retries — applying post-processor", clauseKey, qaWarnings.size(), QA_MAX_RETRIES);
+            log.warn("QA [{}]: {} residual warning(s) after {} retries — applying post-processor", clauseKey, qaWarnings.size(), qaMaxRetries);
         }
         // Always post-process to replace any remaining placeholders with sensible defaults
         generated = postProcessPlaceholders(generated, request);
@@ -1197,17 +1380,10 @@ public class DraftService {
      */
     private String buildIsolatedRetryPrompt(String systemPrompt, String originalUserPrompt,
                                              List<String> warnings, int expectedSubclauses, String clauseKey) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(systemPrompt).append("\n\n");
-        sb.append(originalUserPrompt).append("\n\n");
-        sb.append("Your previous attempt had the following issues:\n");
-        for (String w : warnings) {
-            sb.append("  - ").append(w).append("\n");
-        }
-        sb.append("\nWrite a fresh, complete ").append(clauseKey).append(" clause with exactly ")
-          .append(expectedSubclauses).append(" numbered sub-clauses. ")
-          .append("Output ONLY the numbered legal text. No commentary, no JSON, no chat tokens.");
-        return sb.toString();
+        StringBuilder issues = new StringBuilder();
+        for (String w : warnings) issues.append("  - ").append(w).append("\n");
+        return String.format(prompts.get("DRAFT_ISOLATED_RETRY"),
+                systemPrompt, originalUserPrompt, issues, clauseKey, expectedSubclauses);
     }
 
     /**
@@ -1250,18 +1426,12 @@ public class DraftService {
 
         log.info("Regenerating {} missing sub-clauses (have {}, need {})", missing, existing, expectedSubclauses);
 
-        // Build a focused prompt asking only for the missing sub-clauses
-        StringBuilder sb = new StringBuilder();
-        sb.append(systemPrompt).append("\n\n");
-        sb.append(originalUserPrompt).append("\n\n");
-        sb.append("You have already drafted ").append(existing).append(" sub-clauses for this clause. ");
-        sb.append("Now write ONLY sub-clauses ").append(existing + 1).append(" through ").append(expectedSubclauses).append(". ");
-        sb.append("Begin each with the appropriate number (e.g. \"").append(existing + 1).append(".\"). ");
-        sb.append("Output ONLY the new numbered sub-clauses as plain legal prose. ");
-        sb.append("Do not repeat the existing sub-clauses. Do not add commentary.");
+        // Focused prompt asking only for the missing sub-clauses
+        String prompt = String.format(prompts.get("DRAFT_MISSING_SUBCLAUSES"),
+                systemPrompt, originalUserPrompt, existing, existing + 1, expectedSubclauses);
 
         String additionalText = sanitizeClauseText(stripLlmArtifacts(
-                chatModel.generate(UserMessage.from(sb.toString())).content().text().trim()));
+                chatModel.generate(UserMessage.from(prompt)).content().text().trim()));
 
         if (additionalText.isBlank()) {
             log.warn("Sub-clause regeneration returned empty result, keeping original");
@@ -1377,47 +1547,10 @@ public class DraftService {
             log.warn("QA [{}]: clause too short — {} chars", clauseKey, plain.length());
         }
 
-        // 5. LLM artifact detection — JSON, LaTeX, code comments, instruction tokens
-        if (java.util.regex.Pattern.compile("\"[a-z_]+\"\\s*:\\s*[\"\\[{]").matcher(plain).find()) {
-            warnings.add("LLM artifact: raw JSON detected in output — output must be plain legal prose only");
-            log.warn("QA [{}]: JSON artifacts in output", clauseKey);
-        }
-        if (plain.contains("\\text{") || plain.contains("\\textbf{") || plain.contains("$\\text")) {
-            warnings.add("LLM artifact: LaTeX notation detected — output must be plain text, not LaTeX");
-            log.warn("QA [{}]: LaTeX artifacts in output", clauseKey);
-        }
-        if (java.util.regex.Pattern.compile("(?m)//\\s*\\w").matcher(plain).find()
-                || plain.contains("/*") || plain.contains("*/")) {
-            warnings.add("LLM artifact: code comments detected — output must be plain legal prose");
-            log.warn("QA [{}]: code comment artifacts in output", clauseKey);
-        }
-        if (plain.contains("[INST]") || plain.contains("[/INST]") || plain.contains("<<SYS>>")) {
-            warnings.add("LLM artifact: instruction tokens detected — output must not contain model control tokens");
-            log.warn("QA [{}]: instruction token artifacts in output", clauseKey);
-        }
-        // Training-format markers from v3 (leaked past stripLlmArtifacts via e.g. slightly
-        // different punctuation). Force a retry rather than keep the corrupted clause.
-        java.util.regex.Matcher trainingToken = java.util.regex.Pattern
-                .compile("__[A-Z][A-Z0-9_]{2,}__")
-                .matcher(plain);
-        if (trainingToken.find()) {
-            warnings.add("LLM artifact: training-format marker '" + trainingToken.group()
-                    + "' leaked into output — rewrite the clause without any __TOKEN__ markers");
-            log.warn("QA [{}]: training marker {} in output", clauseKey, trainingToken.group());
-        }
-        // Federal-contracting regulation dumps (CFR / FAR) — only surface if not the user's domain.
-        // If the contract is for federal government work, these are legit; otherwise flag.
-        boolean federalDomain = contractType != null
-                && (contractType.toLowerCase().contains("federal") || contractType.toLowerCase().contains("government"));
-        if (!federalDomain) {
-            java.util.regex.Matcher fedBoiler = java.util.regex.Pattern
-                    .compile("\\b(?:CFR|FAR)\\s*§\\s*\\d")
-                    .matcher(plain);
-            if (fedBoiler.find()) {
-                warnings.add("LLM artifact: federal regulation citation (" + fedBoiler.group()
-                        + ") leaked into a non-federal contract — rewrite without CFR/FAR boilerplate");
-                log.warn("QA [{}]: federal citation {} leaked into '{}'", clauseKey, fedBoiler.group(), contractType);
-            }
+        // 5. LLM artifacts that survived cleanup (output_cleanup.yml qa_artifact_checks)
+        for (String msg : outputSanitizer.artifactWarnings(plain, contractType)) {
+            warnings.add(msg);
+            log.warn("QA [{}]: {}", clauseKey, msg);
         }
 
         // 6. Contract-type contamination check
@@ -1487,13 +1620,6 @@ public class DraftService {
     // Entity denylist now lives in resources/config/denylists.yml (loaded by
     // DenylistRegistry). Access via denylistRegistry.all() / .byCategory().
 
-    private static final Map<String, List<String>> CONTAMINATION_SIGNALS = Map.of(
-        "SaaS", List.of("real property", "lease agreement", "lessee", "lessor", "landlord", "tenant", "mortgage", "premises", "rental"),
-        "Non-Disclosure Agreement", List.of("service level", "uptime", "subscription fee", "software license", "source code", "purchase order"),
-        "Employment Agreement", List.of("saas platform", "uptime guarantee", "api access", "software subscription", "real property"),
-        "Supply Agreement", List.of("software license", "saas", "uptime", "source code", "real property", "employment"),
-        "Master Services Agreement", List.of("real property", "lease", "tenant", "mortgage", "employment contract")
-    );
 
     /**
      * Semantic requirements per clause type: keywords that MUST appear in the generated text.
@@ -1503,17 +1629,18 @@ public class DraftService {
     // CLAUSE_SEMANTIC_REQUIREMENTS now lives in clauses.yml (semantic_requirements
     // per clause). Access via clauseRegistry.get(key).semanticRequirements().
 
+    /**
+     * Terms from contract_types.yml {@code banned_terms} for the contract being drafted
+     * (matched by display name) that appear in the clause as whole words.
+     */
     private List<String> detectContamination(String plain, String contractType) {
-        String lowerPlain = plain.toLowerCase();
-        String lowerType = contractType.toLowerCase();
+        List<String> banned = contractRegistry.findByDisplayName(contractType)
+                .map(ContractTypeRegistry.ContractTypeConfig::bannedTerms).orElse(List.of());
         List<String> found = new ArrayList<>();
-        for (Map.Entry<String, List<String>> entry : CONTAMINATION_SIGNALS.entrySet()) {
-            if (lowerType.contains(entry.getKey().toLowerCase())) continue; // skip own contract type
-            for (String signal : entry.getValue()) {
-                if (lowerPlain.contains(signal.toLowerCase()) && !found.contains(signal)) {
-                    found.add(signal);
-                }
-            }
+        for (String term : banned) {
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                    "(?i)(?<![\\p{L}\\p{N}])" + java.util.regex.Pattern.quote(term) + "(?![\\p{L}\\p{N}])");
+            if (p.matcher(plain).find() && !found.contains(term)) found.add(term);
         }
         return found;
     }
@@ -1534,22 +1661,7 @@ public class DraftService {
         if (!needPartyA && !needPartyB) return;
 
         try {
-            String extractPrompt = """
-                    Extract ALL structured data from this deal brief. Output ONLY valid JSON:
-                    {"partyA": "full legal name or null",
-                     "partyB": "full legal name or null",
-                     "partyAAddress": "full address or null",
-                     "partyBAddress": "full address or null",
-                     "partyARole": "Licensor/Provider/Seller/Landlord/Employer or null",
-                     "partyBRole": "Licensee/Customer/Buyer/Tenant/Employee or null",
-                     "keyTerms": ["term1: value1", "term2: value2", ...]}
-
-                    Extract every concrete value: party names, addresses, monetary amounts,
-                    user counts, SLA targets, license types, term durations, support levels,
-                    special requirements (escrow, derivative works, patches, etc).
-
-                    Deal brief:
-                    """ + brief;
+            String extractPrompt = prompts.get("DRAFT_PARTY_EXTRACTION") + brief;
             String resp = jsonChatModel.generate(UserMessage.from(extractPrompt)).content().text().trim();
             int s = resp.indexOf('{'), e = resp.lastIndexOf('}');
             if (s < 0 || e <= s) return;
@@ -1610,20 +1722,12 @@ public class DraftService {
         // uses actual values ($750K, 500 users) instead of generic placeholders
         String extractedTerms = request.getExtractedDealTerms();
         if (extractedTerms != null && !extractedTerms.isBlank()) {
-            sb.append("\nDEAL TERMS — weave these values naturally into your legal prose:\n")
-              .append(extractedTerms)
-              .append("\nIMPORTANT: Incorporate these values INTO your clause text. Do NOT copy this list, ")
-              .append("the deal brief, or any input parameters as a schedule, appendix, or separate section. ")
-              .append("Output ONLY the clause body.\n");
+            sb.append(String.format(prompts.get("DRAFT_DEAL_TERMS_BLOCK"), extractedTerms));
         }
 
         String position = request.getClientPosition();
         if (position != null && !position.isBlank()) {
-            String posLabel = switch (position.toUpperCase()) {
-                case "PARTY_A" -> "Firm represents Party A — draft clauses favourably for Party A.";
-                case "PARTY_B" -> "Firm represents Party B — draft clauses favourably for Party B.";
-                default -> "Firm is acting as neutral drafter — balanced terms preferred.";
-            };
+            String posLabel = labelPrompt("DRAFT_POSITION_", position, "NEUTRAL");
             sb.append("Client position: ").append(posLabel).append("\n");
         }
 
@@ -1638,242 +1742,24 @@ public class DraftService {
 
         String stance = request.getDraftStance();
         if (stance != null && !stance.isBlank()) {
-            String stanceLabel = switch (stance.toUpperCase()) {
-                case "FIRST_DRAFT" -> "This is a first draft — maximise protections for the client; include strong caps, broad indemnity carve-outs, liberal termination rights.";
-                case "FINAL_OFFER" -> "This is a final offer — use firm but commercially reasonable language; avoid overreaching terms that may cause deadlock.";
-                default -> "Use balanced, commercially standard terms acceptable to both parties.";
-            };
+            String stanceLabel = labelPrompt("DRAFT_STANCE_", stance, "BALANCED");
             sb.append("Drafting stance: ").append(stanceLabel).append("\n");
         }
 
         return sb.length() == 0 ? "" : sb.toString();
     }
 
+    /** Prompt text for a request value (e.g. DRAFT_STANCE_FINAL_OFFER), falling back to the default key. */
+    private String labelPrompt(String prefix, String value, String fallback) {
+        String id = prefix + value.trim().toUpperCase();
+        return prompts.contains(id) ? prompts.get(id) : prompts.get(prefix + fallback);
+    }
+
     // ── LLM artifact stripper — runs BEFORE clause sanitizer ───────────────────
 
-    /**
-     * Strips non-prose artifacts that fine-tuned models (especially saul-legal-v3)
-     * inject into draft output: JSON wrappers, LaTeX commands, code comments,
-     * instruction tokens, and broken unicode escapes.
-     */
+    /** Non-prose artifacts removed per config/output_cleanup.yml (see LlmOutputSanitizer). */
     private String stripLlmArtifacts(String raw) {
-        if (raw == null || raw.isBlank()) return "";
-        String t = raw;
-
-        // 0. Truncate at retry directive bleed-through — model echoed our retry prompt
-        //    These markers indicate the model started regurgitating the system prompt.
-        String[] bleedMarkers = {
-            "REWRITE REQUIRED",
-            "MISSING SUB-CLAUSES:",
-            "RULES FOR THIS REWRITE:",
-            "INSTRUCTIONS: Perform rewrite",
-            "ANCHOR: Follow the firm precedent",
-            "PRESERVE sub-clauses that do NOT have issues",
-            // Training-format markers leaked from v3's instruction-tuning corpus
-            "__PROCESSED_REQUEST__",
-            "__INSTRUCTION__",
-            "__RESPONSE__",
-            "__FOLLOW_UP_QUESTIONS__",
-            "__FORBIDDEN_ACTIONS",
-            "__CONFIRMATION_OF_UNDERSTANDING__",
-            "__BEGIN_PREMIUM_INSTRUCTIONS__",
-            "INSTRUCTION: Write an additional clause",
-            "CONFIRMATION_OF_UNDERSTANDING",
-            "FORBIDDEN_ACTIONS_I_WILL_NOT_TAKE",
-            // Federal-contracting boilerplate that tended to pour in after legal-prose saturation
-            "\nCFR § ",
-            "\nFAR § ",
-            "\nFAR §",
-            "\nCFR §",
-            "UNDERSTANDINGS AND ACKNOWLEDGMENTS, IN FEDERAL CONTRACTING FORM",
-            "The Government Contractor",
-            // Mistral instruction tokens that leaked through vLLM
-            "[/INST]",
-            "[INST]",
-            // Fix engine retry artifacts
-            "REVISED ORIGINAL CLAUSE",
-            "MODIFIED CLAUSE",
-            "Correct version",
-            "Here is the fixed clause",
-            "Here is the corrected",
-            "```html",
-            "```json",
-            // Model copying input context verbatim as a "schedule"
-            "SCHEDULE — DRAFT PARAMETERS",
-            "SCHEDULE - DRAFT PARAMETERS",
-            "Draft Parameters",
-            // SaulLM-54B artifacts — model echoes system prompt structure markers
-            "END OF ARTICLE",
-            "END OF DOCUMENT",
-            "END OF CLARIFICATIONS",
-            "END OF CLAUSE",
-            "The following sub-clauses were provided earlier",
-            // Model self-commentary / meta-text that breaks document trust
-            "Note: This clause is drafted",
-            "Note: This payment clause",
-            "Note: This clause complies",
-            "Note: Keep the same structure",
-            "Note: CCPA -",
-            "[Note: the above sub-clauses",
-            "[Note: this clause",
-            "This clause is tailored",
-            "Reference UCC Article",
-            "Sub-clause 8:",
-            "Sub-clause 9:",
-            "Sub-clause 10:"
-        };
-        for (String marker : bleedMarkers) {
-            int idx = t.indexOf(marker);
-            if (idx > 0) {
-                log.warn("Draft sanitizer: retry directive bleed detected at marker '{}', truncating", marker);
-                t = t.substring(0, idx);
-            }
-        }
-        // Generic catch-all for any __CAPS_WITH_UNDERSCORES__ pattern not listed above
-        java.util.regex.Matcher genericArtifact = java.util.regex.Pattern
-                .compile("__[A-Z][A-Z0-9_]{2,}__")
-                .matcher(t);
-        if (genericArtifact.find()) {
-            int idx = genericArtifact.start();
-            log.warn("Draft sanitizer: generic __TOKEN__ artifact at offset {} ('{}'), truncating",
-                    idx, genericArtifact.group());
-            t = t.substring(0, idx);
-        }
-        // RAG chunk headers that the model copied verbatim from the context block.
-        // Two forms: "Source: some-file.pdf" and "[Source 10: filename | SECTION | ...".
-        java.util.regex.Matcher ragHeader = java.util.regex.Pattern
-                .compile("\\[Source\\s+\\d+:\\s*[^\\]]*(?:\\]|$)|Source:\\s*\\S+\\.(?:pdf|docx|htm[l]?|txt)",
-                        java.util.regex.Pattern.CASE_INSENSITIVE)
-                .matcher(t);
-        if (ragHeader.find()) {
-            int idx = ragHeader.start();
-            log.warn("Draft sanitizer: RAG chunk header '{}' leaked at offset {}, truncating",
-                    ragHeader.group(), idx);
-            t = t.substring(0, idx);
-        }
-        // Pipe-delimited metadata the model copied from the RAG block
-        // (e.g. "...Statement of Work | OTHER | ]..."). Rare in natural legal prose.
-        java.util.regex.Matcher pipeMeta = java.util.regex.Pattern
-                .compile("\\s\\|\\s+(?:OTHER|NDA|MSA|SAAS|EMPLOYMENT|VENDOR|USA|INDIA|UK)\\s+\\|")
-                .matcher(t);
-        if (pipeMeta.find()) {
-            int idx = pipeMeta.start();
-            log.warn("Draft sanitizer: pipe-delimited RAG metadata '{}' leaked, truncating",
-                    pipeMeta.group().trim());
-            t = t.substring(0, idx);
-        }
-
-        // 1. Strip instruction tokens
-        // Mistral/Llama: [INST], [/INST], <<SYS>>, <s>, </s>
-        // Gemma: <|end_of_turn|>, <|start_of_turn|>user, <|start_of_turn|>model, <|start_of_turn|>assistant
-        // Qwen/ChatML: <|im_start|>, <|im_end|>
-        t = t.replaceAll("\\[/?INST\\]", "")
-             .replaceAll("<</?SYS>>", "")
-             .replaceAll("</?s>", "")
-             .replaceAll("<\\|end_of_turn\\|>", "")
-             .replaceAll("<\\|start_of_turn\\|>(?:user|model|assistant|thought|system)?", "")
-             .replaceAll("<\\|im_start\\|>(?:user|assistant|system)?", "")
-             .replaceAll("<\\|im_end\\|>", "")
-             // Also strip the bare role labels that appear after stripping <|start_of_turn|>
-             .replaceAll("(?m)^\\s*(?:user|model|assistant|thought)\\s*$", "");
-
-        // 2. Strip markdown code fences
-        t = t.replaceAll("```(?:json|html|text)?\\s*", "")
-             .replaceAll("```", "");
-
-        // 3. Extract text from JSON wrappers — if the model outputs {"key": "actual text", ...}
-        //    try to pull out the longest string value (the actual clause content)
-        if (t.trim().startsWith("{") && t.trim().contains("\"")) {
-            String extracted = extractProseFromJson(t);
-            if (extracted != null && extracted.length() > 80) {
-                t = extracted;
-            }
-        }
-
-        // 4. Remove standalone JSON lines: lines that are just {"key": "value"} or JSON punctuation
-        String[] lines = t.split("\\r?\\n");
-        StringBuilder cleaned = new StringBuilder();
-        for (String line : lines) {
-            String trimmed = line.trim();
-            // Skip lines that are pure JSON syntax
-            if (trimmed.matches("^[{}\\[\\],]+$")) continue;
-            if (trimmed.matches("^\"[a-z_]+\"\\s*:\\s*[\"\\[{].*")) continue;
-            if (trimmed.matches("^\"[a-z_]+\"\\s*:\\s*\\d+.*")) continue;
-            // Skip lines that are just JSON key with empty value
-            if (trimmed.matches("^\"[a-z_]+\"\\s*:\\s*\"\"\\s*,?$")) continue;
-            cleaned.append(line).append("\n");
-        }
-        t = cleaned.toString();
-
-        // 5. Strip LaTeX notation: $\text{Name}$ → Name, \textbf{text} → text
-        t = t.replaceAll("\\$\\\\text\\{([^}]*)\\}\\$", "$1")
-             .replaceAll("\\\\text\\{([^}]*)\\}", "$1")
-             .replaceAll("\\\\textbf\\{([^}]*)\\}", "$1")
-             .replaceAll("\\\\textit\\{([^}]*)\\}", "$1")
-             .replaceAll("\\\\section\\*?\\{([^}]*)\\}", "$1")
-             .replaceAll("\\\\subsection\\*?\\{([^}]*)\\}", "$1")
-             .replaceAll("\\\\emph\\{([^}]*)\\}", "$1");
-
-        // 6. Strip code comments (// ... and /* ... */ and + // ...)
-        t = t.replaceAll("\\+\\s*//[^\n]*", "")
-             .replaceAll("(?m)^\\s*//[^\n]*$", "")
-             .replaceAll("/\\*.*?\\*/", "");
-
-        // 7. Fix broken unicode escapes rendered as literal text
-        t = t.replace("\\u201c", "\u201c")
-             .replace("\\u201d", "\u201d")
-             .replace("\\u2019", "\u2019")
-             .replace("\\u2014", "\u2014")
-             .replace("\\u2013", "\u2013")
-             .replace("\\xef\\x84\\xbc", ",");
-
-        // 8. Strip ASCII table garbage (---|---|--- patterns)
-        t = t.replaceAll("(?m)^[\\s|\\-]{10,}$", "");
-
-        // 9. Remove residual JSON field names that leaked inline
-        t = t.replaceAll("\"clause_name\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
-             .replaceAll("\"clause_type\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
-             .replaceAll("\"risk_level\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
-             .replaceAll("\"rule_set\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
-             .replaceAll("\"issue_id\"\\s*:\\s*\\d+\\s*,?", "")
-             .replaceAll("\"issue_type\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
-             .replaceAll("\"issue\"\\s*:\\s*\"[^\"]*\"\\s*,?", "")
-             .replaceAll("\"rationale\"\\s*:\\s*\"[^\"]*\"\\s*,?", "");
-
-        // 10. Extract content from "output", "suggested_language", or "fix_text" JSON fields
-        t = t.replaceAll("\"(?:output|suggested_language|fix_text|fix)\"\\s*:\\s*\"", "")
-             .replaceAll("\"\\s*,?\\s*$", "");
-
-        // 11. Clean up multiple blank lines and trailing commas
-        t = t.replaceAll("\\n{3,}", "\n\n")
-             .replaceAll(",\\s*\\n\\s*\\}", "")
-             .replaceAll("\\{\\s*\\}", "")
-             .trim();
-
-        // 12. Loop detection — truncate if same sentence appears 3+ times
-        t = truncateOnRepetition(t);
-
-        // 13. NUCLEAR LINE-LEVEL SANITIZER — strip any line that is meta-commentary,
-        //     not legal prose. Catches patterns the truncation markers miss.
-        String[] sanitizeLines = t.split("\\n");
-        StringBuilder sanitized = new StringBuilder();
-        for (String sLine : sanitizeLines) {
-            String trimmed = sLine.trim();
-            if (trimmed.isEmpty()) { sanitized.append("\n"); continue; }
-            // Kill meta-commentary lines
-            if (isMetaCommentary(trimmed)) {
-                log.debug("Draft sanitizer: stripped meta-commentary line: {}", trimmed.substring(0, Math.min(80, trimmed.length())));
-                continue;
-            }
-            sanitized.append(sLine).append("\n");
-        }
-        t = sanitized.toString().trim();
-
-        // 14. Strip bold markdown artifacts (**text**) — convert to plain text
-        t = t.replaceAll("\\*\\*([^*]+)\\*\\*", "$1");
-        t = t.replaceAll("\\*\\*", "");
-
-        return t;
+        return outputSanitizer.clean(raw);
     }
 
     /**
@@ -1917,112 +1803,6 @@ public class DraftService {
             return result.toString();
         }
         return html;
-    }
-
-    /**
-     * Returns true if the line is model meta-commentary, not legal prose.
-     * Uses PATTERN DETECTION instead of specific strings — catches all variations
-     * of fix engine leaks, prompt echoes, and model self-commentary.
-     */
-    private boolean isMetaCommentary(String line) {
-        String lower = line.toLowerCase().trim();
-        if (lower.isEmpty()) return false;
-
-        // ── Pattern 1: Non-prose prefixes (instructions, metadata, labels) ──
-        if (lower.matches("^(note:|\\[note|reference:|source:|instruction:|end of |do not |sub-clause \\d).*")) return true;
-
-        // ── Pattern 2: Model talking ABOUT its output (self-reference) ──
-        String[] selfRef = {
-            "this clause", "this version", "this section", "this payment",
-            "the above", "as per the", "the following sub-clauses",
-            "satisfies all", "satisfies the", "requirements stated",
-            "passed requirements", "passed all", "not required to be",
-            "data protection and privacy focus", "is a first draft",
-        };
-        for (String p : selfRef) { if (lower.contains(p)) return true; }
-
-        // ── Pattern 3: Fix engine / retry prompt leaks ──
-        String[] fixLeaks = {
-            "fixed clause", "fixing", "corrected clause", "corrected version",
-            "revised clause", "revised original", "correct version",
-            "required fix", "only the required", "deal values embedded",
-            "violation", "rewrite", "modified clause",
-        };
-        for (String p : fixLeaks) { if (lower.contains(p)) return true; }
-
-        // ── Pattern 4: Response-style prefixes (model introducing its answer) ──
-        if (lower.matches("^(here is|here are|below is|the following|to summarize|to conclude|in summary|drafting complete|in conclusion).*")) return true;
-
-        // ── Pattern 5: Code / markup artifacts ──
-        if (lower.contains("```") || lower.contains("\\text{") || lower.contains("\\section{")) return true;
-
-        // ── Pattern 6: Raw DealSpec / prompt key-value dumps ──
-        if (lower.matches("^(contract type|jurisdiction|counterparty type|practice area|license fee|maintenance fee|license type|users|locations|deal brief|severity|coverage|deployment|industry):.*")) return true;
-
-        // ── Pattern 7: Cross-jurisdiction contamination ──
-        if (lower.contains("indian contract act") || lower.contains("sections 73 and 74")) return true;
-
-        // ── Pattern 8: Heading echoes (article/section labels without content) ──
-        if (lower.matches("^article \\d+\\..*") && lower.length() < 40) return true;
-
-        return false;
-    }
-
-    /**
-     * Detects when the model gets stuck in a loop repeating the same sentence/phrase.
-     * Truncates output at the second occurrence of any 40+ char fragment.
-     */
-    private String truncateOnRepetition(String text) {
-        if (text == null || text.length() < 200) return text;
-        // Split into sentences/segments
-        String[] segments = text.split("(?<=[.!?\\n])");
-        java.util.Map<String, Integer> seen = new java.util.HashMap<>();
-        StringBuilder kept = new StringBuilder();
-        for (String seg : segments) {
-            String norm = seg.trim().toLowerCase().replaceAll("\\s+", " ");
-            if (norm.length() < 40) {
-                kept.append(seg);
-                continue;
-            }
-            // Use first 60 chars as fingerprint
-            String fp = norm.substring(0, Math.min(60, norm.length()));
-            int count = seen.getOrDefault(fp, 0) + 1;
-            seen.put(fp, count);
-            if (count >= 2) {
-                log.warn("Draft sanitizer: repetition loop detected, truncating at: {}",
-                        fp.substring(0, Math.min(50, fp.length())));
-                break;
-            }
-            kept.append(seg);
-        }
-        return kept.toString();
-    }
-
-    /**
-     * Attempts to extract the longest prose content from a JSON-wrapped LLM response.
-     * Handles cases where the model wraps its output like: {"clause_name":"X","suggested_language":"actual text"}
-     */
-    private String extractProseFromJson(String jsonLike) {
-        try {
-            // Try to find all quoted string values and return the longest one
-            java.util.regex.Pattern valuePattern = java.util.regex.Pattern.compile(
-                    "\"(?:output|suggested_language|fix_text|fix|content|text|clause_text)\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
-            java.util.regex.Matcher m = valuePattern.matcher(jsonLike);
-            String longest = null;
-            while (m.find()) {
-                String val = m.group(1)
-                        .replace("\\n", "\n")
-                        .replace("\\t", " ")
-                        .replace("\\\"", "\"");
-                if (longest == null || val.length() > longest.length()) {
-                    longest = val;
-                }
-            }
-            return longest;
-        } catch (Exception e) {
-            log.debug("Failed to extract prose from JSON-like output: {}", e.getMessage());
-            return null;
-        }
     }
 
     // ── Clause text sanitizer ──────────────────────────────────────────────────
@@ -2142,51 +1922,15 @@ public class DraftService {
      * commercially reasonable defaults derived from the request context.
      * This runs after all QA retries so the output is never left with raw brackets.
      */
+    /** Last-resort placeholder cleanup — rules in drafting_defaults.yml {@code placeholder_rules}. */
     private String postProcessPlaceholders(String html, DraftRequest request) {
-        String partyA = nullToDefault(request.getPartyA(), defaultPartyA(request));
-        String partyB = nullToDefault(request.getPartyB(), defaultPartyB(request));
-        String jurisdiction = nullToDefault(request.getJurisdiction(), "the governing jurisdiction");
-        String noticeDays = nullToDefault(request.getNoticeDays(), "30");
-        String termYears = nullToDefault(request.getTermYears(), "3");
-
-        return html
-            // Party name placeholders
-            .replaceAll("(?i)\\[(?:Party A|Party 1|First Party|Service Provider|Company|Vendor)\\]", partyA)
-            .replaceAll("(?i)\\[(?:Party B|Party 2|Second Party|Client|Customer|Buyer)\\]", partyB)
-            .replaceAll("(?i)\\[(?:party name|name of party|insert party)\\]", partyA)
-            // Date placeholders
-            .replaceAll("(?i)\\[(?:effective date|commencement date|start date|date)\\]", "the Effective Date")
-            .replaceAll("(?i)\\(insert(?:ion)? (?:effective )?date\\)", "the Effective Date")
-            .replaceAll("(?i)\\[insert date\\]", "the Effective Date")
-            // Duration placeholders
-            .replaceAll("(?i)\\[(?:X+|N+|\\d*)\\s*(?:days?|months?|years?)\\]",
-                    noticeDays + " (thirty) days")
-            .replaceAll("(?i)\\(insert (?:notice )?period\\)", noticeDays + " days")
-            .replaceAll("(?i)\\[insert duration\\]", termYears + " years")
-            .replaceAll("(?i)\\[insert (?:initial )?term\\]", termYears + " years")
-            // Financial placeholders
-            .replaceAll("(?i)\\[insert (?:billing|payment) cycle\\]", "monthly in advance")
-            .replaceAll("(?i)\\[insert (?:applicable )?interest rate\\]",
-                    "2% per annum above the applicable base rate")
-            .replaceAll("(?i)\\[(?:insert )?(?:amount|fee|price|rate|sum|\\$+|£+|₹+|\\*+)\\]",
-                    "the amounts set forth in the applicable Statement of Work")
-            // Jurisdiction placeholders
-            .replaceAll("(?i)\\[(?:jurisdiction|governing law|applicable law|state|country)\\]", jurisdiction)
-            // Generic catch-all: [***] and similar redaction markers
-            .replaceAll("\\[\\*{2,}\\]", "as mutually agreed in writing by the Parties")
-            .replaceAll("\\[_{2,}\\]", "as mutually agreed in writing by the Parties")
-            // (insert ...) patterns not already caught
-            .replaceAll("(?i)\\(insert[^)]{0,60}\\)", "as specified in the applicable Order Form")
-            // TBD / TBC
-            .replaceAll("(?i)\\bTBD\\b", "as mutually agreed by the Parties in writing")
-            .replaceAll("(?i)\\bTBC\\b", "to be confirmed by written notice")
-            // Universal catch-all: any remaining [INSERT ...] or [SPECIFY ...] bracket
-            .replaceAll("(?i)\\[insert\\s+[^\\]]{1,80}\\]", "as specified in the applicable Order Form or Statement of Work")
-            .replaceAll("(?i)\\[specify\\s+[^\\]]{1,80}\\]", "as agreed in writing by the Parties")
-            // Any remaining ALL-CAPS bracket placeholder e.g. [PAYMENT PERIOD], [RATE OF INTEREST], [NUMBER]
-            .replaceAll("\\[[A-Z][A-Z\\s]{1,60}\\]", "as mutually agreed by the Parties in writing")
-            // Any remaining mixed-case bracket e.g. [insert number], [number of days]
-            .replaceAll("\\[[a-zA-Z][a-zA-Z\\s]{1,60}\\]", "as mutually agreed by the Parties in writing");
+        Map<String, String> vars = Map.of(
+                "PARTY_A", nullToDefault(request.getPartyA(), defaultPartyA(request)),
+                "PARTY_B", nullToDefault(request.getPartyB(), defaultPartyB(request)),
+                "JURISDICTION", nullToDefault(request.getJurisdiction(), draftingDefaults.prompt("jurisdiction_phrase")),
+                "NOTICE_DAYS", nullToDefault(request.getNoticeDays(), draftingDefaults.form("NOTICE_DAYS")),
+                "TERM_YEARS", nullToDefault(request.getTermYears(), draftingDefaults.form("TERM_YEARS")));
+        return draftingDefaults.applyPlaceholderRules(html, vars);
     }
 
     // ── Party role enforcement ─────────────────────────────────────────────────
@@ -2319,14 +2063,29 @@ public class DraftService {
      * party name drift and defined term usage inconsistency.
      * Returns a list of issues found (empty = coherent).
      */
+    /** Distinct role words (leading "the " dropped) excluding the template's own roles. */
+    private static List<String> driftSynonyms(List<String> variants, java.util.Set<String> ownRoles) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (String v : variants) {
+            String word = v.replaceFirst("(?i)^the\\s+", "").trim();
+            if (!word.isEmpty() && !ownRoles.contains(word.toLowerCase())) out.add(word);
+        }
+        return new ArrayList<>(out);
+    }
+
     private List<CoherenceIssue> runCoherenceScan(List<String> sections,
                                                    Map<String, String> sectionValues,
-                                                   TerminologyManifest manifest) {
+                                                   TerminologyManifest manifest,
+                                                   String templateId) {
         List<CoherenceIssue> issues = new ArrayList<>();
 
-        // Party name synonyms that indicate drift
-        List<String> vendorSynonyms  = List.of("Vendor", "Supplier", "Company", "Contractor", "Provider");
-        List<String> clientSynonyms  = List.of("Customer", "Buyer", "Purchaser", "Recipient");
+        // Party-name drift: role words from party_name_variants.yml that are NOT this
+        // template's own roles (contract_types.yml party_roles) — e.g. "Vendor" in a SaaS
+        // draft whose roles are Provider/Customer.
+        java.util.Set<String> ownRoles = new java.util.HashSet<>();
+        contractRegistry.partyRoles(templateId).forEach(r -> ownRoles.add(r.toLowerCase()));
+        List<String> vendorSynonyms = driftSynonyms(partyNameVariantsConfig.partyAVariants(), ownRoles);
+        List<String> clientSynonyms = driftSynonyms(partyNameVariantsConfig.partyBVariants(), ownRoles);
 
         for (String key : sections) {
             String html = sectionValues.getOrDefault(key, "");
@@ -2452,32 +2211,25 @@ public class DraftService {
         Map<String, String> m = new HashMap<>();
         m.put("PARTY_A", nullToDefault(r.getPartyA(), defaultPartyA(r)));
         m.put("PARTY_B", nullToDefault(r.getPartyB(), defaultPartyB(r)));
-        m.put("PARTY_A_ADDRESS", nullToDefault(r.getPartyAAddress(), "its registered office"));
-        m.put("PARTY_B_ADDRESS", nullToDefault(r.getPartyBAddress(), "its registered office"));
-        m.put("PARTY_A_REP", nullToDefault(r.getPartyARep(), "its authorised signatory"));
-        m.put("PARTY_B_REP", nullToDefault(r.getPartyBRep(), "its authorised signatory"));
+        m.put("PARTY_A_ADDRESS", nullToDefault(r.getPartyAAddress(), draftingDefaults.form("PARTY_A_ADDRESS")));
+        m.put("PARTY_B_ADDRESS", nullToDefault(r.getPartyBAddress(), draftingDefaults.form("PARTY_B_ADDRESS")));
+        m.put("PARTY_A_REP", nullToDefault(r.getPartyARep(), draftingDefaults.form("PARTY_A_REP")));
+        m.put("PARTY_B_REP", nullToDefault(r.getPartyBRep(), draftingDefaults.form("PARTY_B_REP")));
         m.put("EFFECTIVE_DATE", nullToDefault(r.getEffectiveDate(), java.time.LocalDate.now().toString()));
         m.put("JURISDICTION", nullToDefault(r.getJurisdiction(), defaultJurisdiction));
         m.put("AGREEMENT_REF", nullToDefault(r.getAgreementRef(), generateAgreementRef(r)));
-        m.put("TERM_YEARS", nullToDefault(r.getTermYears(), "3"));
-        m.put("NOTICE_DAYS", nullToDefault(r.getNoticeDays(), "30"));
-        m.put("SURVIVAL_YEARS", nullToDefault(r.getSurvivalYears(), "5"));
+        m.put("TERM_YEARS", nullToDefault(r.getTermYears(), draftingDefaults.form("TERM_YEARS")));
+        m.put("NOTICE_DAYS", nullToDefault(r.getNoticeDays(), draftingDefaults.form("NOTICE_DAYS")));
+        m.put("SURVIVAL_YEARS", nullToDefault(r.getSurvivalYears(), draftingDefaults.form("SURVIVAL_YEARS")));
         m.put("CONTRACT_TYPE_TITLE", resolveContractTypeName(r).toUpperCase());
         return m;
     }
 
     /** Auto-generate agreement reference: SLA-20260420-A1B2 */
     private String generateAgreementRef(DraftRequest r) {
-        String prefix = switch (nullToDefault(r.getTemplateId(), "").toLowerCase()) {
-            case "nda" -> "NDA";
-            case "msa" -> "MSA";
-            case "saas" -> "SAAS";
-            case "software_license", "software-license" -> "SLA";
-            case "ip_license", "ip-license" -> "IPL";
-            case "employment" -> "EMP";
-            case "supply" -> "SUP";
-            default -> "AGR";
-        };
+        var typeConfig = contractRegistry.isKnown(r.getTemplateId()) ? contractRegistry.get(r.getTemplateId()) : null;
+        String prefix = typeConfig != null && typeConfig.refPrefix() != null
+                ? typeConfig.refPrefix() : draftingDefaults.agreementRefPrefix();
         String date = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
         String suffix = java.util.UUID.randomUUID().toString().substring(0, 4).toUpperCase();
         return prefix + "-" + date + "-" + suffix;
@@ -2590,13 +2342,7 @@ public class DraftService {
                     String resolved = goldenClauseLibrary.resolve(goldenClause.get(), dealSpec, industry);
                     if (!resolved.isBlank()) {
                         // Wrap each line as a sub-clause paragraph
-                        StringBuilder injectionHtml = new StringBuilder();
-                        for (String line : resolved.split("\n")) {
-                            if (line.isBlank()) continue;
-                            injectionHtml.append("\n<p class=\"clause-sub\">")
-                                    .append(escapeHtmlText(line.trim())).append("</p>");
-                        }
-                        result = insertBeforeClosingTag(result, injectionHtml.toString());
+                        result = insertBeforeClosingTag(result, "\n" + GoldenClauseLibrary.toHtml(resolved).stripTrailing());
                         log.info("BLOCK fallback [{}]: Tier 3 — applied golden clause '{}' for {}",
                                 clauseType, goldenClause.get().id(), block.rule().id());
                         fixed = true;

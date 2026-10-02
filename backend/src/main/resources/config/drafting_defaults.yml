@@ -1,0 +1,91 @@
+# Drafting defaults — values the drafter uses when the user's form and deal brief
+# don't supply one, plus the last-resort cleanup applied to LLM output.
+#
+# Policy note: these defaults put concrete terms (e.g. a 30-day notice period) into
+# a contract the user didn't specify. To render gaps as visible fill-in fields
+# instead, set the relevant values to a marker such as "[●]".
+
+# Template variables in the contract HTML header ({{PARTY_A_ADDRESS}} etc.)
+form_defaults:
+  PARTY_A_ADDRESS: "its registered office"
+  PARTY_B_ADDRESS: "its registered office"
+  PARTY_A_REP: "its authorised signatory"
+  PARTY_B_REP: "its authorised signatory"
+  TERM_YEARS: "3"
+  NOTICE_DAYS: "30"
+  SURVIVAL_YEARS: "5"
+
+# Values substituted into LLM prompts when a request field is blank.
+prompt_defaults:
+  practice_area: "general"
+  industry: "GENERAL"
+  counterparty_type: "general"
+  deal_brief: "standard contract"
+  jurisdiction_phrase: "the governing jurisdiction"
+
+# Agreement reference prefix when a template has no ref_prefix in contract_types.yml.
+agreement_ref_prefix: "AGR"
+
+# One-line style directive fixed once per draft. {{DRAFTING_REGISTER}} comes from
+# jurisdictions.yml for the draft's jurisdiction.
+style_fingerprint: >-
+  {{DRAFTING_REGISTER}}; sentences ≤ 35 words; sub-clause numbering "<article>.<sub>"
+  (e.g. 2.1, 2.2, 2.3); use defined terms with exact capitalisation; cite any article by
+  number and title (e.g., "Clause 8 (Termination)") — forward references permitted.
+
+# Last-resort placeholder cleanup, applied in order to every generated clause after
+# QA retries. `pattern` is a Java regex; `replacement` may use {{PARTY_A}}, {{PARTY_B}},
+# {{JURISDICTION}}, {{NOTICE_DAYS}}, {{TERM_YEARS}}.
+placeholder_rules:
+  # Party names
+  - pattern: '(?i)\[(?:Party A|Party 1|First Party|Service Provider|Company|Vendor)\]'
+    replacement: "{{PARTY_A}}"
+  - pattern: '(?i)\[(?:Party B|Party 2|Second Party|Client|Customer|Buyer)\]'
+    replacement: "{{PARTY_B}}"
+  - pattern: '(?i)\[(?:party name|name of party|insert party)\]'
+    replacement: "{{PARTY_A}}"
+  # Dates
+  - pattern: '(?i)\[(?:effective date|commencement date|start date|date)\]'
+    replacement: "the Effective Date"
+  - pattern: '(?i)\(insert(?:ion)? (?:effective )?date\)'
+    replacement: "the Effective Date"
+  - pattern: '(?i)\[insert date\]'
+    replacement: "the Effective Date"
+  # Durations
+  - pattern: '(?i)\[(?:X+|N+|\d*)\s*(?:days?|months?|years?)\]'
+    replacement: "{{NOTICE_DAYS}} days"
+  - pattern: '(?i)\(insert (?:notice )?period\)'
+    replacement: "{{NOTICE_DAYS}} days"
+  - pattern: '(?i)\[insert duration\]'
+    replacement: "{{TERM_YEARS}} years"
+  - pattern: '(?i)\[insert (?:initial )?term\]'
+    replacement: "{{TERM_YEARS}} years"
+  # Money
+  - pattern: '(?i)\[insert (?:billing|payment) cycle\]'
+    replacement: "monthly in advance"
+  - pattern: '(?i)\[insert (?:applicable )?interest rate\]'
+    replacement: "2% per annum above the applicable base rate"
+  - pattern: '(?i)\[(?:insert )?(?:amount|fee|price|rate|sum|\$+|£+|₹+|\*+)\]'
+    replacement: "the amounts set forth in the applicable Statement of Work"
+  # Jurisdiction
+  - pattern: '(?i)\[(?:jurisdiction|governing law|applicable law|state|country)\]'
+    replacement: "{{JURISDICTION}}"
+  # Redaction markers and catch-alls
+  - pattern: '\[\*{2,}\]'
+    replacement: "as mutually agreed in writing by the Parties"
+  - pattern: '\[_{2,}\]'
+    replacement: "as mutually agreed in writing by the Parties"
+  - pattern: '(?i)\(insert[^)]{0,60}\)'
+    replacement: "as specified in the applicable Order Form"
+  - pattern: '(?i)\bTBD\b'
+    replacement: "as mutually agreed by the Parties in writing"
+  - pattern: '(?i)\bTBC\b'
+    replacement: "to be confirmed by written notice"
+  - pattern: '(?i)\[insert\s+[^\]]{1,80}\]'
+    replacement: "as specified in the applicable Order Form or Statement of Work"
+  - pattern: '(?i)\[specify\s+[^\]]{1,80}\]'
+    replacement: "as agreed in writing by the Parties"
+  - pattern: '\[[A-Z][A-Z\s]{1,60}\]'
+    replacement: "as mutually agreed by the Parties in writing"
+  - pattern: '\[[a-zA-Z][a-zA-Z\s]{1,60}\]'
+    replacement: "as mutually agreed by the Parties in writing"

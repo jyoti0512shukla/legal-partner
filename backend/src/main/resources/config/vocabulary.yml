@@ -1,0 +1,173 @@
+# Legal vocabulary for retrieval and classification.
+#
+# Everything the RAG pipeline and document classifiers "know" about legal wording —
+# synonyms, acronyms, clause signals, contract-type signals — lives here, so tuning
+# retrieval or adding a contract type never needs a Java change.
+# Loaded by LegalVocabulary; consumers: QueryExpander, ReRanker, LegalDocumentChunker,
+# ContractTypeDetector, AiService (legacy risk view, compare, drilldown).
+
+# ── Query expansion (QueryExpander) ──────────────────────────────────────────
+query_expansion:
+  # Keys are ROOT STEMS (prefix match): "terminat" matches terminate/termination/terminating.
+  stem_synonyms:
+    terminat: ["exit clause", "right to terminate", "notice of termination", "expiry", "end of contract"]
+    liabilit: ["limitation of liability", "cap on liability", "damages", "liable", "indemnit"]
+    indemnit: ["indemnification", "hold harmless", "indemnify", "defend claims"]
+    govern: ["jurisdiction", "applicable law", "choice of law", "governing law"]
+    confidential: ["non-disclosure", "NDA", "proprietary information", "trade secret"]
+    force majeure: ["act of god", "unforeseen circumstances", "beyond control", "vis major"]
+    warrant: ["representation", "represents and warrants", "warranties", "guarantee"]
+    intellectual property: ["IP rights", "patent", "copyright", "trademark", "work product"]
+    ip right: ["intellectual property", "patent", "copyright", "trademark"]
+    payment: ["compensation", "fees", "invoice", "remuneration", "consideration"]
+    arbitrat: ["dispute resolution", "mediation", "conciliation", "ICADR", "ICC"]
+    breach: ["default", "non-performance", "violation", "non-compliance"]
+    assign: ["transfer of rights", "novation", "delegation", "assignment"]
+    notice: ["written notice", "notification", "notice period", "cure period"]
+    represent: ["warranties", "covenants", "undertakings", "representations"]
+    non-compet: ["restraint of trade", "non-solicitation", "exclusivity"]
+    data protect: ["PDPB", "GDPR", "personal data", "data processing", "privacy"]
+    subcontract: ["outsourcing", "third party", "vendor", "sub-vendor"]
+  # Whole-word acronyms appended with their expansion.
+  acronyms:
+    nda: "non-disclosure agreement confidentiality"
+    msa: "master services agreement"
+    sow: "statement of work"
+    sla: "service level agreement"
+    mou: "memorandum of understanding"
+    loi: "letter of intent"
+    ica: "Indian Contract Act 1872"
+
+# ── Re-ranking (ReRanker) ────────────────────────────────────────────────────
+rerank:
+  # Short tokens kept as keywords (normally tokens ≤ 2 chars are dropped).
+  legal_acronyms: [ip, nda, msa, sow, sla, mou, loi, ica, ipc, crpc, gst, vat, adr, icc, lcia, siac, cci, sebi, rbi]
+  # Authority weight by source document class.
+  doctype_authority:
+    LEGISLATION: 1.0
+    PRECEDENT: 0.8
+    CONTRACT: 0.6
+    OTHER: 0.4
+
+# ── Chunk clause tagging at ingest (LegalDocumentChunker) ───────────────────
+# Keys are ClauseType enum names. Highest keyword count wins; ties → earlier entry.
+chunk_clause_keywords:
+  TERMINATION: ["termination", "terminate", "notice period", "expiry", "exit clause"]
+  LIABILITY: ["liability", "liable", "limitation of liability", "cap on", "damages"]
+  INDEMNITY: ["indemnify", "indemnification", "hold harmless", "indemnity"]
+  WARRANTY: ["warranty", "warranties", "represents and warrants", "representation"]
+  CONFIDENTIALITY: ["confidential", "non-disclosure", "proprietary", "nda"]
+  GOVERNING_LAW: ["governing law", "jurisdiction", "arbitration", "dispute resolution", "applicable law"]
+  FORCE_MAJEURE: ["force majeure", "act of god", "unforeseen", "beyond control"]
+  IP_RIGHTS: ["intellectual property", "ip rights", "patent", "copyright", "trademark", "work product"]
+  PAYMENT: ["payment", "invoice", "compensation", "fee", "charges", "remuneration"]
+
+# ── Contract-type detection (ContractTypeDetector) ───────────────────────────
+# Strong signals score 2, weak signals 1; confidence = score / max possible.
+contract_type_detection:
+  min_confidence: 0.15
+  types:
+    - type: NDA
+      strong: ["non-disclosure agreement", "confidentiality agreement", "mutual nda"]
+      weak: ["confidential information", "receiving party", "disclosing party"]
+    - type: SAAS
+      strong: ["software as a service", "saas agreement", "subscription agreement"]
+      weak: ["subscription", "uptime", "service level", "cloud", "hosted"]
+    - type: SOFTWARE_LICENSE
+      strong: ["software license agreement", "license agreement", "perpetual license"]
+      weak: ["license fee", "licensor", "licensee", "software"]
+    - type: EMPLOYMENT
+      strong: ["employment agreement", "offer letter", "employment contract"]
+      weak: ["employee", "employer", "salary", "probation", "termination of employment"]
+    - type: MSA
+      strong: ["master services agreement", "master agreement", "framework agreement"]
+      weak: ["statement of work", "sow", "services", "professional services"]
+    - type: SUPPLY
+      strong: ["supply agreement", "purchase agreement", "procurement agreement"]
+      weak: ["delivery", "supplier", "purchase order", "goods"]
+    - type: IP_LICENSE
+      strong: ["intellectual property license", "patent license", "ip license agreement"]
+      weak: ["royalty", "patent", "trademark", "copyright license"]
+    - type: LEASE
+      strong: ["lease agreement", "rental agreement", "commercial lease"]
+      weak: ["landlord", "tenant", "rent", "premises"]
+
+  # When text signals are inconclusive, infer the type from which clauses were found.
+  # First matching hint wins.
+  clause_hints:
+    - type: SAAS
+      if_present: [SLA, DATA_PROTECTION]
+    - type: MSA
+      if_present: [IP_RIGHTS]
+      if_absent: [SLA]
+
+# ── Legacy 7-category risk view ──────────────────────────────────────────────
+# Used by risk drilldown, contract comparison and the legacy risk-response parsers.
+#   label            display name (also the compare dimension, lower-cased)
+#   stems            substrings that identify the category in free-text model output
+#   section_keywords substrings that locate the category's section in a contract
+risk_categories:
+  LIABILITY:
+    label: "Liability"
+    stems: ["liabilit"]
+    section_keywords: ["liability", "limitation of liability", "limit of liability"]
+  INDEMNITY:
+    label: "Indemnity"
+    stems: ["indemnit"]
+    section_keywords: ["indemnity", "indemnification", "indemnif"]
+  TERMINATION:
+    label: "Termination"
+    stems: ["terminat"]
+    section_keywords: ["termination", "expiry", "expiration"]
+  IP_RIGHTS:
+    label: "IP Rights"
+    stems: ["intellectual", "ip rights"]
+    section_keywords: ["intellectual property", "ip rights", "copyright", "patent"]
+  CONFIDENTIALITY:
+    label: "Confidentiality"
+    stems: ["confidential"]
+    section_keywords: ["confidential", "non-disclosure", "nda"]
+  GOVERNING_LAW:
+    label: "Governing Law"
+    stems: ["governing law"]
+    section_keywords: ["governing law", "jurisdiction", "dispute resolution", "arbitration"]
+  FORCE_MAJEURE:
+    label: "Force Majeure"
+    stems: ["force majeure"]
+    section_keywords: ["force majeure", "act of god", "frustration"]
+
+# Phrases in free-text model output implying a risk level (legacy prose fallback).
+risk_phrases:
+  high: ["no ", "not found", "not defined", "not present", "missing", "absent", "no cap", "unlimited",
+         "one-sided", "unilateral", "undefined", "does not", "no provision", "not addressed"]
+  low: ["clear", "balanced", "mutual", "standard", "well-defined", "explicitly", "both parties",
+        "adequate", "comprehensive"]
+
+# Semantic queries used to pull a document's key sections when full text isn't used.
+document_context_queries:
+  - "liability termination indemnity confidentiality governing law"
+  - "contract agreement obligations breach consideration sections"
+  - "warranties representations covenants conditions"
+  - "payment fees schedule annexure"
+
+# ── Concrete, deal-specific entities ─────────────────────────────────────────
+# One definition shared by (a) the cross-client leak check on drafted clauses and
+# (b) templating firm clauses (each match becomes its placeholder).
+# min_digits: the leak check ignores matches with fewer digits (e.g. "$30" is too generic).
+entity_patterns:
+  - name: amount
+    placeholder: "{{amount}}"
+    pattern: '(?:\$|₹|£|€|USD|INR|GBP|EUR)\s*[\d,]+(?:\.\d+)?|[\d,]{4,}\s*(?:dollars|rupees|USD|INR|GBP|EUR)'
+    min_digits: 4
+  - name: date
+    placeholder: "{{date}}"
+    pattern: '(?i)\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}/\d{1,2}/\d{4}\b'
+    min_digits: 0
+  - name: email
+    placeholder: "{{email}}"
+    pattern: '[\w._%+-]+@[\w.-]+\.[A-Za-z]{2,}'
+    min_digits: 0
+  - name: phone
+    placeholder: "{{phone}}"
+    pattern: '\+?\d{1,3}[\s-]?\(?\d{3,5}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}'
+    min_digits: 9

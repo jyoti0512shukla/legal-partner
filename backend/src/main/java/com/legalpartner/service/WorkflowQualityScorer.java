@@ -3,187 +3,199 @@ package com.legalpartner.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.legalpartner.model.enums.WorkflowStepType;
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.yaml.snakeyaml.Yaml;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
 
 /**
  * Heuristic (no-LLM) quality scorer for workflow step outputs.
- * Returns a 0–100 score and a list of gaps to address if score < 70.
+ * Returns a 0–100 score and a list of gaps; passing threshold is
+ * legalpartner.workflows.quality.passing-score (default 70).
+ *
+ * The rubric per step type — checks, points and gap wording — is in
+ * {@code config/workflow_quality.yml}; this class only evaluates the check kinds.
  */
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class WorkflowQualityScorer {
 
-    private static final int PASSING_SCORE = 70;
+    private static final String CONFIG_PATH = "config/workflow_quality.yml";
 
-    public record QualityScore(int score, List<String> gaps) {
-        public boolean isPassing() { return score >= PASSING_SCORE; }
+    @Value("${legalpartner.workflows.quality.passing-score:70}")
+    private int passingScore = 70;
+
+    public record QualityScore(int score, List<String> gaps) {}
+
+    /** One rubric check; unused fields are null / empty for a given kind. {@code exclude} also holds {@code empty_values}. */
+    record Check(String kind, String path, List<String> paths, String field, List<String> fields,
+                 List<String> exclude, List<Pattern> patterns, String value, int min, int points, int perItem,
+                 String gap, String gapWhenEmpty) {}
+
+    record Rubric(int base, List<Check> checks) {}
+
+    private Map<WorkflowStepType, Rubric> rubrics = Map.of();
+    private int onErrorScore = 75;
+
+    @PostConstruct
+    @SuppressWarnings("unchecked")
+    void load() {
+        try (InputStream in = getClass().getClassLoader().getResourceAsStream(CONFIG_PATH)) {
+            if (in == null) throw new IllegalStateException("Missing " + CONFIG_PATH);
+            Map<String, Object> root = new Yaml().load(in);
+            this.onErrorScore = root.get("on_error_score") instanceof Number n ? n.intValue() : 75;
+            Map<WorkflowStepType, Rubric> out = new EnumMap<>(WorkflowStepType.class);
+            ((Map<String, Object>) root.getOrDefault("steps", Map.of())).forEach((type, v) -> {
+                Map<String, Object> r = (Map<String, Object>) v;
+                List<Check> checks = new ArrayList<>();
+                for (Map<String, Object> c : (List<Map<String, Object>>) r.getOrDefault("checks", List.of())) {
+                    checks.add(check(c));
+                }
+                out.put(WorkflowStepType.valueOf(type), new Rubric(((Number) r.get("base")).intValue(), List.copyOf(checks)));
+            });
+            this.rubrics = Collections.unmodifiableMap(out);
+            log.info("WorkflowQualityScorer: rubrics for {} step types", rubrics.size());
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to load " + CONFIG_PATH, e);
+        }
     }
+
+    private static Check check(Map<String, Object> c) {
+        String kind = String.valueOf(c.get("kind"));
+        if (!KINDS.contains(kind)) throw new IllegalStateException(CONFIG_PATH + ": unknown check kind " + kind);
+        return new Check(kind, str(c.get("path")), strings(c.get("paths")), str(c.get("field")),
+                strings(c.get("fields")),
+                java.util.stream.Stream.concat(strings(c.get("exclude")).stream(), strings(c.get("empty_values")).stream()).toList(),
+                strings(c.get("patterns")).stream().map(Pattern::compile).toList(),
+                str(c.get("value")), num(c.get("min")), num(c.get("points")), num(c.get("per_item")),
+                str(c.get("gap")), str(c.get("gap_when_empty")));
+    }
+
+    static final List<String> KINDS = List.of("min_items", "each_item_min_length", "any_item_has", "min_length",
+            "not_blank", "equals", "min_number", "fields_present", "no_match", "min_sentences");
+
+    public boolean isPassing(QualityScore q) { return q.score() >= passingScore; }
+
+    /** Step types with a rubric (for config tests). */
+    public java.util.Set<WorkflowStepType> ruledTypes() { return rubrics.keySet(); }
 
     public QualityScore score(WorkflowStepType type, Object result, ObjectMapper mapper) {
+        Rubric rubric = rubrics.get(type);
+        if (rubric == null) {
+            log.warn("No quality rubric for step type {} — treating as passing", type);
+            return new QualityScore(100, List.of());
+        }
         try {
-            String json = mapper.writeValueAsString(result);
-            JsonNode node = mapper.readTree(json);
-            return switch (type) {
-                case RISK_ASSESSMENT     -> scoreRisk(node);
-                case REDLINE_SUGGESTIONS -> scoreRedlines(node);
-                case GENERATE_SUMMARY    -> scoreSummary(node);
-                case EXTRACT_KEY_TERMS   -> scoreExtraction(node);
-                case DRAFT_CLAUSE        -> scoreDraft(node);
-                case COMPLIANCE_CHECK    -> scoreCompliance(node);
-                case OBLIGATION_EXTRACT  -> scoreObligations(node);
-                case APPROVAL_GATE       -> new QualityScore(100, List.of()); // no quality loop for human gate
-            };
+            JsonNode node = mapper.readTree(mapper.writeValueAsString(result));
+            int score = rubric.base();
+            List<String> gaps = new ArrayList<>();
+            for (Check c : rubric.checks()) score += apply(c, node, gaps);
+            return new QualityScore(Math.min(score, 100), gaps);
         } catch (Exception e) {
             log.warn("Quality scoring failed for {}: {}", type, e.getMessage());
-            return new QualityScore(75, List.of()); // assume ok on parse failure
+            return new QualityScore(onErrorScore, List.of());
         }
     }
 
-    private QualityScore scoreRisk(JsonNode node) {
-        List<String> gaps = new ArrayList<>();
-        int score = 30;
-
-        int catCount = node.path("categories").size();
-        if (catCount >= 5) score += 25;
-        else { score += catCount * 5; gaps.add("Only " + catCount + " risk categories identified — need at least 5 (LIABILITY, INDEMNITY, TERMINATION, IP_RIGHTS, CONFIDENTIALITY, GOVERNING_LAW, FORCE_MAJEURE)"); }
-
-        boolean hasJustifications = StreamSupport.stream(node.path("categories").spliterator(), false)
-                .allMatch(c -> c.path("justification").asText("").length() > 20);
-        if (hasJustifications) score += 20;
-        else gaps.add("Some risk categories have no justification — explain WHY each rating was assigned with reference to the contract text");
-
-        boolean hasSectionRefs = StreamSupport.stream(node.path("categories").spliterator(), false)
-                .anyMatch(c -> {
-                    String ref = c.path("sectionRef").asText(c.path("section_ref").asText(""));
-                    return !ref.isBlank() && !"See contract".equalsIgnoreCase(ref);
+    /** Points earned by one check; adds its gap when it fails. */
+    static int apply(Check c, JsonNode node, List<String> gaps) {
+        switch (c.kind()) {
+            case "min_items" -> {
+                int count = node.path(c.path()).size();
+                if (count >= c.min()) return c.points();
+                String gap = count == 0 && c.gapWhenEmpty() != null ? c.gapWhenEmpty() : c.gap();
+                addGap(gaps, gap, "{count}", String.valueOf(count));
+                return count == 0 && c.gapWhenEmpty() != null ? 0 : count * c.perItem();
+            }
+            case "each_item_min_length" -> {
+                boolean ok = StreamSupport.stream(node.path(c.path()).spliterator(), false)
+                        .allMatch(i -> i.path(c.field()).asText("").length() >= c.min());
+                return pass(ok, c, gaps);
+            }
+            case "any_item_has" -> {
+                boolean ok = StreamSupport.stream(node.path(c.path()).spliterator(), false).anyMatch(i -> {
+                    String v = firstNonBlank(i, c.fields());
+                    return !v.isBlank() && c.exclude().stream().noneMatch(v::equalsIgnoreCase);
                 });
-        if (hasSectionRefs) score += 15;
-        else gaps.add("No specific section references — cite the actual clause number or section name from the contract (e.g. 'Clause 8.2', 'Section 12 — Force Majeure')");
-
-        if (!node.path("overallRisk").asText("").isBlank()) score += 10;
-        else gaps.add("Overall risk level (HIGH/MEDIUM/LOW) not set");
-
-        return new QualityScore(Math.min(score, 100), gaps);
-    }
-
-    private QualityScore scoreCompliance(JsonNode node) {
-        List<String> gaps = new ArrayList<>();
-        int score = 50;
-
-        String status = node.path("status").asText("");
-        if ("COMPLETED".equals(status)) score += 20;
-        else gaps.add("Compliance check did not complete — " + status);
-
-        int totalChecked = node.path("totalChecked").asInt(0);
-        if (totalChecked >= 3) score += 15;
-        else gaps.add("Fewer than 3 playbook positions checked");
-
-        int violations = node.path("violations").size();
-        // Having violations is expected — the quality is about completeness, not absence of issues
-        if (totalChecked > 0) score += 15;
-
-        return new QualityScore(Math.min(score, 100), gaps);
-    }
-
-    private QualityScore scoreObligations(JsonNode node) {
-        List<String> gaps = new ArrayList<>();
-        int score = 40;
-
-        String status = node.path("status").asText("");
-        if ("COMPLETED".equals(status)) score += 20;
-
-        int obligationCount = node.path("obligations").size();
-        if (obligationCount >= 3) score += 25;
-        else if (obligationCount > 0) { score += obligationCount * 8; gaps.add("Only " + obligationCount + " obligation(s) found — check for payments, deadlines, renewals, notice periods"); }
-        else gaps.add("No obligations extracted — scan for payment terms, deliverable dates, renewal clauses, notice requirements");
-
-        boolean hasTypes = StreamSupport.stream(node.path("obligations").spliterator(), false)
-                .allMatch(o -> !o.path("type").asText("").isBlank());
-        if (hasTypes) score += 15;
-
-        return new QualityScore(Math.min(score, 100), gaps);
-    }
-
-    private QualityScore scoreRedlines(JsonNode node) {
-        List<String> gaps = new ArrayList<>();
-        int score = 25;
-
-        int suggCount = node.path("suggestions").size();
-        if (suggCount >= 3) score += 30;
-        else if (suggCount == 0) gaps.add("No redline suggestions — if clause issues were identified, provide specific improved language for each");
-        else { score += suggCount * 8; gaps.add("Only " + suggCount + " suggestion(s) — provide at least 3, one per weak/missing clause"); }
-
-        boolean hasSpecificLanguage = StreamSupport.stream(node.path("suggestions").spliterator(), false)
-                .allMatch(s -> s.path("suggestedLanguage").asText("").length() > 60);
-        if (hasSpecificLanguage) score += 25;
-        else gaps.add("Suggested language is too brief or generic — write full clause-level text (minimum 2 sentences) that could be inserted directly into the contract");
-
-        boolean hasRationale = StreamSupport.stream(node.path("suggestions").spliterator(), false)
-                .allMatch(s -> s.path("rationale").asText("").length() > 20);
-        if (hasRationale) score += 20;
-        else gaps.add("Rationale is missing or too brief — explain why the suggested language is legally superior");
-
-        return new QualityScore(Math.min(score, 100), gaps);
-    }
-
-    private QualityScore scoreSummary(JsonNode node) {
-        List<String> gaps = new ArrayList<>();
-        int score = 35;
-
-        String summary = node.path("executiveSummary").asText("");
-        if (summary.length() >= 150) score += 25;
-        else gaps.add("Executive summary too short — write at least 3-4 sentences covering: contract purpose, key parties, primary obligations, and main risks");
-
-        int concernCount = node.path("topConcerns").size();
-        if (concernCount >= 2) score += 20;
-        else gaps.add("Fewer than 2 top concerns — identify the most significant legal or commercial risks from the analysis");
-
-        int recCount = node.path("recommendations").size();
-        if (recCount >= 1) score += 20;
-        else gaps.add("No actionable recommendations — suggest specific negotiation points or protective clauses the party should request");
-
-        return new QualityScore(Math.min(score, 100), gaps);
-    }
-
-    private QualityScore scoreExtraction(JsonNode node) {
-        List<String> gaps = new ArrayList<>();
-        int score = 35;
-
-        String[] keyFields = {"partyA", "partyB", "effectiveDate", "governingLaw"};
-        List<String> missing = new ArrayList<>();
-        for (String f : keyFields) {
-            String val = node.path(f).asText("");
-            if (!val.isBlank() && !"N/A".equalsIgnoreCase(val)) score += 15;
-            else missing.add(f);
+                return pass(ok, c, gaps);
+            }
+            case "min_length" -> {
+                return pass(firstNonBlank(node, c.paths()).length() >= c.min(), c, gaps);
+            }
+            case "not_blank" -> {
+                return pass(!node.path(c.path()).asText("").isBlank(), c, gaps);
+            }
+            case "equals" -> {
+                String actual = node.path(c.path()).asText("");
+                if (actual.equals(c.value())) return c.points();
+                addGap(gaps, c.gap(), "{actual}", actual);
+                return 0;
+            }
+            case "min_number" -> {
+                return pass(node.path(c.path()).asInt(0) >= c.min(), c, gaps);
+            }
+            case "fields_present" -> {
+                int earned = 0;
+                List<String> missing = new ArrayList<>();
+                for (String f : c.fields()) {
+                    String v = node.path(f).asText("");
+                    if (!v.isBlank() && c.exclude().stream().noneMatch(v::equalsIgnoreCase)) {
+                        earned += c.points();
+                    } else {
+                        missing.add(f);
+                    }
+                }
+                if (!missing.isEmpty()) addGap(gaps, c.gap(), "{missing}", String.join(", ", missing));
+                return earned;
+            }
+            case "no_match" -> {
+                String text = firstNonBlank(node, c.paths());
+                return pass(c.patterns().stream().noneMatch(p -> p.matcher(text).matches()), c, gaps);
+            }
+            case "min_sentences" -> {
+                String text = firstNonBlank(node, c.paths());
+                return pass(text.contains(".") && text.split("\\.").length >= c.min(), c, gaps);
+            }
+            default -> throw new IllegalStateException("Unknown check kind " + c.kind());
         }
-        if (!missing.isEmpty())
-            gaps.add("Could not extract: " + String.join(", ", missing) + " — search the full contract text for these values");
-
-        return new QualityScore(Math.min(score, 100), gaps);
     }
 
-    private QualityScore scoreDraft(JsonNode node) {
-        List<String> gaps = new ArrayList<>();
-        int score = 30;
+    private static int pass(boolean ok, Check c, List<String> gaps) {
+        if (ok) return c.points();
+        addGap(gaps, c.gap(), null, null);
+        return 0;
+    }
 
-        String content = node.path("content").asText(node.path("html").asText(""));
-        if (content.length() > 600) score += 35;
-        else gaps.add("Draft clause is too short — expand each sub-clause with complete, commercially reasonable legal text (minimum 3 sub-clauses)");
+    private static void addGap(List<String> gaps, String gap, String var, String value) {
+        if (gap == null) return;
+        gaps.add(var == null ? gap : gap.replace(var, value));
+    }
 
-        boolean hasPlaceholders = content.matches("(?i).*\\[[^]]{1,50}].*") || content.contains("INSERT") || content.contains("TBD");
-        if (!hasPlaceholders) score += 25;
-        else gaps.add("Draft contains unfilled placeholders ([...], INSERT, TBD) — replace every placeholder with generic but legally sound language");
+    private static String firstNonBlank(JsonNode node, List<String> paths) {
+        for (String p : paths) {
+            String v = node.path(p).asText("");
+            if (!v.isBlank()) return v;
+        }
+        return "";
+    }
 
-        if (content.contains(".") && content.split("\\.").length >= 3) score += 10;
-        else gaps.add("Draft appears to be heading-only — write the full substantive clause text, not just titles");
+    private static String str(Object o) { return o == null ? null : String.valueOf(o); }
 
-        return new QualityScore(Math.min(score, 100), gaps);
+    private static int num(Object o) { return o instanceof Number n ? n.intValue() : 0; }
+
+    private static List<String> strings(Object o) {
+        if (!(o instanceof List<?> l)) return List.of();
+        return l.stream().map(String::valueOf).toList();
     }
 }

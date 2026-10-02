@@ -25,6 +25,8 @@ import java.util.*;
 public class QaSuggestionService {
 
     private final ChatLanguageModel shortChatModel;
+
+    private final com.legalpartner.config.PromptRepository prompts;
     private final DocumentFullTextRetriever fullTextRetriever;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -34,7 +36,9 @@ public class QaSuggestionService {
     private final Map<UUID, List<String>> generatedCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     public QaSuggestionService(@Qualifier("shortChatModel") ChatLanguageModel shortChatModel,
-                                DocumentFullTextRetriever fullTextRetriever) {
+                                DocumentFullTextRetriever fullTextRetriever,
+            com.legalpartner.config.PromptRepository prompts) {
+        this.prompts = prompts;
         this.shortChatModel = shortChatModel;
         this.fullTextRetriever = fullTextRetriever;
     }
@@ -85,17 +89,7 @@ public class QaSuggestionService {
             if (text == null || text.isBlank()) return getDefaultSuggestions();
 
             String capped = text.length() > 3000 ? text.substring(0, 3000) : text;
-            String prompt = """
-                    Read this contract excerpt and suggest the 8 most important questions a lawyer should ask during review.
-                    Focus on: risks, missing protections, unusual terms, financial implications, and termination rights.
-                    Make questions specific to THIS contract, not generic.
-
-                    Contract:
-                    %s
-
-                    Output ONLY a JSON array of strings:
-                    ["question 1", "question 2", ...]
-                    """.formatted(capped);
+            String prompt = prompts.get("QA_SUGGESTIONS").formatted(capped);
 
             String response = shortChatModel.generate(UserMessage.from(prompt)).content().text().trim();
 

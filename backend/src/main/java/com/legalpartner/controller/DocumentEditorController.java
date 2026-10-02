@@ -28,7 +28,11 @@ public class DocumentEditorController {
     @Value("${legalpartner.onlyoffice.backend-url:http://backend:8080}")
     private String onlyofficeBackendUrl;
 
-    public DocumentEditorController(DocumentMetadataRepository docRepo, DocumentVersionRepository versionRepo, FileStorageService fileStorage) {
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
+
+    public DocumentEditorController(DocumentMetadataRepository docRepo, DocumentVersionRepository versionRepo, FileStorageService fileStorage,
+                                    org.springframework.context.ApplicationEventPublisher eventPublisher) {
+        this.eventPublisher = eventPublisher;
         this.docRepo = docRepo;
         this.versionRepo = versionRepo;
         this.fileStorage = fileStorage;
@@ -154,6 +158,9 @@ public class DocumentEditorController {
                         doc.setFileSize((long) edited.length);
                         docRepo.save(doc);
                         log.info("Saved edited document {} as v{} ({} bytes)", documentId, nextVersion, edited.length);
+                        // Learning loop: lawyer edits to AI drafts are captured per clause.
+                        eventPublisher.publishEvent(new com.legalpartner.event.DocumentRevisedEvent(
+                                documentId, nextVersion, versionPath, editedBy, "EDIT"));
                     }
                 } catch (Exception e) {
                     log.error("Failed to save edited document {}: {}", documentId, e.getMessage());

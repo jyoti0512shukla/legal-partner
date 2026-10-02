@@ -1,0 +1,25 @@
+# Contract lifecycle state machine (ContractLifecycleService).
+# Statuses are ContractStatus enum values; every status used here must exist in the enum
+# (checked by ContractLifecycleConfigTest). Changing a firm's approval flow = edit this file.
+
+initial: DRAFT
+
+# Allowed manual transitions: from → [to, …]. Statuses not listed as a key are terminal.
+transitions:
+  DRAFT:             [INTERNAL_REVIEW, NEGOTIATING, PENDING_SIGNATURE]
+  INTERNAL_REVIEW:   [APPROVED, DRAFT]
+  APPROVED:          [NEGOTIATING, PENDING_SIGNATURE]
+  NEGOTIATING:       [INTERNAL_REVIEW, APPROVED, PENDING_SIGNATURE]
+  PENDING_SIGNATURE: [EXECUTED, NEGOTIATING, DRAFT]
+  EXECUTED:          [ACTIVE, DRAFT]
+  ACTIVE:            [EXPIRING, TERMINATED, RENEWED, DRAFT]
+  EXPIRING:          [EXPIRED, RENEWED, TERMINATED, DRAFT]
+
+# Entering these statuses locks the document against edits / unlocks it.
+lock_on:   [PENDING_SIGNATURE, EXECUTED]
+unlock_on: [DRAFT, NEGOTIATING]
+
+# "Finalize" (brief + key points, then out for signature).
+finalize:
+  allowed_from: [DRAFT, APPROVED, NEGOTIATING, INTERNAL_REVIEW]
+  to: PENDING_SIGNATURE

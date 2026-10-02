@@ -7,6 +7,7 @@ import {
 import api from '../api/client';
 import LoadingSkeleton from '../components/shared/LoadingSkeleton';
 import SendForSignatureModal from '../components/SendForSignatureModal';
+import QuestionDispute from '../components/risk/QuestionDispute';
 
 /* ── Shared helpers ──────────────────────────────────────────────── */
 
@@ -102,6 +103,10 @@ function DrilldownPanel({ data }) {
 /* ── Tab 1: Risk Assessment ─────────────────────────────────────── */
 
 function RiskTab({ docId, result, setResult, loading, setLoading, error, setError, cached, setCached }) {
+  const [canDispute, setCanDispute] = useState(false);
+  useEffect(() => {
+    api.get('/learning/settings').then(r => setCanDispute(!!r.data?.canDispute)).catch(() => setCanDispute(false));
+  }, []);
   const [drilldowns, setDrilldowns] = useState({});
   const [expanded, setExpanded] = useState({});
 
@@ -372,6 +377,7 @@ function RiskTab({ docId, result, setResult, loading, setLoading, error, setErro
                                 color: 'var(--text-2)', paddingLeft: 10, borderLeft: '2px solid var(--line-2)',
                               }}>"{q.quote}"</div>
                             )}
+                            {canDispute && <QuestionDispute docId={docId} clauseType={clauseResult.clauseType} q={q} />}
                           </div>
                         </div>
                       ))}

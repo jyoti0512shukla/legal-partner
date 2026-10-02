@@ -25,31 +25,6 @@ public class DraftIntakeValidator {
     private final ContractTypeRegistry contractRegistry;
     private final DealSpecExtractor dealSpecExtractor;
 
-    /** Human-readable labels for DealSpec field paths. */
-    private static final Map<String, String> FIELD_LABELS = Map.ofEntries(
-            Map.entry("partyA.name", "Party A name"),
-            Map.entry("partyB.name", "Party B name"),
-            Map.entry("partyA.address", "Party A address"),
-            Map.entry("partyB.address", "Party B address"),
-            Map.entry("legal.jurisdiction", "Governing law jurisdiction"),
-            Map.entry("legal.court", "Court for disputes"),
-            Map.entry("legal.noticeDays", "Notice period (days)"),
-            Map.entry("legal.survivalYears", "Survival period (years)"),
-            Map.entry("license.type", "License type (perpetual/subscription)"),
-            Map.entry("license.users", "Number of authorized users"),
-            Map.entry("license.locations", "Number of licensed sites"),
-            Map.entry("fees.licenseFee", "License fee amount"),
-            Map.entry("fees.maintenanceFee", "Annual maintenance fee"),
-            Map.entry("fees.subscriptionFee", "Subscription fee"),
-            Map.entry("fees.billingCycle", "Billing cycle (monthly/annual)"),
-            Map.entry("support.slaResponseHours", "SLA response time (hours)"),
-            Map.entry("support.coverage", "Support coverage (24/7/business hours)"),
-            Map.entry("support.uptimeSla", "Uptime SLA percentage"),
-            Map.entry("support.patchFrequency", "Security patch frequency"),
-            Map.entry("security.escrow", "Source code escrow required"),
-            Map.entry("compensation.salary", "Annual salary/compensation"),
-            Map.entry("legal.noticePeriod", "Employment notice period")
-    );
 
     public DraftIntakeValidator(ContractTypeRegistry contractRegistry, DealSpecExtractor dealSpecExtractor) {
         this.contractRegistry = contractRegistry;
@@ -157,11 +132,27 @@ public class DraftIntakeValidator {
             }
         }
 
+        // Merge survival / notice from form
+        if (request.getSurvivalYears() != null && !request.getSurvivalYears().isBlank()) {
+            if (dealSpec.getLegal() == null) dealSpec.setLegal(DealSpec.LegalTerms.builder().build());
+            if (dealSpec.getLegal().getSurvivalYears() == null) {
+                try { dealSpec.getLegal().setSurvivalYears(Integer.parseInt(request.getSurvivalYears().trim())); }
+                catch (NumberFormatException ignored) { }
+            }
+        }
+        if (request.getNoticeDays() != null && !request.getNoticeDays().isBlank()) {
+            if (dealSpec.getLegal() == null) dealSpec.setLegal(DealSpec.LegalTerms.builder().build());
+            if (dealSpec.getLegal().getNoticeDays() == null) {
+                try { dealSpec.getLegal().setNoticeDays(Integer.parseInt(request.getNoticeDays().trim())); }
+                catch (NumberFormatException ignored) { }
+            }
+        }
+
         return dealSpec;
     }
 
     private String getLabel(String fieldPath) {
-        return FIELD_LABELS.getOrDefault(fieldPath, fieldPath);
+        return contractRegistry.fieldLabel(fieldPath);
     }
 
     // ── Result types ──

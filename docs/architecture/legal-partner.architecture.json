@@ -1,0 +1,398 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Legal Partner — AI Contract Platform",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "drafting-path",
+        "label": "Drafting",
+        "focus": [
+          "users",
+          "frontend",
+          "caddy",
+          "api",
+          "drafting",
+          "llm",
+          "spec",
+          "postgres"
+        ],
+        "note": "Deal brief to contract: golden clauses first, LLM for the rest, every clause verified against the review rubric."
+      },
+      {
+        "id": "review-round-trip",
+        "label": "Review round trip",
+        "focus": [
+          "api",
+          "review",
+          "spec",
+          "llm"
+        ],
+        "note": "Review asks the same YAML questions the drafter was held to; code computes the risk score."
+      },
+      {
+        "id": "ingest-rag",
+        "label": "Ingest and RAG",
+        "focus": [
+          "api",
+          "rag",
+          "ollama",
+          "postgres"
+        ],
+        "note": "Uploads are anonymized, chunked, embedded and stored in pgvector; drafting retrieves precedent from it."
+      }
+    ],
+    "repository": {
+      "url": "https://github.com/jyoti0512shukla/legal-partner",
+      "provider": "github",
+      "revision": "6e24f7dff64f05fc03f65578c9786ea4591eb507"
+    }
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "Lawyers",
+      "sublabel": "browser",
+      "pos": [
+        40,
+        224
+      ],
+      "size": [
+        130,
+        64
+      ]
+    },
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "React SPA",
+      "sublabel": "Vite + Tailwind",
+      "pos": [
+        230,
+        224
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sources": [
+        {
+          "path": "frontend/src/App.jsx",
+          "label": "routes"
+        }
+      ]
+    },
+    {
+      "id": "caddy",
+      "type": "security",
+      "label": "Caddy",
+      "sublabel": "HTTPS, JWT cookie",
+      "pos": [
+        430,
+        224
+      ],
+      "size": [
+        140,
+        64
+      ],
+      "sources": [
+        {
+          "path": "deploy/customers/test-vm/Caddyfile"
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Spring Boot API",
+      "sublabel": "Java 21 · /api/v1",
+      "pos": [
+        630,
+        224
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/src/main/java/com/legalpartner/controller/AiController.java",
+          "label": "AiController"
+        }
+      ]
+    },
+    {
+      "id": "drafting",
+      "type": "backend",
+      "label": "Drafting engine",
+      "sublabel": "golden-first + verify",
+      "pos": [
+        850,
+        224
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "DealSpec → rules → fix",
+      "sources": [
+        {
+          "path": "backend/src/main/java/com/legalpartner/service/DraftService.java",
+          "label": "DraftService"
+        }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM",
+      "sublabel": "vLLM SaulLM-54B or hosted",
+      "pos": [
+        1090,
+        224
+      ],
+      "size": [
+        170,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/src/main/java/com/legalpartner/config/ChatModelConfig.java",
+          "label": "ChatModelConfig"
+        }
+      ]
+    },
+    {
+      "id": "review",
+      "type": "backend",
+      "label": "Review engine",
+      "sublabel": "risk questions → score",
+      "pos": [
+        630,
+        50
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/src/main/java/com/legalpartner/service/AiService.java",
+          "label": "assessRisk"
+        }
+      ]
+    },
+    {
+      "id": "spec",
+      "type": "database",
+      "label": "Clause spec (YAML)",
+      "sublabel": "rubric, golden clauses",
+      "pos": [
+        850,
+        50
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/src/main/resources/config/risk_questions.yml",
+          "label": "risk_questions.yml"
+        }
+      ]
+    },
+    {
+      "id": "rag",
+      "type": "backend",
+      "label": "Ingest + RAG",
+      "sublabel": "anonymize, chunk, retrieve",
+      "pos": [
+        630,
+        398
+      ],
+      "size": [
+        150,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/src/main/java/com/legalpartner/service/DocumentService.java",
+          "label": "DocumentService"
+        }
+      ]
+    },
+    {
+      "id": "ollama",
+      "type": "backend",
+      "label": "Ollama",
+      "sublabel": "all-minilm embeddings",
+      "pos": [
+        430,
+        398
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL + pgvector",
+      "sublabel": "documents, chunks, matters",
+      "pos": [
+        850,
+        398
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "sources": [
+        {
+          "path": "backend/src/main/java/com/legalpartner/rag/DraftContextRetriever.java",
+          "label": "DraftContextRetriever"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Per-firm VM · Docker Compose",
+      "wraps": [
+        "frontend",
+        "caddy",
+        "api",
+        "drafting",
+        "review",
+        "spec",
+        "rag",
+        "ollama",
+        "postgres"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "users-to-frontend",
+      "from": "users",
+      "to": "frontend",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "frontend-to-caddy",
+      "from": "frontend",
+      "to": "caddy",
+      "variant": "emphasis"
+    },
+    {
+      "id": "caddy-to-api",
+      "from": "caddy",
+      "to": "api",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-to-drafting",
+      "from": "api",
+      "to": "drafting",
+      "label": "draft/async",
+      "variant": "emphasis"
+    },
+    {
+      "id": "drafting-to-llm",
+      "from": "drafting",
+      "to": "llm",
+      "label": "clauses",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-to-review",
+      "from": "api",
+      "to": "review",
+      "label": "risk-assessment"
+    },
+    {
+      "id": "review-to-spec",
+      "from": "review",
+      "to": "spec",
+      "label": "questions"
+    },
+    {
+      "id": "drafting-to-spec",
+      "from": "drafting",
+      "to": "spec",
+      "label": "rubric + golden"
+    },
+    {
+      "id": "api-to-rag",
+      "from": "api",
+      "to": "rag",
+      "label": "upload",
+      "labelDy": 24
+    },
+    {
+      "id": "rag-to-ollama",
+      "from": "rag",
+      "to": "ollama",
+      "label": "embed"
+    },
+    {
+      "id": "rag-to-postgres",
+      "from": "rag",
+      "to": "postgres",
+      "label": "chunks"
+    },
+    {
+      "id": "drafting-to-postgres",
+      "from": "drafting",
+      "to": "postgres",
+      "label": "precedent",
+      "variant": "dashed",
+      "labelDy": 24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Drafting",
+      "items": [
+        "Golden clauses rendered first, LLM fills the rest",
+        "Rule engine + fix engine enforce deal terms",
+        "Each clause verified against its review questions",
+        "Draft manifest handed to review"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Review",
+      "items": [
+        "Clause text read from the draft manifest",
+        "One LLM question per requirement, with quotes",
+        "Code computes the 0–100 risk score"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Config over code",
+      "items": [
+        "contract types, clauses, golden clauses",
+        "rules, risk questions, jurisdictions",
+        "vocabulary, drafting defaults, prompts"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Also on the platform",
+      "items": [
+        "Matters, playbooks, deal-intelligence agent",
+        "Workflows, lifecycle, deadlines, audit",
+        "ONLYOFFICE editing, DocuSign, cloud storage"
+      ]
+    }
+  ]
+}

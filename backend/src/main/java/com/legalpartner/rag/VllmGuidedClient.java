@@ -22,17 +22,18 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Direct HTTP client to vLLM with guided_json constrained decoding + kickstart fallback.
+ * Direct HTTP client to an OpenAI-compatible endpoint (self-hosted vLLM or a hosted
+ * provider) with schema-constrained decoding + kickstart fallback.
  *
  * Strategy (three attempts in order):
- *  1. guided_json — passes JSON Schema to vLLM/Outlines to physically constrain tokens.
- *     Works on vLLM >= 0.4.0 with outlines installed. Zero parsing needed.
- *  2. Kickstart — if guided_json is ignored (older vLLM), retries without it but appends
- *     "\n{" to the user prompt so the model's first token must be a JSON key. Then parses
- *     the response as "{" + content.
+ *  1. Schema-constrained — sends the JSON Schema via {@link StructuredOutputMode}
+ *     (default: OpenAI-standard response_format json_schema). vLLM enforces it with
+ *     xgrammar; hosted providers enforce or honour it. Zero parsing needed.
+ *  2. Kickstart — if the schema was ignored, retries without it but appends "\n{" to
+ *     the user prompt so the model's first token must be a JSON key.
  *  3. JSON extraction — scans the response for any {...} block and tries to parse it.
  *
- * If all three fail the method throws so the caller can surface a clear error.
+ * If all three fail the method returns an empty object so the caller can fall back.
  */
 @Component
 @Slf4j
@@ -42,8 +43,35 @@ public class VllmGuidedClient {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final String baseUrl;
     private final String modelName;
+    private final String apiKey;
+    private final StructuredOutputMode structuredOutputMode;
+    /** Extra top-level fields merged into every request body (e.g. reasoning switches). */
+    private final Map<String, Object> requestExtras;
     @Nullable
     private final ChatLanguageModel jsonChatModel;
+
+    /**
+     * How the JSON schema is sent. vLLM removed the legacy {@code guided_json} field in
+     * v0.12, so the default is the OpenAI-standard {@code response_format}, which both
+     * vLLM (xgrammar backend) and hosted providers (OpenRouter, DeepInfra) accept.
+     */
+    public enum StructuredOutputMode {
+        /** {@code response_format: {type: json_schema, json_schema: {...}}} — OpenAI standard. */
+        RESPONSE_FORMAT,
+        /** {@code structured_outputs: {json: schema}} — vLLM-native (v0.12+). */
+        STRUCTURED_OUTPUTS,
+        /** Don't send a schema; rely on prompt instructions and the fallback ladder. */
+        NONE;
+
+        static StructuredOutputMode parse(String raw) {
+            if (raw == null || raw.isBlank()) return RESPONSE_FORMAT;
+            return switch (raw.trim().toLowerCase().replace('-', '_')) {
+                case "structured_outputs" -> STRUCTURED_OUTPUTS;
+                case "none", "off" -> NONE;
+                default -> RESPONSE_FORMAT;
+            };
+        }
+    }
 
     // Matches the outermost JSON object in a string (handles prose wrapping)
     private static final Pattern JSON_OBJECT = Pattern.compile("\\{[\\s\\S]*}", Pattern.DOTALL);
@@ -51,6 +79,9 @@ public class VllmGuidedClient {
     public VllmGuidedClient(
             @Value("${legalpartner.chat-api-url:}") String chatApiUrl,
             @Value("${legalpartner.chat-api-model:mistralai/Mistral-7B-Instruct-v0.2}") String modelName,
+            @Value("${legalpartner.chat-api-key:no-op}") String apiKey,
+            @Value("${legalpartner.llm.structured-output-mode:response_format}") String structuredOutputMode,
+            @Value("${legalpartner.llm.request-extras:}") String requestExtrasJson,
             @Qualifier("jsonChatModel") @Nullable ChatLanguageModel jsonChatModel) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(30_000);
@@ -59,7 +90,33 @@ public class VllmGuidedClient {
         this.baseUrl = chatApiUrl.isBlank() ? ""
                 : (chatApiUrl.endsWith("/v1") ? chatApiUrl : chatApiUrl + "/v1");
         this.modelName = modelName;
+        this.apiKey = (apiKey == null || apiKey.isBlank()) ? "no-op" : apiKey;
+        this.structuredOutputMode = StructuredOutputMode.parse(structuredOutputMode);
+        this.requestExtras = parseExtras(requestExtrasJson);
         this.jsonChatModel = jsonChatModel;
+        log.info("VllmGuidedClient: model={}, structured-output-mode={}, extras={}",
+                modelName, this.structuredOutputMode, this.requestExtras.keySet());
+    }
+
+    private Map<String, Object> parseExtras(String json) {
+        if (json == null || json.isBlank()) return Map.of();
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = objectMapper.readValue(json, Map.class);
+            return parsed;
+        } catch (Exception e) {
+            log.warn("Ignoring invalid legalpartner.llm.request-extras JSON: {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /**
+     * Mistral-family models (SaulLM, AALAP, Mixtral) use the {@code [INST]} template on the
+     * raw completions endpoint. Everything else goes through chat completions.
+     */
+    boolean usesMistralTemplate() {
+        String m = modelName == null ? "" : modelName.toLowerCase();
+        return m.contains("mistral") || m.contains("mixtral") || m.contains("saul") || m.contains("aalap");
     }
 
     public JsonNode generateStructured(
@@ -72,19 +129,20 @@ public class VllmGuidedClient {
             return fallbackToLangChain(systemPrompt, userPrompt);
         }
 
-        // ── Attempt 1: guided_json (vLLM >= 0.4 + outlines) ──────────────────
+        // ── Attempt 1: schema-constrained decoding ────────────────────────────
         try {
             String content = callVllm(systemPrompt, userPrompt, jsonSchema, maxTokens);
             JsonNode result = tryParse(content);
             if (result != null) {
-                log.debug("guided_json succeeded, response {} chars", content.length());
+                log.debug("Structured output ({}) succeeded, response {} chars", structuredOutputMode, content.length());
                 return result;
             }
-            log.warn("guided_json response was not JSON — model likely ignored schema. Trying kickstart.");
+            log.warn("Schema-constrained response ({}) was not JSON — trying kickstart.", structuredOutputMode);
         } catch (LlmUnavailableException e) {
             throw e;  // endpoint is down — no point retrying, surface immediately
         } catch (Exception e) {
-            log.warn("guided_json call failed ({}). Trying kickstart.", e.getClass().getSimpleName());
+            log.warn("Schema-constrained call ({}) failed ({}). Trying kickstart.",
+                    structuredOutputMode, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
         }
 
         // ── Attempt 2: kickstart — prime with `{` so first token is JSON ─────
@@ -126,7 +184,7 @@ public class VllmGuidedClient {
     }
 
     /**
-     * Best-effort prose generation — used as fallback when guided_json is unavailable.
+     * Best-effort prose generation — used as fallback when structured output is unavailable.
      * Tries chat completions and returns raw text (no JSON parsing).
      * Callers should run this through a prose/proximity parser.
      */
@@ -158,13 +216,28 @@ public class VllmGuidedClient {
         if (baseUrl.isBlank()) {
             return fallbackToLangChainText(systemPrompt, userPrompt, responsePrefix);
         }
+        String prefix = responsePrefix != null ? responsePrefix : "";
+        if (!usesMistralTemplate()) {
+            // Non-Mistral models: chat completions, ask the model to start with the prefix.
+            try {
+                String user = userPrompt.trim()
+                        + (prefix.isBlank() ? "" : "\n\nBegin your response with exactly: " + prefix);
+                String out = callVllm(systemPrompt, user, null, maxTokens).strip();
+                return (prefix.isBlank() || out.startsWith(prefix)) ? out : prefix + out;
+            } catch (LlmUnavailableException e) {
+                throw e;
+            } catch (Exception e) {
+                log.warn("generateText (chat) failed: {}", e.getMessage());
+                return "";
+            }
+        }
         // Mistral instruct template: <s>[INST] {instruction} [/INST]
         // Prepend system content inside the [INST] block (Mistral has no separate <<SYS>> tag).
         String prompt = "<s>[INST] " + systemPrompt.trim() + "\n\n" + userPrompt.trim()
-                + " [/INST] " + (responsePrefix != null ? responsePrefix : "");
+                + " [/INST] " + prefix;
 
         try {
-            return responsePrefix + callCompletions(prompt, maxTokens);
+            return prefix + callCompletions(prompt, maxTokens);
         } catch (LlmUnavailableException e) {
             throw e;
         } catch (Exception e) {
@@ -179,10 +252,11 @@ public class VllmGuidedClient {
         body.put("prompt", prompt);
         body.put("max_tokens", maxTokens);
         body.put("temperature", 0.0);
+        requestExtras.forEach(body::putIfAbsent);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth("no-op");
+        headers.setBearerAuth(apiKey);
 
         ResponseEntity<String> response;
         try {
@@ -214,23 +288,11 @@ public class VllmGuidedClient {
     private String callVllm(String system, String user,
                              Map<String, Object> guidedJson,
                              int maxTokens) throws Exception {
-        // Mistral/SaulLM chat templates do not support a separate "system" role —
-        // merging system content into the user message avoids the 400 "roles must alternate" error.
-        String fullUser = (system == null || system.isBlank()) ? user : system + "\n\n" + user;
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", modelName);
-        body.put("messages", List.of(
-                Map.of("role", "user", "content", fullUser)
-        ));
-        body.put("max_tokens", maxTokens);
-        body.put("temperature", 0.0);
-        if (guidedJson != null) {
-            body.put("guided_json", guidedJson);
-        }
+        Map<String, Object> body = buildChatRequestBody(system, user, guidedJson, maxTokens);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth("no-op");
+        headers.setBearerAuth(apiKey);
 
         String requestJson = objectMapper.writeValueAsString(body);
 
@@ -258,7 +320,42 @@ public class VllmGuidedClient {
         }
 
         JsonNode root = objectMapper.readTree(response.getBody());
-        return root.path("choices").path(0).path("message").path("content").asText();
+        return com.legalpartner.config.ReasoningStrippingChatModel.strip(
+                root.path("choices").path(0).path("message").path("content").asText());
+    }
+
+    /**
+     * Chat-completions request body. Package-private for tests.
+     *
+     * Mistral/SaulLM chat templates do not support a separate "system" role — merging
+     * system content into the user message avoids the 400 "roles must alternate" error
+     * and is harmless for other models.
+     */
+    Map<String, Object> buildChatRequestBody(String system, String user,
+                                             @Nullable Map<String, Object> jsonSchema, int maxTokens) {
+        String fullUser = (system == null || system.isBlank()) ? user : system + "\n\n" + user;
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", modelName);
+        body.put("messages", List.of(Map.of("role", "user", "content", fullUser)));
+        body.put("max_tokens", maxTokens);
+        body.put("temperature", 0.0);
+        if (jsonSchema != null) {
+            switch (structuredOutputMode) {
+                case RESPONSE_FORMAT -> {
+                    Map<String, Object> jsonSchemaSpec = new LinkedHashMap<>();
+                    jsonSchemaSpec.put("name", "structured_output");
+                    jsonSchemaSpec.put("schema", jsonSchema);
+                    // strict=false: our schemas don't set additionalProperties=false everywhere,
+                    // which OpenAI-strict providers would reject. vLLM enforces the schema either way.
+                    jsonSchemaSpec.put("strict", false);
+                    body.put("response_format", Map.of("type", "json_schema", "json_schema", jsonSchemaSpec));
+                }
+                case STRUCTURED_OUTPUTS -> body.put("structured_outputs", Map.of("json", jsonSchema));
+                case NONE -> { }
+            }
+        }
+        requestExtras.forEach(body::putIfAbsent);
+        return body;
     }
 
     /** Thrown when the LLM endpoint is unreachable — prevents pointless retries. */

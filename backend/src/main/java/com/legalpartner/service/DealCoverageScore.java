@@ -26,12 +26,18 @@ import java.util.stream.Collectors;
 public class DealCoverageScore {
 
     // Severity weights for risk scoring
-    private static final Map<String, Integer> SEVERITY_WEIGHT = Map.of(
-            "CRITICAL", 10,
-            "HIGH", 5,
-            "MEDIUM", 2,
-            "LOW", 1
-    );
+    /** Rule-severity weights "SEVERITY=weight,..." — legalpartner.draft.coverage.severity-weights (application.yml). */
+    @org.springframework.beans.factory.annotation.Value("${legalpartner.draft.coverage.severity-weights:CRITICAL=10,HIGH=5,MEDIUM=2,LOW=1}")
+    private String severityWeightsRaw = "CRITICAL=10,HIGH=5,MEDIUM=2,LOW=1";
+
+    Map<String, Integer> severityWeights() {
+        Map<String, Integer> out = new java.util.HashMap<>();
+        for (String pair : severityWeightsRaw.split(",")) {
+            String[] kv = pair.split("=");
+            if (kv.length == 2) out.put(kv[0].trim().toUpperCase(), Integer.parseInt(kv[1].trim()));
+        }
+        return out;
+    }
 
     // ── Public record ───────────────────────────────────────────────────
 
@@ -95,7 +101,7 @@ public class DealCoverageScore {
             int total = results.size();
 
             for (RuleResult r : results) {
-                int weight = SEVERITY_WEIGHT.getOrDefault(
+                int weight = severityWeights().getOrDefault(
                         r.rule().severity() != null ? r.rule().severity() : "LOW", 1);
 
                 totalWeightedRules += weight;

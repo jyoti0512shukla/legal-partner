@@ -172,6 +172,17 @@ public class AiController {
         return out;
     }
 
+    /** Tag drafts with their real contract type so review and RAG scoping see the right type. */
+    private DocumentType resolveDraftDocumentType(String templateId) {
+        String tag = contractTypeRegistry.documentType(templateId);
+        if (tag == null) return DocumentType.OTHER;
+        try {
+            return DocumentType.valueOf(tag.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return DocumentType.OTHER;
+        }
+    }
+
     @PostMapping("/draft/async")
     public java.util.Map<String, Object> submitAsyncDraft(
             @Valid @RequestBody DraftRequest request,
@@ -194,7 +205,7 @@ public class AiController {
                 .fileName(fileName)
                 .contentType("text/html")
                 .jurisdiction(request.getJurisdiction())
-                .documentType(DocumentType.OTHER)
+                .documentType(resolveDraftDocumentType(request.getTemplateId()))
                 .practiceArea(matter != null && matter.getPracticeArea() != null
                         ? matter.getPracticeArea() : PracticeArea.OTHER)
                 .clientName(matter != null ? matter.getClientName() : null)
@@ -360,6 +371,7 @@ public class AiController {
                 request.getJurisdiction(),
                 auth.getName()
         );
+        draftService.attachSavedDraft(request.getDraftToken(), doc.getId(), request.getDraftHtml(), auth.getName());
 
         return java.util.Map.of(
                 "id", doc.getId().toString(),

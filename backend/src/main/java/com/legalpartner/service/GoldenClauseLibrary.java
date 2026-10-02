@@ -52,55 +52,24 @@ public class GoldenClauseLibrary {
             int qualityScore
     ) {}
 
+    /** Placeholder → DealSpec field path (golden_clauses.yml {@code aliases}). */
+    private Map<String, String> aliases = Map.of();
+    /** Placeholder → fixed text (golden_clauses.yml {@code literals}), e.g. software_name → "the Software". */
+    private Map<String, String> literals = Map.of();
+    /** Role placeholders resolved to Party A / Party B by role name (golden_clauses.yml {@code party_placeholders}). */
+    private Map<String, String> partyARoles = Map.of();
+    private Map<String, String> partyBRoles = Map.of();
+
+    /** Marker for an unresolved placeholder in resolved text; rendered as a fill-in field by {@link #toHtml}. */
+    static final String FILL_OPEN = "\u27E6FILL:";
+    static final String FILL_CLOSE = "\u27E7";
+    private static final java.util.regex.Pattern FILL_MARKER =
+            java.util.regex.Pattern.compile("\u27E6FILL:([^\u27E7]+)\u27E7");
+
     /** All clauses indexed by clauseType → list of entries (sorted by quality descending). */
     private Map<String, List<GoldenClause>> byClauseType = Map.of();
 
-    /**
-     * Convenience alias map: short placeholder names → DealSpec field paths.
-     * Allows templates to use {{licensor}} instead of {{partyA.name}}.
-     */
-    private static final Map<String, String> ALIASES = Map.ofEntries(
-            Map.entry("license_fee", "fees.licenseFee"),
-            Map.entry("maintenance_fee", "fees.maintenanceFee"),
-            Map.entry("subscription_fee", "fees.subscriptionFee"),
-            Map.entry("users", "license.users"),
-            Map.entry("locations", "license.locations"),
-            Map.entry("sla_hours", "support.slaResponseHours"),
-            Map.entry("support_coverage", "support.coverage"),
-            Map.entry("patch_frequency", "support.patchFrequency"),
-            Map.entry("uptime_sla", "support.uptimeSla"),
-            Map.entry("jurisdiction", "legal.jurisdiction"),
-            Map.entry("court", "legal.court"),
-            Map.entry("notice_days", "legal.noticeDays"),
-            Map.entry("cure_days", "legal.cureDays"),
-            Map.entry("survival_years", "legal.survivalYears"),
-            Map.entry("notice_period", "legal.noticePeriod"),
-            Map.entry("salary", "compensation.salary"),
-            Map.entry("license_type", "license.type"),
-            Map.entry("software_name", "_software_name")
-    );
 
-    /**
-     * Role-based party placeholder names.
-     * Maps placeholder → expected role name (case-insensitive match against partyA/partyB roles).
-     * Falls back to partyA for first-listed roles and partyB for second-listed.
-     */
-    private static final Map<String, String> PARTY_A_ROLES = Map.ofEntries(
-            Map.entry("licensor", "Licensor"),
-            Map.entry("service_provider", "Service Provider"),
-            Map.entry("provider", "Provider"),
-            Map.entry("employer", "Employer"),
-            Map.entry("supplier", "Supplier"),
-            Map.entry("disclosing_party", "Disclosing Party")
-    );
-    private static final Map<String, String> PARTY_B_ROLES = Map.ofEntries(
-            Map.entry("licensee", "Licensee"),
-            Map.entry("client", "Client"),
-            Map.entry("customer", "Customer"),
-            Map.entry("employee", "Employee"),
-            Map.entry("buyer", "Buyer"),
-            Map.entry("receiving_party", "Receiving Party")
-    );
 
     @PostConstruct
     void load() {
@@ -111,6 +80,7 @@ public class GoldenClauseLibrary {
                 return;
             }
             Map<String, Object> root = yaml.load(in);
+            loadPlaceholderConfig(root);
 
             @SuppressWarnings("unchecked")
             Map<String, Object> clauses = (Map<String, Object>) root.get("clauses");
@@ -143,6 +113,57 @@ public class GoldenClauseLibrary {
         } catch (IOException e) {
             throw new IllegalStateException("Failed to load " + CONFIG_PATH, e);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void loadPlaceholderConfig(Map<String, Object> root) {
+        this.aliases = stringMap(root.get("aliases"));
+        this.literals = stringMap(root.get("literals"));
+        Map<String, Object> party = root.get("party_placeholders") instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+        this.partyARoles = stringMap(party.get("party_a"));
+        this.partyBRoles = stringMap(party.get("party_b"));
+    }
+
+    private static Map<String, String> stringMap(Object o) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (o instanceof Map<?, ?> m) m.forEach((k, v) -> out.put(String.valueOf(k), String.valueOf(v)));
+        return Collections.unmodifiableMap(out);
+    }
+
+    /**
+     * Resolved clause text → sub-clause HTML: one {@code <p class="clause-sub">} per line,
+     * text HTML-escaped, unresolved placeholders rendered as highlighted fill-in fields.
+     */
+    /** Fill-in marker for a value the lawyer must supply; rendered as a highlighted field by {@link #toHtml}. */
+    public static String fillMarker(String name) {
+        return FILL_OPEN + name + FILL_CLOSE;
+    }
+
+    public static String toHtml(String resolved) {
+        StringBuilder html = new StringBuilder();
+        if (resolved == null) return "";
+        for (String line : resolved.split("\n")) {
+            if (line.isBlank()) continue;
+            String escaped = line.trim().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
+            html.append("<p class=\"clause-sub\">").append(renderFillIns(escaped)).append("</p>\n");
+        }
+        return html.toString();
+    }
+
+    /** Replace fill-in markers with a highlighted, labelled field. */
+    static String renderFillIns(String escapedText) {
+        java.util.regex.Matcher m = FILL_MARKER.matcher(escapedText);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            String placeholder = m.group(1).trim();
+            String label = placeholder.replace("_", " ");
+            label = label.substring(0, 1).toUpperCase() + label.substring(1);
+            String fillIn = "<span class=\"placeholder\" style=\"background:#FEF3C7;border-bottom:2px dashed #D97706;padding:0 4px;\" "
+                    + "data-field=\"" + placeholder + "\" title=\"Fill in: " + label + "\">[" + label + "]</span>";
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(fillIn));
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     @SuppressWarnings("unchecked")
@@ -304,6 +325,11 @@ public class GoldenClauseLibrary {
     /**
      * Check if the library has any clauses for a given clause type.
      */
+    /** Every loaded golden clause (read-only). */
+    public List<GoldenClause> all() {
+        return byClauseType.values().stream().flatMap(List::stream).toList();
+    }
+
     public boolean hasClausesFor(String clauseType) {
         if (clauseType == null) return false;
         List<GoldenClause> list = byClauseType.get(clauseType.toUpperCase());
@@ -369,20 +395,21 @@ public class GoldenClauseLibrary {
         if (dealSpec == null) return null;
 
         // Handle role-based party placeholders (partyA-oriented roles)
-        if (PARTY_A_ROLES.containsKey(placeholder)) {
-            return resolvePartyByRole(dealSpec, PARTY_A_ROLES.get(placeholder), true);
+        if (partyARoles.containsKey(placeholder)) {
+            return resolvePartyByRole(dealSpec, partyARoles.get(placeholder), true);
         }
         // Handle role-based party placeholders (partyB-oriented roles)
-        if (PARTY_B_ROLES.containsKey(placeholder)) {
-            return resolvePartyByRole(dealSpec, PARTY_B_ROLES.get(placeholder), false);
+        if (partyBRoles.containsKey(placeholder)) {
+            return resolvePartyByRole(dealSpec, partyBRoles.get(placeholder), false);
+        }
+
+        if (literals.containsKey(placeholder)) {
+            return literals.get(placeholder);
         }
 
         // Check alias map
-        String fieldPath = ALIASES.get(placeholder);
+        String fieldPath = aliases.get(placeholder);
         if (fieldPath != null) {
-            if ("_software_name".equals(fieldPath)) {
-                return "the Software";
-            }
             String fieldValue = resolveFormattedField(fieldPath, dealSpec);
             return fieldValue; // null values handled by stripUnresolved
         }
@@ -412,8 +439,8 @@ public class GoldenClauseLibrary {
         if (dealSpec == null || fieldPath == null) return null;
 
         // Check aliases
-        String aliasPath = ALIASES.get(fieldPath);
-        if (aliasPath != null && !"_software_name".equals(aliasPath)) {
+        String aliasPath = aliases.get(fieldPath);
+        if (aliasPath != null) {
             fieldPath = aliasPath;
         }
 
@@ -423,7 +450,7 @@ public class GoldenClauseLibrary {
         }
 
         // Try common parent objects for unqualified field names
-        for (String prefix : List.of("license.", "fees.", "support.", "security.", "legal.", "partyA.", "partyB.")) {
+        for (String prefix : List.of("license.", "fees.", "support.", "security.", "legal.", "compensation.", "partyA.", "partyB.")) {
             Object val = dealSpec.resolveField(prefix + fieldPath);
             if (val != null) return val;
         }
@@ -468,29 +495,31 @@ public class GoldenClauseLibrary {
      * Strip any remaining unresolved {{...}} placeholders from the text.
      * This is the safety net — ensures no template syntax leaks into output.
      */
+    /**
+     * Unresolved placeholders become fill-in markers (rendered by {@link #toHtml}) —
+     * a visible blank for the lawyer, never a guessed value.
+     */
     private String stripUnresolved(String text) {
         if (text == null) return "";
-        // Render unresolved placeholders as visible fill-in fields in the draft.
-        // The user sees highlighted blanks — like a real contract template.
-        // No guessing, no hardcoding defaults, no fallback map needed.
-        if (text.contains("{{")) {
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(text);
-            StringBuilder sb = new StringBuilder();
-            while (m.find()) {
-                String placeholder = m.group(1).trim();
-                // Convert placeholder_name to "Placeholder Name" for display
-                String label = placeholder.replace("_", " ");
-                label = label.substring(0, 1).toUpperCase() + label.substring(1);
-                String fillIn = "<span class=\"placeholder\" style=\"background:#FEF3C7;border-bottom:2px dashed #D97706;padding:0 4px;\" "
-                        + "data-field=\"" + placeholder + "\" title=\"Fill in: " + label + "\">"
-                        + "[" + label + "]</span>";
-                log.debug("Golden clause: unresolved {{{}}} → rendered as fill-in field", placeholder);
-                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(fillIn));
-            }
-            m.appendTail(sb);
-            return sb.toString();
+        if (!text.contains("{{")) return text;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{\\{([^}]+)}}").matcher(text);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            log.debug("Golden clause: unresolved {{{}}} → fill-in field", m.group(1).trim());
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(FILL_OPEN + m.group(1).trim() + FILL_CLOSE));
         }
-        return text;
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /** Placeholder names this library can resolve (aliases, literals, role placeholders). */
+    public java.util.Set<String> knownPlaceholders() {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        out.addAll(aliases.keySet());
+        out.addAll(literals.keySet());
+        out.addAll(partyARoles.keySet());
+        out.addAll(partyBRoles.keySet());
+        return out;
     }
 
     /**

@@ -1,3 +1,43 @@
+# Evaluation
+
+Two harnesses:
+
+| Harness | What it measures |
+|---|---|
+| `eval/drafting/run_drafting_eval.py` | **Drafting quality + round trip** — drafts every brief in `eval/drafting/briefs.yml` through the real API, runs deterministic checks, then reviews each draft with our own review. Optional LLM judge. CI-gatable via `--baseline`. |
+| `eval/run_eval.py` | Extraction and risk accuracy on uploaded contracts with expected results (below). |
+
+## Drafting eval (round trip)
+
+```bash
+pip install pyyaml requests
+python3 eval/drafting/run_drafting_eval.py --self-test                 # no API needed
+LP_EVAL_PASSWORD=... python3 eval/drafting/run_drafting_eval.py \
+    --api-url http://localhost:8080 --run-id baseline                  # record a baseline
+LP_EVAL_PASSWORD=... python3 eval/drafting/run_drafting_eval.py \
+    --baseline eval/results/drafting/baseline/summary.json             # exit 1 on regression
+```
+
+Key metrics (`summary.json` → `aggregate`): `term_coverage`, `placeholders_per_draft`,
+`invented_amounts_per_draft`, `numbering_ok_rate`, `xref_ok_rate`, and the round trip —
+`mean_risk_score`, `overall_risk_distribution`, `failing_review_questions_per_draft`,
+`top_failing_questions` (what to fix next). Add `--judge-url/--judge-model/--judge-key`
+for a per-article LLM judge (nine dimensions, max-severity rule).
+
+Model bake-off without a GPU: point the backend at a hosted OpenAI-compatible provider
+(`LEGALPARTNER_CHAT_API_URL`, `LEGALPARTNER_CHAT_API_MODEL`, `LEGALPARTNER_CHAT_API_KEY`),
+run the eval per model with a different `--run-id`, compare `summary.json` files.
+Use the fictitious briefs only.
+
+Golden clauses vs their own review questions (LLM, opt-in):
+
+```bash
+LP_EVAL_LLM_URL=https://openrouter.ai/api/v1 LP_EVAL_LLM_MODEL=qwen/qwen3.8-27b LP_EVAL_LLM_KEY=... \
+  ./backend/gradlew -p backend test --tests '*GoldenClauseReviewLlmTest'   # → build/reports/golden-review.md
+```
+
+---
+
 # ContractIQ Evaluation Harness
 
 ## Purpose

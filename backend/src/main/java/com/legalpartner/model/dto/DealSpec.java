@@ -38,6 +38,8 @@ public class DealSpec {
     private SupportTerms support;
     private SecurityTerms security;
     private LegalTerms legal;
+    /** Employment deals only. */
+    private CompensationTerms compensation;
     private List<String> customRequirements;
 
     @Data
@@ -93,6 +95,8 @@ public class DealSpec {
         private String currency;
         /** Payment terms, e.g. "Net 30", "Net 45" */
         private String paymentTerms;
+        /** Recurring subscription fee (SaaS), per billing cycle */
+        private Long subscriptionFee;
     }
 
     @Data
@@ -145,6 +149,26 @@ public class DealSpec {
         private String liabilityCap;
         /** Notice period in days */
         private Integer noticeDays;
+        /** Days allowed to cure a breach before termination */
+        private Integer cureDays;
+        /** Years obligations (e.g. confidentiality) survive termination */
+        private Integer survivalYears;
+        /** Free-text notice period where days don't fit, e.g. "one month" (employment) */
+        private String noticePeriod;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class CompensationTerms {
+        /** Annual base salary */
+        private Long salary;
+        /** monthly, bi-weekly, etc. */
+        private String payFrequency;
+        /** Bonus / incentive description */
+        private String bonus;
     }
 
     // ── Convenience accessors for rule engine field resolution ────────
@@ -166,6 +190,7 @@ public class DealSpec {
             case "support" -> support;
             case "security" -> security;
             case "legal" -> legal;
+            case "compensation" -> compensation;
             default -> null;
         };
         if (section == null) return null;
@@ -201,7 +226,7 @@ public class DealSpec {
         if (val == null) return null;
 
         // Format monetary fields
-        if (fieldPath.endsWith("Fee") || fieldPath.endsWith("fee")) {
+        if (fieldPath.endsWith("Fee") || fieldPath.endsWith("fee") || fieldPath.endsWith(".salary")) {
             if (val instanceof Long l) {
                 String curr = fees != null ? fees.getCurrency() : "USD";
                 return formatCurrency(l, curr);

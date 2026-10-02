@@ -9,6 +9,14 @@
 #   category  — display grouping
 #   applies_to — contract types this question applies to (empty = all)
 #   weight    — importance (1-10)
+#   position_sensitive — true when the right answer depends on which party we represent
+#               (e.g. "is the cap mutual?"). Waived for drafts written in favour of one
+#               party (clientPosition PARTY_A / PARTY_B), counted normally otherwise.
+#
+# These questions are also the SEMANTIC REQUIREMENTS for drafting: ClauseSpecRegistry
+# feeds them to the drafter (prompt + verification), so a draft is written against the
+# same rubric it will be reviewed with. Deterministic, deal-bound drafting rules live in
+# clause_requirements.yml.
 
 # ── Configurable prompts (edit here, restart server — no code change needed) ──
 
@@ -60,11 +68,12 @@ clause_questions:
 
     - id: liability_cap_mutual
       question: "Does the liability cap apply equally to both parties (mutual cap)?"
-      risk_if_no: HIGH
+      risk_if_no: MEDIUM
       risk_if_yes: LOW
       category: Protection
       applies_to: []
       weight: 9
+      position_sensitive: true
 
     - id: liability_consequential_exclusion
       question: "Are consequential, indirect, or special damages explicitly excluded?"
@@ -125,11 +134,12 @@ clause_questions:
 
     - id: indemnity_mutual
       question: "Is the indemnification mutual (both parties indemnify each other)?"
-      risk_if_no: HIGH
+      risk_if_no: MEDIUM
       risk_if_yes: LOW
       category: Balance
       applies_to: []
       weight: 9
+      position_sensitive: true
 
     - id: indemnity_ip_infringement
       question: "Does the indemnification cover third-party intellectual property infringement claims?"
@@ -246,11 +256,12 @@ clause_questions:
 
     - id: termination_mutual_right
       question: "Is the right to terminate mutual (available to both parties on equal terms)?"
-      risk_if_no: HIGH
+      risk_if_no: MEDIUM
       risk_if_yes: LOW
       category: Balance
       applies_to: []
       weight: 8
+      position_sensitive: true
 
   CONFIDENTIALITY:
     - id: confidentiality_defined
@@ -268,6 +279,7 @@ clause_questions:
       category: Balance
       applies_to: []
       weight: 8
+      position_sensitive: true
 
     - id: confidentiality_exceptions
       question: "Are standard exceptions included (publicly known information, independently developed, required by law)?"
@@ -895,6 +907,44 @@ clause_questions:
 
 # Required clauses per contract type — used to flag missing clauses.
 # A clause listed here that is absent from the contract = automatic HIGH risk.
+# ── Clause checklist (Contract Review → Checklist) ────────────────────────
+# One list drives the checklist prompt, the JSON schema and the response parsers.
+# Order is display order.
+checklist_clauses:
+  LIABILITY_LIMIT: "Limitation of Liability"
+  INDEMNITY: "Indemnification"
+  TERMINATION_CONVENIENCE: "Termination for Convenience"
+  TERMINATION_CAUSE: "Termination for Cause"
+  FORCE_MAJEURE: "Force Majeure"
+  CONFIDENTIALITY: "Confidentiality / NDA"
+  GOVERNING_LAW: "Governing Law"
+  DISPUTE_RESOLUTION: "Dispute Resolution / Arbitration"
+  IP_OWNERSHIP: "Intellectual Property Ownership"
+  DATA_PROTECTION: "Data Protection"
+  PAYMENT_TERMS: "Payment Terms"
+  ASSIGNMENT: "Assignment / Change of Control"
+
+# ── Clause inventory keywords ─────────────────────────────────────────────
+# Used by the text-based review path (contracts we did not draft) to find each
+# clause: matched against section headings first (ARTICLE n / Section n / Clause n),
+# then anywhere in the body. Keywords of 4 characters or fewer (acronyms such as
+# "nda", "sla") match whole words only. Our own drafts skip this — review reads
+# their sections directly from the draft manifest.
+clause_keywords:
+  LIABILITY:          ["liability", "limitation of liability"]
+  INDEMNIFICATION:    ["indemnity", "indemnification", "indemnif", "hold harmless"]
+  TERMINATION:        ["termination", "expiry", "term and termination"]
+  CONFIDENTIALITY:    ["confidential", "non-disclosure", "nda"]
+  IP_RIGHTS:          ["intellectual property", "ip rights", "copyright", "ownership of"]
+  WARRANTIES:         ["warranties", "warranty", "representations and warranties"]
+  FORCE_MAJEURE:      ["force majeure", "act of god"]
+  DATA_PROTECTION:    ["data protection", "data privacy", "personal data", "gdpr", "dpdp"]
+  PAYMENT:            ["payment", "fees and payment", "invoice", "consideration", "compensation"]
+  GOVERNING_LAW:      ["governing law", "jurisdiction", "dispute resolution", "arbitration"]
+  SLA:                ["service level", "sla", "uptime", "availability"]
+  GENERAL_PROVISIONS: ["general provisions", "miscellaneous", "entire agreement", "boilerplate"]
+
+# _default is mandatory: it applies to any contract type without its own list.
 required_clauses:
   _default:
     - LIABILITY

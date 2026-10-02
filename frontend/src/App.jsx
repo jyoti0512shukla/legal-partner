@@ -15,6 +15,7 @@ import AuditLogPage from './pages/AuditLogPage';
 import MattersPage from './pages/MattersPage';
 import ExtractionPage from './pages/ExtractionPage';
 import ContractReviewPage from './pages/ContractReviewPage';
+import FirmKnowledgePage from './pages/FirmKnowledgePage';
 import WorkflowsPage from './pages/WorkflowsPage';
 import WorkflowRunPage from './pages/WorkflowRunPage';
 import WorkflowBuilderPage from './pages/WorkflowBuilderPage';
@@ -101,6 +102,7 @@ export default function App() {
         <Route path="/workflows/builder" element={<WorkflowBuilderPage />} />
         <Route path="/workflows/analytics" element={<WorkflowAnalyticsPage />} />
         <Route path="/clause-library" element={<ClauseLibraryPage />} />
+        <Route path="/firm-knowledge" element={<FirmKnowledgePage />} />
         {isPartnerOrAdmin && <Route path="/playbooks" element={<PlaybooksPage />} />}
         {isPartnerOrAdmin && <Route path="/edgar-import" element={<EdgarImportPage />} />}
         {isPartnerOrAdmin && <Route path="/audit" element={<AuditLogPage />} />}

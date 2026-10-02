@@ -16,19 +16,11 @@ public class ReRanker {
 
     private final EncryptionService encryptionService;
 
-    // Document type authority order (higher index = more authoritative)
-    private static final Map<String, Double> DOCTYPE_AUTHORITY = Map.of(
-            "LEGISLATION", 1.0,
-            "PRECEDENT", 0.8,
-            "CONTRACT", 0.6,
-            "OTHER", 0.4
-    );
+    /** Acronyms and authority weights from config/vocabulary.yml (rerank). */
 
-    // Legal acronyms that should NOT be filtered by length
-    private static final Set<String> LEGAL_ACRONYMS = Set.of(
-            "ip", "nda", "msa", "sow", "sla", "mou", "loi", "ica", "ipc", "crpc",
-            "gst", "vat", "adr", "icc", "lcia", "siac", "cci", "sebi", "rbi"
-    );
+    private final com.legalpartner.config.LegalVocabulary vocabulary;
+
+
 
     @Value("${legalpartner.rag.vector-weight:0.7}")
     private double vectorWeight;
@@ -67,7 +59,7 @@ public class ReRanker {
 
     private Set<String> extractKeywords(String query) {
         return Arrays.stream(query.toLowerCase().split("[\\s,;.!?]+"))
-                .filter(w -> w.length() > 2 || LEGAL_ACRONYMS.contains(w))  // was > 3, now > 2 + acronyms
+                .filter(w -> w.length() > 2 || vocabulary.rerankAcronyms().contains(w))  // was > 3, now > 2 + acronyms
                 .collect(Collectors.toSet());
     }
 
@@ -80,7 +72,7 @@ public class ReRanker {
 
     private double computeDoctypeAuthority(String documentType) {
         if (documentType == null) return 0.5;
-        return DOCTYPE_AUTHORITY.getOrDefault(documentType.toUpperCase(), 0.5);
+        return vocabulary.doctypeAuthority().getOrDefault(documentType.toUpperCase(), 0.5);
     }
 
     private List<EmbeddingMatch<TextSegment>> applyDiversity(List<ScoredMatch> scored, int topK) {

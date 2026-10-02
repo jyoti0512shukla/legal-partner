@@ -191,6 +191,11 @@ public class ClauseRuleEngine {
      * Get applicable rules for a clause type, filtered by DealSpec conditions.
      * Rules with a "when" condition are skipped if the condition is not met.
      */
+    /** All loaded rules (read-only). */
+    public List<ClauseRule> allRules() {
+        return allRules;
+    }
+
     public List<ClauseRule> getRulesForClause(String clauseType, DealSpec dealSpec) {
         return allRules.stream()
                 .filter(r -> r.appliesTo().contains(clauseType) || r.appliesTo().contains("ALL"))

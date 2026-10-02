@@ -46,6 +46,8 @@ public class DraftContextRetriever {
     private final Bm25SearchService bm25SearchService;
     private final ClauseTypeRegistry clauseRegistry;
     private final ContractTypeRegistry contractRegistry;
+    private final com.legalpartner.service.learning.LearningConfig learningConfig;
+    private final com.legalpartner.config.LegalSystemConfig legalSystemConfig;
 
     @Value("${legalpartner.draft.retrieval.candidate-count:30}")
     private int candidateCount;
@@ -214,10 +216,11 @@ public class DraftContextRetriever {
 
         List<EmbeddingMatch<TextSegment>> filtered = candidates.stream()
                 .filter(m -> {
-                    // Hard exclude EDGAR-sourced chunks for drafting — they carry binary
-                    // blobs, source tags, and unrelated-deal prose that the model parrots.
+                    // Pool / provenance eligibility (EDGAR, unreviewed AI drafts, RAW pool
+                    // outside the draft's own matter) — see isEligiblePrecedent.
                     String source = m.embedded().metadata().getString("source");
-                    if ("EDGAR".equalsIgnoreCase(source)) return false;
+                    if (!isEligiblePrecedent(learningConfig, source, m.embedded().metadata().getString("pool"),
+                            m.embedded().metadata().getString("matter_id"), targetMatterId)) return false;
 
                     // Hard exclude non-anonymized chunks — cross-client confidentiality
                     // fail-safe. Chunks ingested before the anonymization pipeline landed
@@ -278,33 +281,35 @@ public class DraftContextRetriever {
         return filtered;
     }
 
-    /** Check if two jurisdictions belong to the same legal family (US states, Indian states, UK, etc.) */
+    /**
+     * Provenance rules for drafting precedent (sources from learning.yml):
+     * <ul>
+     *   <li>{@code sources.never_precedent} chunks never (e.g. EDGAR: unrelated-deal prose the model parrots).</li>
+     *   <li>{@code sources.ai_generated} chunks never — chunk metadata carries no signature status,
+     *       and the system must not learn from its own unreviewed drafts; signed drafts reach
+     *       drafting through the firm clause bank instead.</li>
+     *   <li>RAW-pool chunks (real client names) only from the draft's own matter; everything
+     *       else must come from the ANONYMIZED pool.</li>
+     * </ul>
+     */
+    static boolean isEligiblePrecedent(com.legalpartner.service.learning.LearningConfig learning, String source, String pool,
+                                       String chunkMatterId, String targetMatterId) {
+        if (learning.isNeverPrecedent(source) || learning.isAiGenerated(source)) return false;
+        if ("RAW".equalsIgnoreCase(pool)) {
+            return targetMatterId != null && targetMatterId.equals(chunkMatterId);
+        }
+        return true;
+    }
+
+    /**
+     * Same precedent family per jurisdictions.yml (e.g. Delaware and California are both "us").
+     * Strings no configured jurisdiction matches fall back to substring comparison.
+     */
     private boolean isSameJurisdictionFamily(String target, String chunk) {
+        var ft = legalSystemConfig.family(target);
+        var fc = legalSystemConfig.family(chunk);
+        if (ft.isPresent() && fc.isPresent()) return ft.get().equals(fc.get());
         String t = target.toLowerCase(), c = chunk.toLowerCase();
-        // US family: any US state, "united states", "delaware", "california", "new york", etc.
-        boolean tUS = t.contains("united states") || t.contains("u.s.") || t.contains("delaware")
-                || t.contains("california") || t.contains("new york") || t.contains("texas")
-                || t.contains("illinois") || t.contains("florida") || t.contains("usa");
-        boolean cUS = c.contains("united states") || c.contains("u.s.") || c.contains("delaware")
-                || c.contains("california") || c.contains("new york") || c.contains("texas")
-                || c.contains("illinois") || c.contains("florida") || c.contains("usa");
-        if (tUS && cUS) return true;
-        // India family
-        boolean tIN = t.contains("india") || t.contains("mumbai") || t.contains("delhi")
-                || t.contains("bangalore") || t.contains("maharashtra") || t.contains("karnataka");
-        boolean cIN = c.contains("india") || c.contains("mumbai") || c.contains("delhi")
-                || c.contains("bangalore") || c.contains("maharashtra") || c.contains("karnataka")
-                || c.contains("ontario");  // Ontario is Canada, not India — but tagged Indian docs sometimes have it
-        if (tIN && cIN) return true;
-        // UK family
-        boolean tUK = t.contains("united kingdom") || t.contains("england") || t.contains("uk")
-                || t.contains("london") || t.contains("scotland");
-        boolean cUK = c.contains("united kingdom") || c.contains("england") || c.contains("uk")
-                || c.contains("london") || c.contains("scotland");
-        if (tUK && cUK) return true;
-        // Different families — reject cross-jurisdiction RAG
-        if ((tUS && cIN) || (tIN && cUS) || (tUS && cUK) || (tUK && cIN)) return false;
-        // Fallback: exact match or contains
         return t.contains(c) || c.contains(t);
     }
 

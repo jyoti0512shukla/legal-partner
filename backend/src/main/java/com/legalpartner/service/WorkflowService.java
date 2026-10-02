@@ -9,7 +9,6 @@ import com.legalpartner.model.entity.User;
 import com.legalpartner.model.entity.WorkflowDefinition;
 import com.legalpartner.model.entity.WorkflowRun;
 import com.legalpartner.model.enums.UserRole;
-import com.legalpartner.model.enums.WorkflowStepType;
 import com.legalpartner.model.enums.WorkflowStatus;
 import com.legalpartner.repository.MatterMemberRepository;
 import com.legalpartner.repository.MatterRepository;
@@ -55,95 +54,33 @@ public class WorkflowService implements ApplicationRunner {
         seedPredefinedWorkflows();
     }
 
+    private static final String PREDEFINED_PATH = "config/workflows.yml";
+
+    /** Seeds the predefined workflows in {@code config/workflows.yml} that are not yet in the database. */
     private void seedPredefinedWorkflows() {
-        seedIfAbsent("Due Diligence",
-                "Full contract analysis: extract terms, assess risk, check compliance, and extract obligations",
-                List.of(
-                        step(WorkflowStepType.EXTRACT_KEY_TERMS,  "Extract Key Terms", null, 1),
-                        step(WorkflowStepType.RISK_ASSESSMENT,    "Risk Assessment", null, 2),
-                        step(WorkflowStepType.COMPLIANCE_CHECK,   "Playbook Compliance", null, 1),
-                        step(WorkflowStepType.OBLIGATION_EXTRACT, "Extract Obligations", null, 1),
-                        step(WorkflowStepType.GENERATE_SUMMARY,   "Executive Summary", null, 1)
-                ));
-
-        seedIfAbsent("Contract Review",
-                "Rapid review: risk assessment → firm-grounded redlines for HIGH/MEDIUM risks",
-                List.of(
-                        step(WorkflowStepType.RISK_ASSESSMENT,     "Risk Assessment", null, 2),
-                        step(WorkflowStepType.REDLINE_SUGGESTIONS, "Redline Suggestions (Firm Clauses)", null, 2),
-                        step(WorkflowStepType.GENERATE_SUMMARY,    "Executive Summary", null, 1)
-                ));
-
-        seedIfAbsent("Key Terms Only",
-                "Extract structured key terms and data points from the document",
-                List.of(
-                        step(WorkflowStepType.EXTRACT_KEY_TERMS, "Extract Key Terms", null, 1)
-                ));
-
-        seedIfAbsent("High-Risk Deep Dive",
-                "Full analysis with conditional redlines and approval gate — partner reviews before sign-off",
-                List.of(
-                        step(WorkflowStepType.RISK_ASSESSMENT,     "Risk Assessment", null, 2),
-                        step(WorkflowStepType.COMPLIANCE_CHECK,    "Playbook Compliance", null, 1),
-                        step(WorkflowStepType.REDLINE_SUGGESTIONS, "Redline Suggestions",
-                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "in", "HIGH,MEDIUM"), 2),
-                        step(WorkflowStepType.APPROVAL_GATE,       "Partner Review",  null, 1),
-                        step(WorkflowStepType.GENERATE_SUMMARY,    "Executive Summary", null, 1)
-                ));
-
-        seedIfAbsent("Playbook Review",
-                "Compliance-first: check against firm playbook → risk assessment → firm-grounded redlines → summary",
-                List.of(
-                        step(WorkflowStepType.COMPLIANCE_CHECK,    "Playbook Compliance", null, 1),
-                        step(WorkflowStepType.RISK_ASSESSMENT,     "Risk Benchmark vs Corpus", null, 2),
-                        step(WorkflowStepType.REDLINE_SUGGESTIONS, "Redlines from Firm Playbook", null, 2),
-                        step(WorkflowStepType.GENERATE_SUMMARY,    "Executive Memo", null, 1)
-                ));
-
-        seedIfAbsent("Draft & Assess Loop",
-                "Draft a clause → assess risk → refine redlines → summary. Each step self-refines until quality passes.",
-                List.of(
-                        stepWithParams(WorkflowStepType.DRAFT_CLAUSE, "Draft Liability Clause",  null, 2, Map.of("clauseType", "LIABILITY")),
-                        step(WorkflowStepType.RISK_ASSESSMENT,        "Assess Drafted Clause",    null, 2),
-                        step(WorkflowStepType.REDLINE_SUGGESTIONS,    "Refine with Firm Playbook",
-                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "in", "HIGH,MEDIUM"), 2),
-                        step(WorkflowStepType.GENERATE_SUMMARY,       "Draft Summary", null, 1)
-                ));
-
-        seedIfAbsent("Draft Full Agreement",
-                "Draft a complete contract → assess risk → compliance check → redlines → approval → summary",
-                List.of(
-                        stepWithParams(WorkflowStepType.DRAFT_CLAUSE, "Draft Full Agreement", null, 1, Map.of("mode", "agreement")),
-                        step(WorkflowStepType.RISK_ASSESSMENT,        "Assess Agreement",     null, 2),
-                        step(WorkflowStepType.COMPLIANCE_CHECK,       "Playbook Compliance",  null, 1),
-                        step(WorkflowStepType.REDLINE_SUGGESTIONS,    "Redline Weak Clauses",
-                                new WorkflowCondition("RISK_ASSESSMENT.overallRisk", "in", "HIGH,MEDIUM"), 2),
-                        step(WorkflowStepType.GENERATE_SUMMARY,       "Executive Summary", null, 1)
-                ));
-
-        // ── Post-Signature Lifecycle — extract obligations and deadlines ────────
-        seedIfAbsent("Post-Signature Tracker",
-                "Extract obligations, deadlines, payments, and renewal dates from executed contracts",
-                List.of(
-                        step(WorkflowStepType.EXTRACT_KEY_TERMS,  "Extract Key Terms", null, 1),
-                        step(WorkflowStepType.OBLIGATION_EXTRACT, "Extract Obligations & Deadlines", null, 1),
-                        step(WorkflowStepType.GENERATE_SUMMARY,   "Obligation Summary", null, 1)
-                ));
+        for (PredefinedWorkflow w : loadPredefined(objectMapper)) {
+            seedIfAbsent(w.name(), w.description(), w.steps());
+        }
     }
 
-    private static WorkflowStepConfig step(WorkflowStepType type, String label,
-                                           WorkflowCondition condition, int maxIterations) {
-        return WorkflowStepConfig.builder()
-                .type(type).label(label).condition(condition)
-                .retryCount(0).maxIterations(maxIterations).build();
-    }
+    public record PredefinedWorkflow(String name, String description, List<WorkflowStepConfig> steps) {}
 
-    private static WorkflowStepConfig stepWithParams(WorkflowStepType type, String label,
-                                                     WorkflowCondition condition, int maxIterations,
-                                                     Map<String, String> params) {
-        return WorkflowStepConfig.builder()
-                .type(type).label(label).condition(condition)
-                .retryCount(0).maxIterations(maxIterations).params(params).build();
+    /** Parses and validates {@code config/workflows.yml} (unknown step types fail fast). */
+    @SuppressWarnings("unchecked")
+    public static List<PredefinedWorkflow> loadPredefined(ObjectMapper mapper) {
+        try (var in = WorkflowService.class.getClassLoader().getResourceAsStream(PREDEFINED_PATH)) {
+            if (in == null) throw new IllegalStateException("Missing " + PREDEFINED_PATH);
+            Map<String, Object> root = new org.yaml.snakeyaml.Yaml().load(in);
+            List<PredefinedWorkflow> out = new java.util.ArrayList<>();
+            for (Map<String, Object> w : (List<Map<String, Object>>) root.getOrDefault("workflows", List.of())) {
+                List<WorkflowStepConfig> steps = mapper.convertValue(w.get("steps"),
+                        mapper.getTypeFactory().constructCollectionType(List.class, WorkflowStepConfig.class));
+                out.add(new PredefinedWorkflow(String.valueOf(w.get("name")), String.valueOf(w.get("description")), steps));
+            }
+            return out;
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to load " + PREDEFINED_PATH, e);
+        }
     }
 
     private void seedIfAbsent(String name, String description, List<WorkflowStepConfig> steps) {

@@ -47,3 +47,9 @@ Thumbs.db
 # Cursor
 .cursor/
 .claude/
+
+# Python bytecode
+__pycache__/
+*.pyc
+# archify visual-check artifacts (regenerate with `archify visual-check`)
+docs/architecture/*.visual-check.*

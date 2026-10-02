@@ -17,6 +17,15 @@ import java.util.UUID;
 @Repository
 public interface DocumentMetadataRepository extends JpaRepository<DocumentMetadata, UUID> {
 
+    /** Signed firm documents of one type — the population for firm norms. */
+    java.util.List<DocumentMetadata> findByDocumentTypeAndContractStatusIn(
+            com.legalpartner.model.enums.DocumentType documentType,
+            java.util.Collection<com.legalpartner.model.enums.ContractStatus> statuses);
+
+    /** Signed documents from one source (e.g. DRAFT_ASYNC) — executed AI drafts for eval export. */
+    java.util.List<DocumentMetadata> findBySourceAndContractStatusIn(
+            String source, java.util.Collection<com.legalpartner.model.enums.ContractStatus> statuses);
+
     Page<DocumentMetadata> findByConfidentialFalse(Pageable pageable);
 
     Page<DocumentMetadata> findBySourceNot(String source, Pageable pageable);

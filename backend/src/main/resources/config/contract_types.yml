@@ -12,23 +12,34 @@
 #                      must match a DocumentType enum value (NDA, MSA, SAAS,
 #                      EMPLOYMENT, etc.). Determines which precedents are
 #                      retrievable when drafting this template.
-#   display_name     — shown in UI
+#   display_name     — shown in UI (template picker, document titles)
+#   description      — one-line summary shown in the template picker
+#   ref_prefix       — agreement reference prefix (e.g. NDA-20260925-A1B2);
+#                      default in drafting_defaults.yml
 #   default_sections — ordered list of clause-type keys the section planner
 #                      falls back to if the LLM fails. Must beat the planner's
 #                      count for the "floor" logic in DraftService.planSections
 #                      to kick in and prevent undercounting.
 #   contract_mode    — expected scratchpad mode for validation (SAAS, MSA, NDA, etc.)
+#   review_type      — contract-type code used by review (risk_questions.yml keys);
+#                      drafts of this template are reviewed with its questions and
+#                      required clauses. Defaults to document_type.
 #   party_roles      — [partyA_role, partyB_role] for consistent naming enforcement
 #   banned_terms     — terms that must NEVER appear in this contract type
+#                      (whole-word, case-insensitive). A hit is a QA warning
+#                      ("contract-type contamination") and triggers a retry.
 
 contract_types:
 
   nda:
     document_type: NDA
     display_name: "Non-Disclosure Agreement"
+    ref_prefix: NDA
+    description: "Mutual NDA for protecting confidential information during business discussions"
     contract_mode: NDA
+    review_type: NDA
     party_roles: ["Disclosing Party", "Receiving Party"]
-    banned_terms: ["Statement of Work", "subscription", "license fee", "SLA"]
+    banned_terms: ["Statement of Work", "subscription", "license fee", "SLA", "service level", "uptime", "subscription fee", "software license", "source code", "purchase order"]
     required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
     recommended_fields: ["legal.survivalYears"]
     default_sections:
@@ -42,9 +53,12 @@ contract_types:
   msa:
     document_type: MSA
     display_name: "Master Services Agreement"
+    ref_prefix: MSA
+    description: "Framework agreement for ongoing professional services engagements"
     contract_mode: MSA
+    review_type: MSA
     party_roles: ["Service Provider", "Client"]
-    banned_terms: ["subscription fee", "authorized users", "uptime", "license grant"]
+    banned_terms: ["subscription fee", "authorized users", "uptime", "license grant", "real property", "lease", "tenant", "mortgage", "employment contract"]
     required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
     recommended_fields: ["fees.billingCycle", "support.slaResponseHours", "legal.noticeDays"]
     default_sections:
@@ -54,6 +68,7 @@ contract_types:
       - CONFIDENTIALITY
       - IP_RIGHTS
       - LIABILITY
+      - INDEMNIFICATION
       - WARRANTIES
       - FORCE_MAJEURE
       - TERMINATION
@@ -63,9 +78,12 @@ contract_types:
   saas:
     document_type: SAAS
     display_name: "SaaS Subscription Agreement"
+    ref_prefix: SAAS
+    description: "Cloud software subscription with SLAs, data processing, and usage terms"
     contract_mode: SAAS
+    review_type: SAAS
     party_roles: ["Provider", "Customer"]
-    banned_terms: ["Statement of Work", "Deliverables", "milestone", "perpetual license"]
+    banned_terms: ["Statement of Work", "Deliverables", "milestone", "perpetual license", "real property", "lease agreement", "lessee", "lessor", "landlord", "tenant", "mortgage", "premises", "rental"]
     required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction", "fees.subscriptionFee"]
     recommended_fields: ["license.users", "support.uptimeSla", "support.slaResponseHours"]
     default_sections:
@@ -74,7 +92,9 @@ contract_types:
       - PAYMENT
       - CONFIDENTIALITY
       - DATA_PROTECTION
+      - IP_RIGHTS
       - LIABILITY
+      - INDEMNIFICATION
       - WARRANTIES
       - FORCE_MAJEURE
       - TERMINATION
@@ -83,28 +103,39 @@ contract_types:
 
   fintech_msa:
     document_type: SAAS
+    review_type: MSA
     display_name: "Fintech Master Services Agreement"
+    description: "Financial services MSA with regulatory references, data protection, and audit rights"
+    banned_terms: ["real property", "lease", "tenant", "mortgage", "employment contract"]
     default_sections:
       - DEFINITIONS
       - SERVICES
       - PAYMENT
       - CONFIDENTIALITY
       - DATA_PROTECTION
+      - IP_RIGHTS
       - LIABILITY
+      - INDEMNIFICATION
+      - WARRANTIES
       - TERMINATION
       - GOVERNING_LAW
       - GENERAL_PROVISIONS
 
   clinical_services:
     document_type: SAAS
+    review_type: MSA
     display_name: "Clinical Services Agreement"
+    description: "Pharma / healthcare services contract with regulatory, data privacy, and compliance terms"
     default_sections:
       - DEFINITIONS
       - SERVICES
       - PAYMENT
       - CONFIDENTIALITY
       - DATA_PROTECTION
+      - IP_RIGHTS
       - LIABILITY
+      - INDEMNIFICATION
+      - WARRANTIES
       - TERMINATION
       - GOVERNING_LAW
       - GENERAL_PROVISIONS
@@ -112,9 +143,12 @@ contract_types:
   employment:
     document_type: EMPLOYMENT
     display_name: "Employment Agreement"
+    ref_prefix: EMP
+    description: "Executive or senior employee contract with compensation, IP assignment, and restrictive covenants"
     contract_mode: EMPLOYMENT
+    review_type: EMPLOYMENT
     party_roles: ["Employer", "Employee"]
-    banned_terms: ["Statement of Work", "subscription", "license", "SLA"]
+    banned_terms: ["Statement of Work", "subscription", "license", "SLA", "saas platform", "uptime guarantee", "api access", "software subscription", "real property"]
     required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
     recommended_fields: ["compensation.salary", "legal.noticePeriod"]
     default_sections:
@@ -130,9 +164,12 @@ contract_types:
   supply:
     document_type: SUPPLY
     display_name: "Supply Agreement"
+    ref_prefix: SUP
+    description: "Manufacturing or supply chain contract with delivery, quality, and force majeure terms"
     contract_mode: SUPPLY
+    review_type: SUPPLY
     party_roles: ["Supplier", "Buyer"]
-    banned_terms: ["subscription", "authorized users", "SaaS", "license grant"]
+    banned_terms: ["subscription", "authorized users", "SaaS", "license grant", "software license", "uptime", "source code", "real property", "employment"]
     required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
     recommended_fields: ["fees.billingCycle", "legal.noticeDays"]
     default_sections:
@@ -149,7 +186,10 @@ contract_types:
   software_license:
     document_type: IP_LICENSE
     display_name: "Software License Agreement"
+    ref_prefix: SLA
+    description: "Commercial software license — perpetual or term, with support and IP ownership"
     contract_mode: SOFTWARE_LICENSE
+    review_type: SOFTWARE_LICENSE
     party_roles: ["Licensor", "Licensee"]
     banned_terms: ["Statement of Work", "Deliverables", "subscription fee", "SaaS"]
     required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction", "license.type", "fees.licenseFee"]
@@ -161,6 +201,7 @@ contract_types:
       - PAYMENT
       - CONFIDENTIALITY
       - LIABILITY
+      - INDEMNIFICATION
       - WARRANTIES
       - FORCE_MAJEURE
       - TERMINATION
@@ -170,7 +211,10 @@ contract_types:
   ip_license:
     document_type: IP_LICENSE
     display_name: "IP License Agreement"
+    ref_prefix: IPL
+    description: "License of patents, trademarks, or copyrights with royalty and sublicense terms"
     contract_mode: IP_LICENSE
+    review_type: IP_LICENSE
     party_roles: ["Licensor", "Licensee"]
     banned_terms: ["Statement of Work", "Deliverables", "subscription fee", "SaaS"]
     required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction", "license.type"]
@@ -180,9 +224,83 @@ contract_types:
       - IP_RIGHTS
       - PAYMENT
       - LIABILITY
+      - INDEMNIFICATION
+      - WARRANTIES
       - TERMINATION
       - GOVERNING_LAW
       - GENERAL_PROVISIONS
 
 # If a template id isn't listed above, the system falls back to the "msa"
 # default_sections. Edit that entry to change the generic fallback.
+
+  # Listed in the template picker; drafted with the MSA clause set.
+  vendor:
+    document_type: VENDOR
+    review_type: MSA
+    display_name: "Vendor Agreement"
+    description: "Standard vendor terms for procurement of goods or services"
+    banned_terms: ["real property", "lease", "tenant", "mortgage", "employment contract"]
+    contract_mode: MSA
+    party_roles: ["Service Provider", "Client"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
+    default_sections:
+      - DEFINITIONS
+      - SERVICES
+      - PAYMENT
+      - CONFIDENTIALITY
+      - IP_RIGHTS
+      - LIABILITY
+      - INDEMNIFICATION
+      - WARRANTIES
+      - FORCE_MAJEURE
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+  # User-named contract type (contractTypeName on the request); MSA clause set as the base.
+  custom:
+    document_type: OTHER
+    review_type: MSA
+    display_name: "Custom Contract"
+    description: "Enter your own contract type — AI drafts appropriate clauses based on your description"
+    party_roles: ["Service Provider", "Client"]
+    required_fields: ["partyA.name", "partyB.name", "legal.jurisdiction"]
+    default_sections:
+      - DEFINITIONS
+      - SERVICES
+      - PAYMENT
+      - CONFIDENTIALITY
+      - IP_RIGHTS
+      - LIABILITY
+      - INDEMNIFICATION
+      - WARRANTIES
+      - FORCE_MAJEURE
+      - TERMINATION
+      - GOVERNING_LAW
+      - GENERAL_PROVISIONS
+
+# Display labels for DealSpec field paths (intake form "missing field" prompts).
+# Every required_fields / recommended_fields path must have a label (ConfigConsistencyTest).
+field_labels:
+  partyA.name: "Party A name"
+  partyB.name: "Party B name"
+  partyA.address: "Party A address"
+  partyB.address: "Party B address"
+  legal.jurisdiction: "Governing law jurisdiction"
+  legal.court: "Court for disputes"
+  legal.noticeDays: "Notice period (days)"
+  legal.survivalYears: "Survival period (years)"
+  license.type: "License type (perpetual/subscription)"
+  license.users: "Number of authorized users"
+  license.locations: "Number of licensed sites"
+  fees.licenseFee: "License fee amount"
+  fees.maintenanceFee: "Annual maintenance fee"
+  fees.subscriptionFee: "Subscription fee"
+  fees.billingCycle: "Billing cycle (monthly/annual)"
+  support.slaResponseHours: "SLA response time (hours)"
+  support.coverage: "Support coverage (24/7/business hours)"
+  support.uptimeSla: "Uptime SLA percentage"
+  support.patchFrequency: "Security patch frequency"
+  security.escrow: "Source code escrow required"
+  compensation.salary: "Annual salary/compensation"
+  legal.noticePeriod: "Employment notice period"

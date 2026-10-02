@@ -8,7 +8,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ContractTypeDetectorTest {
 
-    private final ContractTypeDetector detector = new ContractTypeDetector();
+    private final ContractTypeDetector detector = new ContractTypeDetector(com.legalpartner.testsupport.ConfigFixtures.vocabulary());
 
     @Test
     void detectsNDA() {

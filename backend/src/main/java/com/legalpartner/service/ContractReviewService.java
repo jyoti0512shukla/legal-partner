@@ -31,6 +31,7 @@ public class ContractReviewService {
     private final VllmGuidedClient vllmClient;
     private final LegalSystemConfig legalSystemConfig;
     private final RiskQuestionEngine riskQuestionEngine;
+    private final com.legalpartner.config.PromptRepository prompts;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ContractReviewResult review(ContractReviewRequest request, String username) {
@@ -58,61 +59,39 @@ public class ContractReviewService {
                     List.of(), List.of("Document not yet indexed"), List.of("Wait for INDEXED status"));
         }
 
-        // Detect contract type and get relevant clauses to check
+        // Checklist clauses: risk_questions.yml checklist_clauses drives prompt, schema and parsers.
+        Map<String, String> checklist = riskQuestionEngine.getChecklistClauses();
+        List<String> clauseIds = new ArrayList<>(checklist.keySet());
         String contractType = doc.getDocumentType() != null ? doc.getDocumentType().name() : null;
-        List<String> clausesToCheck = riskQuestionEngine.getRequiredClauses(contractType);
-        if (clausesToCheck.isEmpty()) {
-            // Fallback: use all clause types from the engine
-            clausesToCheck = List.of("LIABILITY", "INDEMNIFICATION", "TERMINATION", "CONFIDENTIALITY",
-                    "IP_RIGHTS", "GOVERNING_LAW", "FORCE_MAJEURE", "PAYMENT", "DATA_PROTECTION",
-                    "WARRANTIES", "GENERAL_PROVISIONS");
-        }
-        String clauseIdList = String.join(", ", clausesToCheck);
-        log.info("Checklist for doc {} (type={}): checking {} clauses: {}",
-                doc.getFileName(), contractType, clausesToCheck.size(), clauseIdList);
+        log.info("Checklist for doc {} (type={}): checking {} clauses", doc.getFileName(), contractType, clauseIds.size());
 
-        // Build dynamic system prompt with the relevant clause list
-        String systemPrompt = legalSystemConfig.localize("""
-                You are a %LEGAL_REVIEWER%. Check the following clauses in the contract.
-
-                Clause IDs to check (use exactly as shown):
-                """ + clauseIdList + """
-
-                For each clause provide:
-                - clause_id: one of the IDs above
-                - status: PRESENT (clearly present), WEAK (present but incomplete or one-sided), MISSING (not found)
-                - risk_level: HIGH (missing or dangerously weak), MEDIUM (present but improvable), LOW (clear and balanced)
-                - section_ref: section number (e.g. "Section 8.1") or "MISSING" if absent
-                - finding: one sentence describing what was found or not found
-                - recommendation: specific improvement recommendation, or null if the clause is standard
-
-                %COUNTRY% law context: reference %DATA_PROTECTION_LAWS_ABBREV% for DATA_PROTECTION, %ARBITRATION_ACT% for DISPUTE_RESOLUTION.
-                """);
+        String systemPrompt = legalSystemConfig.localize(fillChecklistVars(prompts.get("CHECKLIST_SYSTEM_GUIDED"), clauseIds));
 
         String guidedPrompt = String.format(PromptTemplates.CHECKLIST_USER_GUIDED, doc.getFileName(), context);
 
         // Primary: guided_json
         com.fasterxml.jackson.databind.JsonNode json = vllmClient.generateStructured(
-                systemPrompt, guidedPrompt, StructuredSchemas.CHECKLIST_SCHEMA, 1200);
+                systemPrompt, guidedPrompt, StructuredSchemas.checklistSchema(clauseIds), 1200);
 
         log.info("[prompt={}] checklist guided_json node: {}",
                 PromptTemplates.PROMPT_VERSION,
                 json.has("clauses") ? "clauses[" + json.path("clauses").size() + "]" : (json.size() > 0 ? json.fieldNames().next() : "empty"));
 
-        List<ClauseCheckResult> clauses = parseChecklistJson(json);
+        List<ClauseCheckResult> clauses = parseChecklistJson(json, checklist);
 
         if (clauses.isEmpty()) {
             // Fall back to CSV completions
             log.info("[prompt={}] guided_json returned no clauses — falling back to CSV completions", PromptTemplates.PROMPT_VERSION);
-            String csvPrompt = String.format(PromptTemplates.CHECKLIST_USER, doc.getFileName(), context);
+            String csvPrompt = String.format(fillChecklistVars(prompts.get("CHECKLIST_USER"), clauseIds),
+                    doc.getFileName(), context);
             String rawResponse = vllmClient.generateText(
-                    legalSystemConfig.localize(PromptTemplates.CHECKLIST_SYSTEM), csvPrompt, "LIABILITY_LIMIT=", 400);
+                    legalSystemConfig.localize(prompts.get("CHECKLIST_SYSTEM")), csvPrompt, clauseIds.get(0) + "=", 400);
             String cleaned = rawResponse;
             int instEnd = cleaned.lastIndexOf("[/INST]");
             if (instEnd >= 0) cleaned = cleaned.substring(instEnd + 7);
             cleaned = cleaned.replaceAll("(?i)^\\s*Response\\s*:\\s*", "").trim();
-            clauses = parseChecklistCsv(cleaned);
-            if (clauses.isEmpty()) clauses = parseChecklistResponse(cleaned);
+            clauses = parseChecklistCsv(cleaned, checklist);
+            if (clauses.isEmpty()) clauses = parseChecklistResponse(cleaned, checklist);
         }
 
         if (clauses.isEmpty()) {
@@ -159,20 +138,22 @@ public class ContractReviewService {
     }
 
     // Human-readable names for the 12 canonical CLAUSE_IDs
-    private static final java.util.Map<String, String> CLAUSE_ID_NAMES = java.util.Map.ofEntries(
-            java.util.Map.entry("LIABILITY_LIMIT",           "Limitation of Liability"),
-            java.util.Map.entry("INDEMNITY",                 "Indemnification"),
-            java.util.Map.entry("TERMINATION_CONVENIENCE",   "Termination for Convenience"),
-            java.util.Map.entry("TERMINATION_CAUSE",         "Termination for Cause"),
-            java.util.Map.entry("FORCE_MAJEURE",             "Force Majeure"),
-            java.util.Map.entry("CONFIDENTIALITY",           "Confidentiality / NDA"),
-            java.util.Map.entry("GOVERNING_LAW",             "Governing Law"),
-            java.util.Map.entry("DISPUTE_RESOLUTION",        "Dispute Resolution / Arbitration"),
-            java.util.Map.entry("IP_OWNERSHIP",              "Intellectual Property Ownership"),
-            java.util.Map.entry("DATA_PROTECTION",           "Data Protection"),
-            java.util.Map.entry("PAYMENT_TERMS",             "Payment Terms"),
-            java.util.Map.entry("ASSIGNMENT",                "Assignment / Change of Control")
-    );
+    /** Fill checklist placeholders ({{CLAUSE_COUNT}}, {{CLAUSE_IDS}}, {{CSV_SKELETON}}, {{CSV_EXAMPLE}}). */
+    static String fillChecklistVars(String template, List<String> clauseIds) {
+        String[] demo = {"PRESENT-LOW", "WEAK-MEDIUM", "MISSING-HIGH"};
+        StringBuilder skeleton = new StringBuilder();
+        StringBuilder example = new StringBuilder();
+        for (int i = 0; i < clauseIds.size(); i++) {
+            if (i > 0) { skeleton.append(','); example.append(','); }
+            skeleton.append(clauseIds.get(i)).append("=?-?");
+            example.append(clauseIds.get(i)).append('=').append(demo[i % demo.length]);
+        }
+        return template
+                .replace("{{CLAUSE_COUNT}}", String.valueOf(clauseIds.size()))
+                .replace("{{CLAUSE_IDS}}", String.join(", ", clauseIds))
+                .replace("{{CSV_SKELETON}}", skeleton)
+                .replace("{{CSV_EXAMPLE}}", example);
+    }
 
     // Matches: "LIABILITY_LIMIT: PRESENT | HIGH | Section 8.1 | Finding. | Recommendation."
     // Also tolerates the model omitting some trailing fields.
@@ -185,14 +166,14 @@ public class ContractReviewService {
                     "(?:\\s*\\|\\s*([^|\\n]*))?",    // recommendation
                     java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    private List<ClauseCheckResult> parseChecklistResponse(String raw) {
+    private List<ClauseCheckResult> parseChecklistResponse(String raw, Map<String, String> names) {
         if (raw == null) return List.of();
         List<ClauseCheckResult> results = new ArrayList<>();
 
         java.util.regex.Matcher m = CHECKLIST_LINE.matcher(raw);
         while (m.find()) {
             String clauseId = m.group(1).trim().toUpperCase();
-            if (!CLAUSE_ID_NAMES.containsKey(clauseId)) continue;
+            if (!names.containsKey(clauseId)) continue;
 
             String status     = m.group(2).trim().toUpperCase();
             String riskLevel  = m.group(3) != null ? m.group(3).trim().toUpperCase() : "MEDIUM";
@@ -205,7 +186,7 @@ public class ContractReviewService {
             }
 
             results.add(new ClauseCheckResult(
-                    CLAUSE_ID_NAMES.getOrDefault(clauseId, clauseId),
+                    names.getOrDefault(clauseId, clauseId),
                     status,
                     null,
                     sectionRef,
@@ -223,16 +204,16 @@ public class ContractReviewService {
     }
 
     /** Parse guided_json response: {"clauses":[{"clause_id":"LIABILITY_LIMIT","status":"PRESENT",...}]} */
-    private List<ClauseCheckResult> parseChecklistJson(com.fasterxml.jackson.databind.JsonNode root) {
+    private List<ClauseCheckResult> parseChecklistJson(com.fasterxml.jackson.databind.JsonNode root, Map<String, String> names) {
         if (root == null || root.isMissingNode() || !root.has("clauses")) return List.of();
         List<ClauseCheckResult> results = new ArrayList<>();
         for (com.fasterxml.jackson.databind.JsonNode clause : root.path("clauses")) {
             String clauseId = clause.path("clause_id").asText();
-            if (!CLAUSE_ID_NAMES.containsKey(clauseId)) continue;
+            if (!names.containsKey(clauseId)) continue;
             String rec = clause.path("recommendation").isNull() ? null : clause.path("recommendation").asText(null);
             if (rec != null && rec.isBlank()) rec = null;
             results.add(new ClauseCheckResult(
-                    CLAUSE_ID_NAMES.get(clauseId),
+                    names.get(clauseId),
                     clause.path("status").asText("MISSING"),
                     null,
                     clause.path("section_ref").asText("MISSING"),
@@ -246,13 +227,13 @@ public class ContractReviewService {
     }
 
     /** Parse CSV format: LIABILITY_LIMIT=PRESENT-LOW,INDEMNITY=WEAK-MEDIUM,... */
-    private List<ClauseCheckResult> parseChecklistCsv(String raw) {
+    private List<ClauseCheckResult> parseChecklistCsv(String raw, Map<String, String> names) {
         if (raw == null || raw.isBlank()) return List.of();
         List<ClauseCheckResult> results = new ArrayList<>();
 
         // Find the CSV line — model may add prose before/after
         java.util.regex.Matcher csvLine = java.util.regex.Pattern
-                .compile("LIABILITY_LIMIT=[A-Z]+-[A-Z]+(,[A-Z_]+=[A-Z]+-[A-Z]+)+",
+                .compile("[A-Z_]+=[A-Z]+-[A-Z]+(,[A-Z_]+=[A-Z]+-[A-Z]+)+",
                         java.util.regex.Pattern.CASE_INSENSITIVE)
                 .matcher(raw);
         String csv = csvLine.find() ? csvLine.group() : raw;
@@ -261,7 +242,7 @@ public class ContractReviewService {
             String[] kv = entry.trim().split("=", 2);
             if (kv.length < 2) continue;
             String clauseId = kv[0].trim().toUpperCase();
-            if (!CLAUSE_ID_NAMES.containsKey(clauseId)) continue;
+            if (!names.containsKey(clauseId)) continue;
 
             String[] sr = kv[1].split("-", 2);
             String status   = sr[0].trim().toUpperCase();
@@ -271,7 +252,7 @@ public class ContractReviewService {
             if (!riskLevel.matches("HIGH|MEDIUM|LOW")) riskLevel = "MEDIUM";
 
             results.add(new ClauseCheckResult(
-                    CLAUSE_ID_NAMES.get(clauseId), status, null,
+                    names.get(clauseId), status, null,
                     "MISSING".equals(status) ? "MISSING" : "See contract",
                     riskLevel, "", null
             ));

@@ -31,6 +31,7 @@ public class DocumentVersionService {
     private final DocumentMetadataRepository documentRepo;
     private final ContractLifecycleService lifecycleService;
     private final AuditService auditService;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Value("${legalpartner.storage.path:/data/documents}")
     private String storagePath;
@@ -87,6 +88,8 @@ public class DocumentVersionService {
                 .build());
 
         log.info("Version v{} created for doc {} by {} ({})", nextVersion, documentId, username, source);
+        eventPublisher.publishEvent(new com.legalpartner.event.DocumentRevisedEvent(
+                documentId, nextVersion, versionPath, username, source));
         return saved;
     }
 
@@ -113,6 +116,8 @@ public class DocumentVersionService {
         doc.setCurrentVersion(nextVersion);
         documentRepo.save(doc);
 
+        eventPublisher.publishEvent(new com.legalpartner.event.DocumentRevisedEvent(
+                documentId, nextVersion, filePath, username, source));
         return saved;
     }
 

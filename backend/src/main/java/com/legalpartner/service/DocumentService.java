@@ -46,12 +46,18 @@ public class DocumentService {
     private final AnonymizationService anonymizationService;
     private final DynamicEntityDenylistService dynamicDenylist;
     private final com.legalpartner.rag.Bm25SearchService bm25SearchService;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
     private final Tika tika = new Tika();
 
-    private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
-            ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".html", ".htm", ".rtf", ".odt", ".csv"
-    );
+    /** Comma-separated upload allowlist — legalpartner.upload.allowed-extensions (application.yml). */
+    @org.springframework.beans.factory.annotation.Value("${legalpartner.upload.allowed-extensions:.pdf,.docx,.doc,.xlsx,.xls,.txt,.html,.htm,.rtf,.odt,.csv}")
+    private String allowedExtensionsRaw = ".pdf,.docx,.doc,.xlsx,.xls,.txt,.html,.htm,.rtf,.odt,.csv";
+
+    private java.util.List<String> allowedExtensions() {
+        return java.util.Arrays.stream(allowedExtensionsRaw.split(","))
+                .map(String::trim).map(String::toLowerCase).filter(e -> !e.isEmpty()).toList();
+    }
     private static final Map<String, byte[]> MAGIC_BYTES = Map.of(
             "PDF",  new byte[]{0x25, 0x50, 0x44, 0x46},         // %PDF
             "DOCX", new byte[]{0x50, 0x4B, 0x03, 0x04},         // PK (ZIP)
@@ -69,9 +75,9 @@ public class DocumentService {
 
         // Extension whitelist
         String lower = name.toLowerCase();
-        boolean validExt = ALLOWED_EXTENSIONS.stream().anyMatch(lower::endsWith);
+        boolean validExt = allowedExtensions().stream().anyMatch(lower::endsWith);
         if (!validExt) {
-            throw new IllegalArgumentException("File type not allowed. Accepted: " + ALLOWED_EXTENSIONS);
+            throw new IllegalArgumentException("File type not allowed. Accepted: " + allowedExtensions());
         }
 
         // Magic byte validation for binary formats
@@ -410,10 +416,19 @@ public class DocumentService {
         return new DocumentDetail(doc, Map.of());
     }
 
+    /**
+     * Delete a document and everything derived from it: vector chunks (both pools), BM25 rows,
+     * stored files and sidecars. The DB row goes first so a constraint failure leaves the
+     * indexed data intact; learning stores clean up on {@link com.legalpartner.event.DocumentDeletedEvent}.
+     */
     public void deleteDocument(UUID id, String username) {
         repository.findById(id).orElseThrow(() -> new NoSuchElementException("Document not found: " + id));
         repository.deleteById(id);
-        log.info("Document {} deleted by {}", id, username);
+        int chunks = jdbcTemplate.update("DELETE FROM embeddings WHERE metadata->>'document_id' = ?", id.toString());
+        int bm25 = bm25SearchService.deleteByDocument(id);
+        int files = fileStorageService.deleteAllFor(id);
+        eventPublisher.publishEvent(new com.legalpartner.event.DocumentDeletedEvent(id, username));
+        log.info("Document {} deleted by {} ({} chunks, {} BM25 rows, {} files)", id, username, chunks, bm25, files);
     }
 
     public DocumentStats getCorpusStats() {

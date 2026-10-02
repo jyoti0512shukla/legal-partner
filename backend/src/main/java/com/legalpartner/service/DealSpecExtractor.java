@@ -27,74 +27,6 @@ import java.util.regex.Pattern;
 @Slf4j
 public class DealSpecExtractor {
 
-    private static final String EXTRACTION_PROMPT = """
-            You are a legal deal-term extraction engine. Extract ALL structured data from the
-            deal brief below into a single JSON object. Output ONLY valid JSON, no markdown.
-
-            Schema (all fields nullable — omit or set to null if not mentioned):
-            {
-              "partyA": {
-                "name": "full legal entity name",
-                "type": "Corporation | LLC | LLP | Partnership | Individual",
-                "state": "state of incorporation",
-                "address": "full address",
-                "role": "Licensor | Provider | Seller | Employer | Disclosing Party"
-              },
-              "partyB": {
-                "name": "full legal entity name",
-                "type": "Corporation | LLC | LLP | Partnership | Individual",
-                "state": "state of incorporation",
-                "address": "full address",
-                "role": "Licensee | Customer | Buyer | Employee | Receiving Party"
-              },
-              "license": {
-                "type": "perpetual | subscription | term-based",
-                "users": 500,
-                "locations": 3,
-                "derivativeRights": true,
-                "deployment": "on-premise | cloud | hybrid",
-                "termDuration": "3 years"
-              },
-              "fees": {
-                "licenseFee": 750000,
-                "maintenanceFee": 150000,
-                "billingCycle": "monthly | quarterly | annually",
-                "currency": "USD",
-                "paymentTerms": "Net 30"
-              },
-              "support": {
-                "coverage": "24/7 | business hours | extended hours",
-                "slaResponseHours": 4,
-                "patchFrequency": "monthly | quarterly | as-needed",
-                "uptimeSla": 99.9
-              },
-              "security": {
-                "escrow": true,
-                "soc2": true,
-                "iso27001": false,
-                "encryptionAtRest": true,
-                "encryptionInTransit": true
-              },
-              "legal": {
-                "jurisdiction": "State of Delaware",
-                "court": "Delaware Court of Chancery",
-                "arbitration": "ICC Rules",
-                "liabilityCap": "12 months of fees",
-                "noticeDays": 30
-              },
-              "customRequirements": ["source code escrow", "quarterly business reviews"]
-            }
-
-            IMPORTANT:
-            - Monetary values must be plain numbers (750000 not "$750,000")
-            - Extract EVERY concrete value mentioned — amounts, counts, durations, standards
-            - For users/locations, extract the number only
-            - If the brief mentions "perpetual" or "subscription", set license.type accordingly
-            - If SOC 2, ISO 27001, escrow are mentioned, set the boolean to true
-            - customRequirements: list any special terms that don't fit the structured fields
-
-            Deal brief:
-            """;
 
     // Regex patterns for deterministic fallback extraction
     private static final Pattern CURRENCY_PATTERN = Pattern.compile(
@@ -115,11 +47,14 @@ public class DealSpecExtractor {
             "(\\d+)\\s*(?:locations?|sites?|offices?)", Pattern.CASE_INSENSITIVE);
 
     private final ChatLanguageModel jsonChatModel;
+    private final com.legalpartner.config.PromptRepository prompts;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DealSpecExtractor(
-            @Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel) {
+            @Qualifier("jsonChatModel") ChatLanguageModel jsonChatModel,
+            com.legalpartner.config.PromptRepository prompts) {
         this.jsonChatModel = jsonChatModel;
+        this.prompts = prompts;
     }
 
     /**
@@ -152,7 +87,7 @@ public class DealSpecExtractor {
 
     private DealSpec extractViaLlm(String dealBrief) {
         try {
-            String prompt = EXTRACTION_PROMPT + dealBrief;
+            String prompt = prompts.get("DEALSPEC_EXTRACTION") + dealBrief;
             String response = jsonChatModel.generate(UserMessage.from(prompt)).content().text().trim();
 
             // Strip markdown code fences if present

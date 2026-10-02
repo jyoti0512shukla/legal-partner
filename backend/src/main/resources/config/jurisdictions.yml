@@ -1,0 +1,255 @@
+# Jurisdiction registry — the legal references injected into every LLM prompt.
+#
+# Prompts contain %MARKER% placeholders (e.g. %CONTRACT_ACT%, %ARBITRATION_SEAT%).
+# LegalSystemConfig replaces each marker with the value for the request's jurisdiction.
+# Adding a jurisdiction = one block here. No Java changes.
+#
+# Resolution:
+#   1. A drafting request's jurisdiction string is lower-cased and matched against
+#      each entry in order — first match wins. `match`: any listed substring matches.
+#      `match_all`: every listed substring must be present.
+#   2. No jurisdiction on the request → `system_defaults[legalpartner.legal-system]`.
+#   3. Nothing matched → `fallback`.
+#
+# `extends` inherits a parent's markers and vars; the child overrides what differs.
+# `vars` are substituted into marker values as {{NAME}}.
+# `abstract: true` entries are only used as parents, never matched.
+# `family` groups jurisdictions whose precedent is interchangeable for drafting retrieval
+# (default: the root of the `extends` chain, so every US state is family "us").
+#
+# Every non-abstract jurisdiction must define every marker (enforced by
+# LegalSystemConfigTest) — a missing marker would leak "%MARKER%" into a prompt.
+
+system_defaults:
+  USA: us
+  INDIA: india
+
+fallback: india
+
+jurisdictions:
+
+  # ── United States ──────────────────────────────────────────────────────────
+  - id: us_california
+    extends: us
+    match: ["california"]
+    vars: { STATE: "California", COURT_CITY: "San Francisco, California" }
+
+  - id: us_new_york
+    extends: us
+    match: ["new york"]
+    vars: { STATE: "New York", COURT_CITY: "New York, New York" }
+
+  - id: us_delaware
+    extends: us
+    match: ["delaware"]
+    vars: { STATE: "Delaware", COURT_CITY: "Wilmington, Delaware" }
+
+  - id: us
+    match: ["united states", "u.s.", "usa", "texas", "illinois", "florida"]
+    vars: { STATE: "the applicable state", COURT_CITY: "the applicable state court" }
+    markers:
+      DRAFTING_REGISTER: "formal legal English appropriate to the governing law"
+      COUNTRY: "United States"
+      LEGAL_ANALYST_EXPERTISE: "US legal analyst with expertise in contract law, UCC, and US corporate law"
+      LEGAL_DRAFTSMAN: "US legal draftsman"
+      LEGAL_RISK_ANALYST: "US legal risk analyst"
+      LEGAL_RISK_CONSULTANT: "US legal risk consultant"
+      LEGAL_EDITOR: "US legal editor"
+      LEGAL_REVIEWER: "senior US legal reviewer"
+      LAW_SYSTEM: "US law"
+      LAW_COMPLIANCE: "US law compliance (UCC and applicable federal/state statutes)"
+      CONTRACT_ACT_LIABILITY_SECTIONS: "UCC § 2-719 and applicable state law"
+      CONTRACT_ACT_REPUDIATION: "applicable anticipatory breach doctrine under common law"
+      CONTRACT_ACT_MISREPRESENTATION: "Restatement (Second) of Contracts §§ 159-164"
+      CONTRACT_ACT_LAWFUL_OBJECT: "applicable common law principles of lawful consideration"
+      CONTRACT_ACT: "Uniform Commercial Code (UCC) and applicable common law"
+      ARBITRATION_ACT: "Federal Arbitration Act (9 U.S.C.) and applicable state arbitration rules"
+      ARBITRATION_SEAT: "{{COURT_CITY}}"
+      COURT_SEAT: "{{COURT_CITY}}"
+      GOVERNING_LAW_STATEMENT: "Governing law — laws of the State of {{STATE}}, United States."
+      # Courts-only dispute resolution — no arbitration for US
+      DISPUTE_RESOLUTION_CLAUSE: "Sub-clause 3: Courts — each Party irrevocably submits to the exclusive jurisdiction of the state and federal courts sitting in {{COURT_CITY}} for resolution of any dispute arising under this Agreement. Each Party waives any objection to venue or inconvenient forum."
+      IP_LAWS: "Copyright Act of 1976 (17 U.S.C.) and Patent Act (35 U.S.C.)"
+      MORAL_RIGHTS_REF: "moral rights (17 U.S.C. § 106A, where applicable)"
+      DATA_PROTECTION_LAWS: "CCPA, COPPA, and applicable state privacy laws"
+      DATA_PROTECTION_LAWS_ABBREV: "CCPA / applicable state privacy laws"
+      TAX_REF: "applicable federal and state taxes"
+      MSME_REF: "applicable small business payment regulations"
+
+  # ── Australia (before England/Wales: "New South Wales" contains "wales") ──────────────────────────────────────────────────────────────
+  - id: au_victoria
+    extends: au
+    match_all: ["australia", "victoria"]
+    vars: { STATE: "Victoria" }
+
+  - id: au_queensland
+    extends: au
+    match_all: ["australia", "queensland"]
+    vars: { STATE: "Queensland" }
+
+  - id: au
+    match: ["australia"]
+    vars: { STATE: "New South Wales" }
+    markers:
+      DRAFTING_REGISTER: "formal legal English appropriate to the governing law"
+      COUNTRY: "Australia"
+      LEGAL_ANALYST_EXPERTISE: "Australian legal analyst"
+      LEGAL_DRAFTSMAN: "Australian legal draftsman"
+      LEGAL_RISK_ANALYST: "Australian legal risk analyst"
+      LEGAL_RISK_CONSULTANT: "Australian legal risk consultant"
+      LEGAL_EDITOR: "Australian legal editor"
+      LEGAL_REVIEWER: "senior Australian legal reviewer"
+      LAW_SYSTEM: "Australian law"
+      LAW_COMPLIANCE: "Australian law compliance (Australian Consumer Law and applicable statutes)"
+      CONTRACT_ACT_LIABILITY_SECTIONS: "applicable provisions of the Australian Consumer Law"
+      CONTRACT_ACT_REPUDIATION: "applicable anticipatory breach doctrine under Australian common law"
+      CONTRACT_ACT_MISREPRESENTATION: "Australian Consumer Law (Schedule 2, Competition and Consumer Act 2010)"
+      CONTRACT_ACT_LAWFUL_OBJECT: "applicable common law principles of lawful consideration"
+      CONTRACT_ACT: "Australian common law and applicable statutes"
+      ARBITRATION_ACT: "International Arbitration Act 1974 (Cth)"
+      ARBITRATION_SEAT: "Sydney, New South Wales"
+      COURT_SEAT: "Sydney, New South Wales"
+      GOVERNING_LAW_STATEMENT: "Governing law — laws of {{STATE}}, Australia."
+      DISPUTE_RESOLUTION_CLAUSE: "Sub-clause 3: Courts — each Party submits to the exclusive jurisdiction of the courts of {{STATE}}, Australia."
+      IP_LAWS: "Copyright Act 1968 (Cth) and Patents Act 1990 (Cth)"
+      MORAL_RIGHTS_REF: "moral rights (Copyright Act 1968 (Cth), Part IX)"
+      DATA_PROTECTION_LAWS: "Privacy Act 1988 (Cth) and Australian Privacy Principles"
+      DATA_PROTECTION_LAWS_ABBREV: "Privacy Act 1988 / APPs"
+      TAX_REF: "applicable GST and taxes"
+      MSME_REF: "applicable small business regulations"
+
+  # ── England and Wales ──────────────────────────────────────────────────────
+  - id: uk
+    match: ["england", "wales", "united kingdom", "london"]
+    markers:
+      DRAFTING_REGISTER: "formal legal English appropriate to the governing law"
+      COUNTRY: "England and Wales"
+      LEGAL_ANALYST_EXPERTISE: "English legal analyst with expertise in contract law and English common law"
+      LEGAL_DRAFTSMAN: "English legal draftsman"
+      LEGAL_RISK_ANALYST: "English legal risk analyst"
+      LEGAL_RISK_CONSULTANT: "English legal risk consultant"
+      LEGAL_EDITOR: "English legal editor"
+      LEGAL_REVIEWER: "senior English legal reviewer"
+      LAW_SYSTEM: "English law"
+      LAW_COMPLIANCE: "English law compliance"
+      CONTRACT_ACT_LIABILITY_SECTIONS: "applicable provisions of the Contracts (Rights of Third Parties) Act 1999"
+      CONTRACT_ACT_REPUDIATION: "applicable anticipatory breach doctrine under English common law"
+      CONTRACT_ACT_MISREPRESENTATION: "Misrepresentation Act 1967"
+      CONTRACT_ACT_LAWFUL_OBJECT: "applicable common law principles of lawful consideration"
+      CONTRACT_ACT: "English common law and applicable statutes"
+      ARBITRATION_ACT: "Arbitration Act 1996"
+      ARBITRATION_SEAT: "London, England"
+      COURT_SEAT: "London, England"
+      GOVERNING_LAW_STATEMENT: "Governing law — laws of England and Wales."
+      DISPUTE_RESOLUTION_CLAUSE: "Sub-clause 3: Courts — each Party irrevocably submits to the exclusive jurisdiction of the courts of England and Wales."
+      IP_LAWS: "Copyright, Designs and Patents Act 1988 and Patents Act 1977"
+      MORAL_RIGHTS_REF: "moral rights (Copyright, Designs and Patents Act 1988, ss. 77-89)"
+      DATA_PROTECTION_LAWS: "UK GDPR and Data Protection Act 2018"
+      DATA_PROTECTION_LAWS_ABBREV: "UK GDPR / DPA 2018"
+      TAX_REF: "applicable VAT and taxes"
+      MSME_REF: "applicable small business regulations"
+
+  # ── Singapore ──────────────────────────────────────────────────────────────
+  - id: singapore
+    match: ["singapore"]
+    markers:
+      DRAFTING_REGISTER: "formal legal English appropriate to the governing law"
+      COUNTRY: "Singapore"
+      LEGAL_ANALYST_EXPERTISE: "Singapore legal analyst with expertise in contract law and Singapore law"
+      LEGAL_DRAFTSMAN: "Singapore legal draftsman"
+      LEGAL_RISK_ANALYST: "Singapore legal risk analyst"
+      LEGAL_RISK_CONSULTANT: "Singapore legal risk consultant"
+      LEGAL_EDITOR: "Singapore legal editor"
+      LEGAL_REVIEWER: "senior Singapore legal reviewer"
+      LAW_SYSTEM: "Singapore law"
+      LAW_COMPLIANCE: "Singapore law compliance"
+      CONTRACT_ACT_LIABILITY_SECTIONS: "applicable provisions of the Contracts (Rights of Third Parties) Act (Cap. 53B)"
+      CONTRACT_ACT_REPUDIATION: "applicable anticipatory breach doctrine under Singapore common law"
+      CONTRACT_ACT_MISREPRESENTATION: "Misrepresentation Act (Cap. 390)"
+      CONTRACT_ACT_LAWFUL_OBJECT: "applicable common law principles of lawful consideration"
+      CONTRACT_ACT: "Singapore common law and applicable statutes"
+      ARBITRATION_ACT: "International Arbitration Act (Cap. 143A) and SIAC Rules"
+      ARBITRATION_SEAT: "Singapore"
+      COURT_SEAT: "Singapore"
+      GOVERNING_LAW_STATEMENT: "Governing law — laws of Singapore."
+      DISPUTE_RESOLUTION_CLAUSE: "Sub-clause 3: Arbitration — disputes shall be resolved by arbitration administered by the Singapore International Arbitration Centre (SIAC) under the SIAC Rules, with seat at Singapore."
+      IP_LAWS: "Copyright Act 2021 and Patents Act (Cap. 221)"
+      MORAL_RIGHTS_REF: "moral rights (Copyright Act 2021)"
+      DATA_PROTECTION_LAWS: "Personal Data Protection Act 2012 (PDPA)"
+      DATA_PROTECTION_LAWS_ABBREV: "PDPA"
+      TAX_REF: "applicable GST and taxes"
+      MSME_REF: "applicable small business regulations"
+
+  # ── EU member states (civil law) ───────────────────────────────────────────
+  - id: germany
+    extends: eu
+    family: germany          # different civil code from other EU members
+    match: ["germany"]
+    vars: { NATION: "Germany", LAW_REF: "German law (BGB)" }
+
+  - id: france
+    extends: eu
+    family: france
+    match: ["france"]
+    vars: { NATION: "France", LAW_REF: "French law (Code Civil)" }
+
+  - id: eu
+    abstract: true
+    markers:
+      DRAFTING_REGISTER: "formal legal English appropriate to the governing law"
+      COUNTRY: "{{NATION}}"
+      LEGAL_ANALYST_EXPERTISE: "{{NATION}} legal analyst"
+      LEGAL_DRAFTSMAN: "{{NATION}} legal draftsman"
+      LEGAL_RISK_ANALYST: "{{NATION}} legal risk analyst"
+      LEGAL_RISK_CONSULTANT: "{{NATION}} legal risk consultant"
+      LEGAL_EDITOR: "{{NATION}} legal editor"
+      LEGAL_REVIEWER: "senior {{NATION}} legal reviewer"
+      LAW_SYSTEM: "{{NATION}} law"
+      LAW_COMPLIANCE: "{{NATION}} law compliance"
+      CONTRACT_ACT_LIABILITY_SECTIONS: "applicable statutory provisions"
+      CONTRACT_ACT_REPUDIATION: "applicable anticipatory breach doctrine"
+      CONTRACT_ACT_MISREPRESENTATION: "applicable misrepresentation provisions"
+      CONTRACT_ACT_LAWFUL_OBJECT: "applicable principles of lawful consideration"
+      CONTRACT_ACT: "{{LAW_REF}}"
+      ARBITRATION_ACT: "ICC Arbitration Rules"
+      ARBITRATION_SEAT: "{{NATION}}"
+      COURT_SEAT: "{{NATION}}"
+      GOVERNING_LAW_STATEMENT: "Governing law — {{LAW_REF}}."
+      DISPUTE_RESOLUTION_CLAUSE: "Sub-clause 3: Courts — each Party submits to the exclusive jurisdiction of the courts of {{NATION}}."
+      IP_LAWS: "applicable IP laws"
+      MORAL_RIGHTS_REF: "applicable moral rights provisions"
+      DATA_PROTECTION_LAWS: "GDPR and applicable national data protection law"
+      DATA_PROTECTION_LAWS_ABBREV: "GDPR"
+      TAX_REF: "applicable VAT and taxes"
+      MSME_REF: "applicable small business regulations"
+
+  # ── India (also the fallback) ──────────────────────────────────────────────
+  - id: india
+    match: ["india", "mumbai", "delhi", "bangalore", "bengaluru", "maharashtra", "karnataka"]
+    markers:
+      DRAFTING_REGISTER: "formal Indian legal English (Indian Contract Act, 1872 conventions)"
+      COUNTRY: "India"
+      LEGAL_ANALYST_EXPERTISE: "Indian legal analyst with expertise in contract law, Indian Contract Act 1872, and Indian corporate law"
+      LEGAL_DRAFTSMAN: "Indian legal draftsman"
+      LEGAL_RISK_ANALYST: "Indian legal risk analyst"
+      LEGAL_RISK_CONSULTANT: "Indian legal risk consultant"
+      LEGAL_EDITOR: "Indian legal editor"
+      LEGAL_REVIEWER: "senior Indian legal reviewer"
+      LAW_SYSTEM: "Indian law"
+      LAW_COMPLIANCE: "Indian law compliance (Indian Contract Act 1872 and related statutes)"
+      CONTRACT_ACT_LIABILITY_SECTIONS: "Indian Contract Act 1872, Sections 73-74"
+      CONTRACT_ACT_REPUDIATION: "Indian Contract Act 1872, Section 39 (repudiation)"
+      CONTRACT_ACT_MISREPRESENTATION: "Indian Contract Act 1872 Section 18 (misrepresentation) and Section 17 (fraud)"
+      CONTRACT_ACT_LAWFUL_OBJECT: "Indian Contract Act 1872 Section 10 (lawful object)"
+      CONTRACT_ACT: "Indian Contract Act 1872"
+      ARBITRATION_ACT: "Arbitration and Conciliation Act 1996"
+      ARBITRATION_SEAT: "Mumbai, Maharashtra, India"
+      COURT_SEAT: "Mumbai, Maharashtra"
+      GOVERNING_LAW_STATEMENT: "Governing law — laws of India, Indian Contract Act 1872."
+      DISPUTE_RESOLUTION_CLAUSE: "Sub-clause 3: Arbitration — disputes shall be referred to arbitration under the Arbitration and Conciliation Act 1996, with a sole arbitrator and seat at Mumbai, Maharashtra, India."
+      IP_LAWS: "Copyright Act 1957 and Patents Act 1970"
+      MORAL_RIGHTS_REF: "moral rights (Copyright Act 1957)"
+      DATA_PROTECTION_LAWS: "Digital Personal Data Protection Act 2023 (DPDPA) and IT Act 2000"
+      DATA_PROTECTION_LAWS_ABBREV: "IT Act 2000 / DPDPA"
+      TAX_REF: "GST/taxes"
+      MSME_REF: "MSMED Act for MSMEs if applicable"

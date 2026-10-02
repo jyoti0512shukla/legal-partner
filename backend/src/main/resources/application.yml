@@ -104,6 +104,9 @@ legalpartner:
   # vLLM / OpenAI-compatible (when chat-provider=vllm)
   chat-api-url: ${LEGALPARTNER_CHAT_API_URL:}
   chat-api-model: ${LEGALPARTNER_CHAT_API_MODEL:mistralai/Mistral-7B-Instruct-v0.2}
+  # Bearer key for the OpenAI-compatible endpoint. Self-hosted vLLM ignores it; hosted
+  # providers (OpenRouter, DeepInfra, Together) require it — enables GPU-free model bake-offs.
+  chat-api-key: ${LEGALPARTNER_CHAT_API_KEY:no-op}
   # Google Gemini (when chat-provider=gemini)
   gemini-api-key: ${LEGALPARTNER_GEMINI_API_KEY:}
   gemini-model: ${LEGALPARTNER_GEMINI_MODEL:gemini-2.5-flash}
@@ -153,6 +156,20 @@ legalpartner:
     register-per-minute: ${LEGALPARTNER_RATE_LIMIT_REGISTER:3}        # per IP per minute
     reset-per-hour: ${LEGALPARTNER_RATE_LIMIT_RESET:3}                # per IP per hour
   draft:
+    max-concurrent: ${LEGALPARTNER_DRAFT_MAX_CONCURRENT:2}
+    qa:
+      max-retries: 2            # QA-driven regeneration attempts per LLM-drafted clause
+      subclause-overage: 2      # extra sub-clauses tolerated before truncation
+    fix:
+      max-block-retries: 3      # LLM attempts on BLOCK rule violations before deterministic fallback
+    coverage:
+      severity-weights: "CRITICAL=10,HIGH=5,MEDIUM=2,LOW=1"   # rule weights in the deal coverage score
+    # Review-rubric verification: every drafted clause is checked against the review
+    # questions it will face (same evaluator as review) and repaired once if it falls short.
+    verify:
+      enabled: ${LEGALPARTNER_DRAFT_VERIFY_ENABLED:true}
+      min-weight: 7             # only review questions at or above this weight
+      max-repairs: 1
     retrieval:
       candidate-count: 30
       top-k: 12
@@ -161,6 +178,13 @@ legalpartner:
   # ── LLM parameters (vLLM path) ────────────────────────────────────────────
   llm:
     timeout-seconds: 600
+    # How JSON schemas are sent: response_format (OpenAI standard; vLLM + hosted providers),
+    # structured_outputs (vLLM-native, v0.12+), or none (prompt-only). vLLM removed guided_json in v0.12.
+    structured-output-mode: ${LEGALPARTNER_LLM_STRUCTURED_OUTPUT_MODE:response_format}
+    # JSON merged into direct LLM request bodies, e.g. disable reasoning traces:
+    #   vLLM/Qwen:  {"chat_template_kwargs":{"enable_thinking":false}}
+    #   OpenRouter: {"reasoning":{"enabled":false}}
+    request-extras: ${LEGALPARTNER_LLM_REQUEST_EXTRAS:}
     stop-sequences: "[/INST],[INST],__PROCESSED_REQUEST__,__INSTRUCTION__,__RESPONSE__,__FOLLOW_UP_QUESTIONS__,__FORBIDDEN_ACTIONS,__CONFIRMATION_OF_UNDERSTANDING__,__BEGIN_PREMIUM_INSTRUCTIONS__,\\nCFR § ,\\nFAR § "
     chat:
       max-tokens: 4000
@@ -210,13 +234,23 @@ legalpartner:
     summarize-threshold-tokens: 800    # trigger rolling summarization when history > 800 tokens
     keep-verbatim-turns: 2             # verbatim turns to keep after summarization
     semantic-relevance-threshold: 0.35 # cosine similarity floor for including a past turn
+  upload:
+    allowed-extensions: ".pdf,.docx,.doc,.xlsx,.xls,.txt,.html,.htm,.rtf,.odt,.csv"
   chunking:
     target-size: 80
     max-size: 100
     min-size: 20
     overlap: 15
+  # Firm learning loop (docs/LEARNING_LOOP_ARCHITECTURE.md). Policy and tuning: config/learning.yml.
+  learning:
+    enabled: ${LEGALPARTNER_LEARNING_ENABLED:true}
+    mining:
+      cron: ${LEGALPARTNER_LEARNING_MINING_CRON:0 30 2 * * *}   # nightly firm-clause mining
+
   workflows:
     enabled: true
+    quality:
+      passing-score: 70         # heuristic step-quality threshold for workflow retries
   agent:
     max-concurrent: ${LEGALPARTNER_AGENT_MAX_CONCURRENT:3}
   mail:

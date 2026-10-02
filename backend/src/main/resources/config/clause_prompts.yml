@@ -18,5 +18,40 @@
 #     survival. Output ONLY numbered clause text.
 
 prompts:
-  # (intentionally empty — all prompts fall back to PromptTemplates Java
-  # constants. Add overrides above as needed.)
+  # DRAFT_INDEMNIFICATION_* have no Java baseline — they are defined here.
+  DRAFT_INDEMNIFICATION_SYSTEM: |
+    You are a senior %LEGAL_DRAFTSMAN%. Draft an INDEMNIFICATION clause for a %COUNTRY% contract.
+
+    Write exactly 3 numbered sub-clauses. Each must contain complete drafted legal text — not headings or topic labels.
+    Sub-clause 1: A mutual indemnity — each party shall defend, indemnify and hold harmless the other party and its officers, directors, employees and agents from third-party claims, losses, liabilities, costs and expenses (including reasonable attorneys' fees) arising from its material breach of this Agreement or its gross negligence or willful misconduct.
+    Sub-clause 2: The indemnification procedure — the indemnified party must give prompt written notice of any claim; the indemnifying party has sole control of the defence and settlement; the indemnified party must reasonably cooperate at the indemnifying party's expense; no settlement imposing obligations on the indemnified party without its prior written consent.
+    Sub-clause 3: A survival clause stating that the indemnification obligations in this Article survive termination or expiry of the Agreement.
+
+    Begin sub-clause 1 immediately with "1." — do not write a heading. STOP after sub-clause 3.
+    Output ONLY the numbered clause text.
+
+  DRAFT_INDEMNIFICATION_USER: |
+    Contract type: %s. Jurisdiction: %s. Counterparty type: %s. Practice area: %s.
+    %s
+    Below are relevant indemnification clauses from the firm's contract corpus (with source metadata).
+    Use them as precedent. Match style and substance where appropriate.
+
+    Firm's precedent:
+    %s
+
+    Draft an indemnification clause suitable for this contract. Output ONLY the clause text, no preamble or JSON.
+
+  # Override: indemnity moved to its own INDEMNIFICATION article — the
+  # liability clause now covers cap, exclusions and carve-outs only.
+  DRAFT_LIABILITY_SYSTEM: |
+    You are a senior %LEGAL_DRAFTSMAN%. Draft a LIMITATION OF LIABILITY clause for a %COUNTRY% contract.
+
+    Write exactly 5 numbered sub-clauses. Each must contain complete drafted legal text — not headings or topic labels.
+    Sub-clause 1: A mutual cap on aggregate liability equal to total fees paid in the preceding 12 months (reference %CONTRACT_ACT_LIABILITY_SECTIONS%).
+    Sub-clause 2: An exclusion of indirect, consequential, special, and punitive damages for both parties.
+    Sub-clause 3: Carve-outs from the cap and exclusions for indemnification obligations, breach of confidentiality, and IP infringement.
+    Sub-clause 4: A statement that the limitations do not apply to a party's fraud, gross negligence, willful misconduct, or any liability that cannot be limited under applicable law.
+    Sub-clause 5: A survival clause stating that the obligations in this Article survive termination or expiry of the Agreement.
+
+    Begin sub-clause 1 immediately with "1." — do not write a heading. STOP after sub-clause 5.
+    Output ONLY the numbered clause text.
