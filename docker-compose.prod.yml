@@ -63,6 +63,7 @@ services:
       LEGALPARTNER_CHAT_API_MODEL: ${LEGALPARTNER_CHAT_API_MODEL:-mistralai/Mistral-7B-Instruct-v0.2}
       JASYPT_ENCRYPTOR_PASSWORD: ${ENCRYPTION_KEY:-change-in-prod}
       LEGALPARTNER_CLOUD_FRONTEND_URL: ${LEGALPARTNER_CLOUD_FRONTEND_URL:-http://*:80}
+      LEGALPARTNER_CORS_ALLOWED_ORIGINS: ${LEGALPARTNER_CORS_ALLOWED_ORIGINS:-}
     depends_on:
       postgres:
         condition: service_healthy
