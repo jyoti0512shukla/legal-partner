@@ -73,7 +73,8 @@ public class SecurityConfig {
                         // without JWT context — permit them so SSE streams don't get Access Denied
                         .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/actuator/**").permitAll()
-                        .requestMatchers("/api/v1/auth/register").permitAll()
+                        .requestMatchers("/api/v1/auth/register").permitAll()   // refused unless self-registration is enabled
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/config").permitAll()
                         .requestMatchers("/api/v1/auth/login").permitAll()
                         .requestMatchers("/api/v1/auth/mfa/send-email-otp").permitAll()
                         .requestMatchers("/api/v1/auth/mfa/validate").permitAll()

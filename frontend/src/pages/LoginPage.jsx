@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { login } from '../api/auth';
+import { login, getAuthConfig } from '../api/auth';
 import { Scale, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
+  const [signupEnabled, setSignupEnabled] = useState(false);
+  useEffect(() => { getAuthConfig().then(c => setSignupEnabled(c.selfRegistrationEnabled)); }, []);
   const { refetch } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -163,7 +165,9 @@ export default function LoginPage() {
           <Link to="/forgot-password" className="block text-center text-sm text-text-muted hover:text-primary mt-2">Forgot password?</Link>
         </form>
         <p className="mt-4 text-center text-sm text-text-muted">
-          Don&apos;t have an account? <Link to="/signup" className="text-primary hover:underline">Sign up</Link>
+          {signupEnabled
+            ? <>Don&apos;t have an account? <Link to="/signup" className="text-primary hover:underline">Sign up</Link></>
+            : <>New here? Ask your firm&apos;s administrator for an invite.</>}
         </p>
       </div>
     </div>

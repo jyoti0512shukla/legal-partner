@@ -63,6 +63,12 @@ public class AuthController {
 
     // ── Endpoints ─────────────────────────────────────────────────────────────
 
+    /** Public, unauthenticated: what the login screen may offer (no secrets). */
+    @GetMapping("/config")
+    public java.util.Map<String, Object> publicConfig() {
+        return java.util.Map.of("selfRegistrationEnabled", authService.isSelfRegistrationEnabled());
+    }
+
     @PostMapping("/register")
     public AuthResponse register(@Valid @RequestBody RegisterRequest request,
                                  HttpServletRequest httpRequest,

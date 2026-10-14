@@ -38,8 +38,25 @@ public class AuthService {
     private final ApplicationEventPublisher eventPublisher;
     private final MfaService mfaService;
 
+    /**
+     * Public sign-up. Off by default: a deployment belongs to one firm, and anyone who signs up
+     * can read the firm's (non-confidential) documents, so users join through admin invites.
+     * Turn on only for open demo/test instances (LEGALPARTNER_SELF_REGISTRATION_ENABLED=true).
+     */
+    @org.springframework.beans.factory.annotation.Value("${legalpartner.auth.self-registration-enabled:false}")
+    private boolean selfRegistrationEnabled;
+
+    public boolean isSelfRegistrationEnabled() {
+        return selfRegistrationEnabled;
+    }
+
     @Transactional
     public AuthResponse register(RegisterRequest request, String ipAddress) {
+        if (!selfRegistrationEnabled) {
+            publishAuthEvent(request.getEmail(), "ROLE_ASSOCIATE", AuditActionType.LOGIN_FAILED, false,
+                    "Self-registration is disabled", ipAddress);
+            throw new SecurityException("Self-registration is disabled. Ask your firm's administrator for an invite.");
+        }
         if (userRepository.existsByEmail(request.getEmail())) {
             publishAuthEvent(request.getEmail(), "ROLE_ASSOCIATE", AuditActionType.LOGIN_FAILED, false, "Email already registered", ipAddress);
             throw new IllegalArgumentException("Email already registered");

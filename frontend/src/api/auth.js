@@ -1,5 +1,15 @@
 import apiClient from './client';
 
+/** Public login-screen settings; treats any failure as "sign-up off" (fail closed). */
+export async function getAuthConfig() {
+  try {
+    const { data } = await apiClient.get('/auth/config');
+    return { selfRegistrationEnabled: !!data?.selfRegistrationEnabled };
+  } catch {
+    return { selfRegistrationEnabled: false };
+  }
+}
+
 export async function register(email, password, displayName) {
   const { data } = await apiClient.post('/auth/register', { email, password, displayName });
   return data;
