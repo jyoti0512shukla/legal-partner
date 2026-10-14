@@ -53,3 +53,7 @@ __pycache__/
 *.pyc
 # archify visual-check artifacts (regenerate with `archify visual-check`)
 docs/architecture/*.visual-check.*
+
+# Database dumps from `lp backup` and local GPU pod state — never commit
+deploy/customers/*/*.sql.gz
+deploy/.gpu-state

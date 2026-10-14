@@ -38,14 +38,10 @@ public class SecurityConfig {
     }
 
     @Bean
-    public CorsConfigurationSource corsConfigurationSource(
-            @Value("${legalpartner.cloud.frontend-url:http://localhost:5173}") String frontendUrl) {
-        // Reject wildcard origins — must be explicit domain
-        if (frontendUrl.contains("*")) {
-            throw new IllegalArgumentException("CORS frontend URL must not contain wildcards: " + frontendUrl);
-        }
+    public CorsConfigurationSource corsConfigurationSource(CorsOrigins corsOrigins) {
+        // Exact origins only (see CorsOrigins); wildcards are rejected at startup.
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of(frontendUrl, "http://localhost:5173"));
+        config.setAllowedOrigins(corsOrigins.origins());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
         config.setAllowCredentials(true);
