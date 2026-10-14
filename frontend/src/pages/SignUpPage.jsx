@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { register } from '../api/auth';
+import { register, getAuthConfig } from '../api/auth';
 import { Scale, AlertCircle } from 'lucide-react';
 
 export default function SignUpPage() {
+  const [signupEnabled, setSignupEnabled] = useState(null); // null = checking
+  useEffect(() => { getAuthConfig().then(c => setSignupEnabled(c.selfRegistrationEnabled)); }, []);
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
@@ -37,6 +39,17 @@ export default function SignUpPage() {
           <h1 className="text-2xl font-bold text-text-primary">Create Account</h1>
           <p className="text-text-muted text-sm mt-1">Sign up for ContractIQ</p>
         </div>
+        {signupEnabled === false ? (
+          <div className="text-center space-y-4" role="status">
+            <p className="text-sm text-text-secondary">
+              Accounts are created by invitation. Ask your firm&apos;s administrator to invite you from
+              Settings → Users; the invite email lets you set your password.
+            </p>
+            <Link to="/" className="btn-primary inline-block">Back to sign in</Link>
+          </div>
+        ) : signupEnabled === null ? (
+          <p className="text-center text-sm text-text-muted" role="status">Loading…</p>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
             type="email"
@@ -69,6 +82,7 @@ export default function SignUpPage() {
           )}
           <button type="submit" className="btn-primary w-full">Sign Up</button>
         </form>
+        )}
         <p className="mt-4 text-center text-sm text-text-muted">
           Already have an account? <Link to="/" className="text-primary hover:underline">Sign in</Link>
         </p>

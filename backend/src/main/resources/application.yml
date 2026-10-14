@@ -241,6 +241,10 @@ legalpartner:
     max-size: 100
     min-size: 20
     overlap: 15
+  auth:
+    # Public sign-up. Off by default: users join a firm's deployment through admin invites.
+    self-registration-enabled: ${LEGALPARTNER_SELF_REGISTRATION_ENABLED:false}
+
   # Browser origins allowed to call the API (comma-separated exact origins, no wildcards).
   # Empty = the cloud frontend URL only. Use for a second address, e.g. while DNS is set up.
   cors:
